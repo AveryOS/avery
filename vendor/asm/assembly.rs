@@ -4,7 +4,6 @@
  
 extern crate rustc;
 extern crate syntax;
-extern crate debug;
  
 use std::collections::HashMap;
 use syntax::ptr::P;

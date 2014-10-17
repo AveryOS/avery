@@ -23,21 +23,21 @@ def assemble(build, source, objects)
 	objects << object_file
 end
 
-RUSTFLAGS = %w{-O -C no-stack-check -C relocation-model=static -C code-model=kernel -C no-redzone -Z no-landing-pads}
+RUSTFLAGS = %w{--opt-level 3 -C no-stack-check -C relocation-model=static -C code-model=kernel -C no-redzone -Z no-landing-pads}
 
 def rust_base(build, prefix, flags)
-	core = prefix + "/crates/libcore.rlib"
-	rlibc = prefix + "/crates/librlibc.rlib"
+	core = File.join(prefix, "crates/libcore.rlib")
+	rlibc = File.join(prefix, "crates/librlibc.rlib")
 
-	build.mkdirs(prefix + "/crates/.")
+	build.mkdirs(File.join(prefix, "crates/."))
 
 	build.execute 'rustc', *RUSTFLAGS, *flags, '--crate-type=rlib', 'vendor/rust/src/libcore/lib.rs', '-o', core
-	build.execute 'rustc', '-L', prefix + "/crates", *RUSTFLAGS, *flags,  '--crate-type=rlib', 'vendor/rust/src/librlibc/lib.rs', '-o', rlibc
+	build.execute 'rustc', '-L', File.join(prefix, "crates"), *RUSTFLAGS, *flags,  '--crate-type=rlib', 'vendor/rust/src/librlibc/lib.rs', '-o', rlibc
 end
 
 def rust_crate(build, base_prefix, prefix, flags, src, src_flags)
-	build.mkdirs(prefix + "/.")
-	build.execute 'rustc', '-L', base_prefix + "/crates", '-L', 'build/phase', *RUSTFLAGS, *flags, src,  '--out-dir', prefix, *src_flags
+	build.mkdirs(File.join(prefix, "."))
+	build.execute 'rustc', '-C', 'lto', '-L', File.join(base_prefix, "crates"), '-L', 'build/phase', *RUSTFLAGS, *flags, src,  '--out-dir', prefix, *src_flags
 end
 
 kernel_object_bootstrap = "build/bootstrap.o"
@@ -119,8 +119,15 @@ task :base do
 		asm = build.output("bootstrap/bootstrap.s")
 
 		File.open(asm, 'r+') do |file|
-			content = file.read
+			content = file.read.lines.map do |l|
+				if l.strip =~ /^.cfi.*/
+					""
+				else
+					l
+				end
+			end.join
 			file.pos = 0
+			file.truncate 0
 			file.write ".code32\n"
 			file.write content
 		end

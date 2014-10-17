@@ -1,8 +1,9 @@
 #![no_std]
 #![no_builtins]
+#![no_main]
 #![allow(ctypes)]
-#![crate_type = "rlib"]
-#![feature(asm, globs, phase)]
+#![crate_type = "bin"]
+#![feature(asm, globs, lang_items, phase)]
 #[phase(plugin)] extern crate assembly;
 
 extern crate core;
@@ -11,6 +12,17 @@ use core::prelude::*;
 use core::mem::{size_of, size_of_val, uninitialized};
 
 use multiboot::*;
+
+#[lang = "begin_unwind"]
+extern fn begin_unwind(args: &core::fmt::Arguments,
+                       file: &str,
+                       line: uint) -> ! {
+    loop {}
+}
+
+#[lang = "stack_exhausted"] extern fn stack_exhausted() {}
+#[lang = "eh_personality"] extern fn eh_personality() {}
+#[lang = "fail_fmt"] fn fail_fmt() -> ! { loop {} }
 
 type Table = [u64, ..512];
 
@@ -177,39 +189,30 @@ pub unsafe extern fn setup_long_mode(multiboot: u32, magic: u32) {
         mov cr3, eax;
     }
     
-    // set the long mode bit and nx enable bit
     asm! {
+        // set the long mode bit and nx enable bit
         [0xC0000080u => %ecx, use eax, use edx]
 
         rdmsr;
         or eax, {1u << 8 => %i};
         wrmsr;
-    }
-    
-    // enable PAE
-    asm! {
-        [use eax]
 
+        // enable PAE
         mov eax, cr4;
         or eax, {1u << 5 => %i};
         mov cr4, eax;
-    }
-    
-    // enable paging
-    asm! {
-        [use eax]
 
+        // enable paging
         mov eax, cr0;
         or eax, {1u << 31 => %i};
         mov cr0, eax;
-
     }
     
     // do a far jump into long mode, pass multiboot information in %ecx
     asm! {
         [multiboot => %ecx, mod attsyntax]
 
-        ljmp $bootstrap.64, {size_of::<Descriptor>() => %i} 
+        ljmp {size_of::<Descriptor>() => %i}, $bootstrap.64
     }
 
     halt();

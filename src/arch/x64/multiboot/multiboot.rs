@@ -6,7 +6,7 @@ pub const MAGIC: u32 = 0x2BADB002;
 
 pub const HEADER_MAGIC: u32 = 0x1BADB002;
 
-#[repr(C)]
+#[repr(packed)]
 pub struct Header {
     pub magic: u32,
     pub flags: u32,

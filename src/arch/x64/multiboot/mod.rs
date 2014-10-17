@@ -1,8 +1,9 @@
+use core::prelude::*;
 
 fn halt() -> ! {
     loop {
         unsafe {
-            asm!("hlt"::::"volatile");
+            asm! { hlt }
         }
     }
 }
