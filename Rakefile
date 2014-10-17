@@ -2,7 +2,11 @@
 require 'lokar'
 require_relative 'rake/build'
 
-ENV['PATH'] += ";#{File.expand_path('../bin', __FILE__)}" if Gem.win_platform?
+if Gem.win_platform?
+	ENV['PATH'] += ";#{File.expand_path('../bin', __FILE__)}"
+else
+	ENV['PATH'] += ";#{File.expand_path('../vendor/binutils/install/bin', __FILE__)}"
+end
 
 QEMU = "#{'qemu/' if Gem.win_platform?}qemu-system-x86_64"
 AS = 'x86_64-elf-as'
@@ -23,7 +27,7 @@ def assemble(build, source, objects)
 	objects << object_file
 end
 
-RUSTFLAGS = %w{--opt-level 3 -C no-stack-check -C relocation-model=static -C code-model=kernel -C no-redzone -Z no-landing-pads}
+RUSTFLAGS = ['--sysroot', File.expand_path('../build/sysroot', __FILE__)] + %w{--opt-level 3 -C no-stack-check -C relocation-model=static -C code-model=kernel -C no-redzone -Z no-landing-pads}
 
 def rust_base(build, prefix, flags)
 	core = File.join(prefix, "crates/libcore.rlib")
