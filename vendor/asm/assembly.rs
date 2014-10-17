@@ -11,6 +11,7 @@ use syntax::ptr::P;
 use syntax::ast;
 use syntax::ast::{TokenTree, Expr};
 use syntax::codemap;
+use syntax::codemap::Pos;
 use syntax::ext::base::{ExtCtxt, MacResult, MacExpr};
 use rustc::plugin::Registry; 
 use syntax::parse::parser::Parser;
@@ -223,6 +224,48 @@ enum OutputType {
     OutputBinding(uint)
 }
 
+fn search(fb: &codemap::FileMapAndBytePos, test: |pos: uint| -> bool, offset: uint) -> Option<u8> {
+    let mut p = fb.pos.to_uint();
+
+    loop {
+        if test(p) {
+            return None;
+        }
+
+        p = p + offset;
+
+        let c = fb.fm.src.as_bytes()[p];
+
+        if (c & 0xC0) != 0x80 {
+            return Some(c)
+        }
+    }
+}
+
+fn is_whitespace(c: Option<u8>) -> bool {
+    match c {
+        Some(c) => {
+            match c as char {
+                '\t' | ' ' | '\n' | '\r' => true,
+                _ => false
+            }
+        }
+        None => true
+    }
+}
+
+fn is_whitespace_left(cx: &ExtCtxt, sp: codemap::Span) -> bool {
+    let cm = &cx.parse_sess.span_diagnostic.cm;
+    let fb = cm.lookup_byte_offset(sp.lo);
+    is_whitespace(search(&fb, |p| { p == 0 }, -1))
+}
+
+fn is_whitespace_right(cx: &ExtCtxt, sp: codemap::Span) -> bool {
+    let cm = &cx.parse_sess.span_diagnostic.cm;
+    let fb = cm.lookup_byte_offset(sp.hi);
+    is_whitespace(search(&fb, |p| { p >= fb.fm.src.len() - 1 }, 1))
+}
+
 fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree]) -> Box<MacResult + 'cx> {
     // Fall back to the old syntax if we start with a string
     if tts.len() > 0 {
@@ -252,26 +295,48 @@ fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree]) 
 
     let mut out = vec!(OutputStr("\t".to_string()));
 
+    let whitespace_wrap = |out: &mut Vec<OutputType>, sp, act: |&mut Vec<OutputType>| -> ()| {
+        if is_whitespace_left(cx, sp) {
+            out.push(OutputStr(" ".to_string()));
+        }
+        act(out);
+        if is_whitespace_right(cx, sp) {
+            out.push(OutputStr(" ".to_string()));
+        }
+    };
+
     loop {
         //println!("Token!{:?}!", p.token);
     
         match p.token {
             token::LBRACE => {
+                    if is_whitespace_left(cx, p.span) {
+                        out.push(OutputStr(" ".to_string()));
+                    }
+
                     p.bump();
                     out.push(OutputBinding(parse_binding(&mut p, &mut data)));
+
+                    if is_whitespace_right(cx, p.span) {
+                        out.push(OutputStr(" ".to_string()));
+                    }
                     p.expect(&token::RBRACE);
             }
             token::IDENT(_, _) => {
-                if let Some(idx) = data.idents.find(&token::to_string(&p.token)) {
-                    out.push(OutputBinding(*idx));
-                    p.bump();
-                } else {
-                    out.push(OutputStr(" ".to_string() + token::to_string(&p.token)));
-                    p.bump();
-                }
+                whitespace_wrap(&mut out, p.span, |out| {
+                    if let Some(idx) = data.idents.find(&token::to_string(&p.token)) {
+                        out.push(OutputBinding(*idx));
+                        p.bump();
+                    } else {
+                        out.push(OutputStr(token::to_string(&p.token)));
+                        p.bump();
+                    }
+                });
             }
             token::DOLLAR => {
-                out.push(OutputStr(" $$".to_string()));
+                whitespace_wrap(&mut out, p.span, |out| {
+                    out.push(OutputStr("$$".to_string()));
+                });
                 p.bump();
             }
             token::SEMI => {
@@ -283,7 +348,9 @@ fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree]) 
             }
             token::EOF => break,
             _ => {
-                out.push(OutputStr(" ".to_string() + token::to_string(&p.token)));
+                whitespace_wrap(&mut out, p.span, |out| {
+                    out.push(OutputStr(token::to_string(&p.token)));
+                });
                 p.bump();
             }
         }

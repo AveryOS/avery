@@ -207,9 +207,9 @@ pub unsafe extern fn setup_long_mode(multiboot: u32, magic: u32) {
     
     // do a far jump into long mode, pass multiboot information in %ecx
     asm! {
-        [multiboot => %ecx]
+        [multiboot => %ecx, mod attsyntax]
 
-        jmp {size_of::<Descriptor>() => %i}:bootstrap
+        ljmp $bootstrap.64, {size_of::<Descriptor>() => %i} 
     }
 
     halt();

@@ -116,7 +116,7 @@ task :base do
 
 		rust_crate(build, build.output("bootstrap"), build.output("bootstrap"), %w{--target i686-unknown-linux-gnu}, 'src/arch/x64/multiboot/bootstrap.rs', ['--emit=asm,ir'])
 
-		asm = build.output("bootstrap.s")
+		asm = build.output("bootstrap/bootstrap.s")
 
 		File.open(asm, 'r+') do |file|
 			content = file.read
