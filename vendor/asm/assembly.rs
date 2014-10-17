@@ -270,6 +270,10 @@ fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree]) 
                     p.bump();
                 }
             }
+            token::DOLLAR => {
+                out.push(OutputStr(" $$".to_string()));
+                p.bump();
+            }
             token::SEMI => {
                 out.push(OutputStr("\n\t".to_string()));
                 p.bump();
