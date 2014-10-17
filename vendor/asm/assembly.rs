@@ -262,7 +262,8 @@ fn is_whitespace_left(cx: &ExtCtxt, sp: codemap::Span) -> bool {
 
 fn is_whitespace_right(cx: &ExtCtxt, sp: codemap::Span) -> bool {
     let cm = &cx.parse_sess.span_diagnostic.cm;
-    let fb = cm.lookup_byte_offset(sp.hi);
+    let mut fb = cm.lookup_byte_offset(sp.hi);
+    fb.pos = codemap::Pos::from_uint(fb.pos.to_uint() - 1);
     is_whitespace(search(&fb, |p| { p >= fb.fm.src.len() - 1 }, 1))
 }
 
@@ -306,7 +307,9 @@ fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree]) 
     };
 
     loop {
-        //println!("Token!{:?}!", p.token);
+        /*println!("Token-left {}", is_whitespace_left(cx, p.span));
+        println!("Token-right {}", is_whitespace_right(cx, p.span));
+        println!("Token  {}\nspan |{}|",p.token, cx.parse_sess.span_diagnostic.cm.span_to_snippet(p.span).unwrap());*/
     
         match p.token {
             token::LBRACE => {
