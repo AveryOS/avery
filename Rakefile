@@ -117,7 +117,7 @@ task :base do
 		rust_base(build, build.output(""), %w{--target x86_64-unknown-linux-gnu})
 		rust_base(build, build.output("bootstrap"), %w{--target i686-unknown-linux-gnu})
 
-		rust_crate(build, build.output("bootstrap"), build.output("bootstrap"), %w{--target i686-unknown-linux-gnu}, 'src/arch/x64/multiboot/bootstrap.rs', ['--emit=asm,ir'])
+		rust_crate(build, build.output("bootstrap"), build.output("bootstrap"), %w{--target i686-unknown-linux-gnu}, 'src/arch/x64/multiboot/bootstrap.rs', ['--emit=asm,ir']) #, '-C', 'llvm-args=-x86-asm-syntax=intel'
 
 		asm = build.output("bootstrap/bootstrap.s")
 

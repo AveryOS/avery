@@ -173,7 +173,7 @@ pub unsafe extern fn setup_long_mode(multiboot: u32, magic: u32) {
     
     // load the 64-bit GDT
     asm! {
-        lgdt {GDT64_POINTER => %m};
+        lgdt {&GDT64_POINTER => %*m};
     }
     
     // load PML4T into CR3

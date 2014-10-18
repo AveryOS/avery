@@ -39,6 +39,7 @@ enum BindingIdx {
 
 struct Constraint {
     name: String,
+    indirect: bool,
     early_clobber: bool
 }
 
@@ -59,11 +60,15 @@ struct Data {
 }
 
 fn format_c(c: &Constraint, input: bool) -> token::InternedString {
-    let base = if c.name.len() > 1 {
+    let mut base = if c.name.len() > 1 {
         format!("{{{}}}", c.name)
     } else {
         c.name.clone()
     };
+
+    if c.indirect {
+        base = "*".to_string() + base;
+    }
 
     let result = if input {
         base
@@ -105,7 +110,8 @@ fn get_ident(p: &mut Parser) -> String {
 fn parse_c(p: &mut Parser) -> Constraint {
     if p.eat(&token::BINOP(token::PERCENT)) {
         let early_clobber = p.eat(&token::BINOP(token::AND));
-        Constraint { name: get_ident(p), early_clobber: early_clobber }
+        let indirect = p.eat(&token::BINOP(token::STAR));
+        Constraint { name: get_ident(p), indirect: indirect, early_clobber: early_clobber }
     } else {
         p.expect(&token::BINOP(token::PERCENT));
         unreachable!()
