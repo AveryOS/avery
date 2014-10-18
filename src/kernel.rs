@@ -8,10 +8,11 @@ extern crate core;
 extern crate rlibc;
 
 use core::prelude::*;
-use core::mem;
 
 #[path = "arch/x64/mod.rs"]
 pub mod arch;
+
+mod console;
 
 #[lang = "begin_unwind"]
 extern fn begin_unwind(args: &core::fmt::Arguments,
