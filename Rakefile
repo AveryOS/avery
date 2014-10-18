@@ -27,21 +27,20 @@ def assemble(build, source, objects)
 	objects << object_file
 end
 
-RUSTFLAGS = ['--sysroot', File.expand_path('../build/sysroot', __FILE__)] + %w{--opt-level 3 -C no-stack-check -C relocation-model=static -C code-model=kernel -C no-redzone -Z no-landing-pads}
+RUSTFLAGS = (Gem.win_platform? ? [] : ['--sysroot', File.expand_path('../build/dummy', __FILE__)]) + %w{--opt-level 3 -C no-stack-check -C relocation-model=static -C code-model=kernel -C no-redzone -Z no-landing-pads}
 
 def rust_base(build, prefix, flags)
-	core = File.join(prefix, "crates/libcore.rlib")
-	rlibc = File.join(prefix, "crates/librlibc.rlib")
+	crates = File.join(prefix, "crates")
 
-	build.mkdirs(File.join(prefix, "crates/."))
+	build.mkdirs(File.join(crates, "."))
 
-	build.execute 'rustc', *RUSTFLAGS, *flags, '--crate-type=rlib', 'vendor/rust/src/libcore/lib.rs', '-o', core
-	build.execute 'rustc', '-L', File.join(prefix, "crates"), *RUSTFLAGS, *flags,  '--crate-type=rlib', 'vendor/rust/src/librlibc/lib.rs', '-o', rlibc
+	build.execute 'rustc', *RUSTFLAGS, *flags, 'vendor/rust/src/libcore/lib.rs', '--out-dir', crates
+	build.execute 'rustc', '-L', File.join(prefix, "crates"), *RUSTFLAGS, *flags,  'vendor/rust/src/librlibc/lib.rs', '--out-dir', crates
 end
 
 def rust_crate(build, base_prefix, prefix, flags, src, src_flags)
 	build.mkdirs(File.join(prefix, "."))
-	build.execute 'rustc', '-C', 'lto', '-L', File.join(base_prefix, "crates"), '-L', 'build/phase', *RUSTFLAGS, *flags, src,  '--out-dir', prefix, *src_flags
+	build.execute 'rustc', '-C', 'target-feature=-mmx,-sse,-sse2', '-C', 'lto', '-L', File.join(base_prefix, "crates"), '-L', 'build/phase', *RUSTFLAGS, *flags, src,  '--out-dir', prefix, *src_flags
 end
 
 kernel_object_bootstrap = "build/bootstrap.o"

@@ -1,12 +1,12 @@
 #![no_std]
-#![no_builtins]
 #![no_main]
 #![allow(ctypes)]
-#![crate_type = "bin"]
+#![crate_type = "staticlib"]
 #![feature(asm, globs, lang_items, phase)]
 #[phase(plugin)] extern crate assembly;
 
 extern crate core;
+extern crate rlibc;
 
 use core::prelude::*;
 use core::mem::{size_of, size_of_val, uninitialized};

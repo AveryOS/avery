@@ -5,6 +5,7 @@
 #[phase(plugin)] extern crate assembly;
 
 extern crate core;
+extern crate rlibc;
 
 use core::prelude::*;
 use core::mem;
