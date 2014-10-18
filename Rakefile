@@ -136,6 +136,7 @@ task :base do
 		end
 
 		build.execute AS, asm, '-o', kernel_object_bootstrap
+		build.execute 'x86_64-elf-objcopy', '-G', 'setup_long_mode', kernel_object_bootstrap
 	end
 end
 

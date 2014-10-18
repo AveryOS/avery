@@ -73,9 +73,3 @@ bootstrap.64:
 loop.64:
 	hlt
 	jmp loop.64
-
-.section .multiboot, "a"
-.align 4
-.int 0x1BADB002
-.int 0x3
-.int -(0x1BADB002 + 0x3)

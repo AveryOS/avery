@@ -1,5 +1,4 @@
 #![no_std]
-#![no_main]
 #![allow(ctypes)]
 #![crate_type = "staticlib"]
 #![feature(asm, globs, lang_items, phase)]
@@ -13,16 +12,10 @@ use core::mem::{size_of, size_of_val, uninitialized};
 
 use multiboot::*;
 
-#[lang = "begin_unwind"]
-extern fn begin_unwind(args: &core::fmt::Arguments,
-                       file: &str,
-                       line: uint) -> ! {
-    loop {}
-}
-
-#[lang = "stack_exhausted"] extern fn stack_exhausted() {}
-#[lang = "eh_personality"] extern fn eh_personality() {}
-#[lang = "fail_fmt"] fn fail_fmt() -> ! { loop {} }
+#[lang = "begin_unwind"] fn begin_unwind() {}
+#[lang = "stack_exhausted"] fn stack_exhausted() {}
+#[lang = "eh_personality"] fn eh_personality() {}
+#[lang = "fail_fmt"] fn fail_fmt() {}
 
 type Table = [u64, ..512];
 
@@ -50,6 +43,7 @@ extern {
 }
 
 #[repr(packed)]
+#[allow(dead_code)]
 struct Descriptor
 {
     limit_low: u16,
