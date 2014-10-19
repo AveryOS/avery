@@ -5,7 +5,7 @@ require_relative 'rake/build'
 if Gem.win_platform?
 	ENV['PATH'] += ";#{File.expand_path('../bin', __FILE__)}"
 else
-	ENV['PATH'] += ";#{File.expand_path('../vendor/binutils/install/bin', __FILE__)}"
+	ENV['PATH'] += ":#{File.expand_path('../vendor/binutils/install/bin', __FILE__)}"
 end
 
 QEMU = "#{'qemu/' if Gem.win_platform?}qemu-system-x86_64"
