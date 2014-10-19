@@ -115,6 +115,9 @@ task :base do
 		build.execute 'rustc', '-O', '--out-dir', "build/phase", "vendor/asm/assembly.rs"
 
 		rust_base(build, build.output(""), %w{--target x86_64-unknown-linux-gnu})
+
+		build.execute 'rustc', '-L', 'build/crates', *RUSTFLAGS, '--target', 'x86_64-unknown-linux-gnu', 'src/std/lib.rs', '--out-dir', 'build/crates'
+
 		rust_base(build, build.output("bootstrap"), %w{--target i686-unknown-linux-gnu})
 
 		rust_crate(build, build.output("bootstrap"), build.output("bootstrap"), %w{--target i686-unknown-linux-gnu}, 'src/arch/x64/multiboot/bootstrap.rs', ['--emit=asm,ir']) #, '-C', 'llvm-args=-x86-asm-syntax=intel'

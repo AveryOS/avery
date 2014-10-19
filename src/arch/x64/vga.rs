@@ -94,9 +94,3 @@ pub fn putc(c: char) {
 
 	}
 }
-
-pub fn print(str: &str) {
-	for c in str.chars() {
-		putc(c);
-	}
-}

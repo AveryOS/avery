@@ -4,15 +4,15 @@
 #![feature(globs, lang_items, phase, macro_rules, asm)]
 #[phase(plugin)] extern crate assembly;
 
-extern crate core;
+extern crate std;
+#[phase(plugin, link)] extern crate core;
 extern crate rlibc;
 
-use core::prelude::*;
+#[macro_escape]
+mod console;
 
 #[path = "arch/x64/mod.rs"]
 pub mod arch;
-
-mod console;
 
 #[lang = "begin_unwind"]
 extern fn begin_unwind(args: &core::fmt::Arguments,
@@ -23,7 +23,7 @@ extern fn begin_unwind(args: &core::fmt::Arguments,
 
 #[lang = "stack_exhausted"] extern fn stack_exhausted() {}
 #[lang = "eh_personality"] extern fn eh_personality() {}
-#[lang = "fail_fmt"] fn fail_fmt() -> ! { loop {} }
+#[lang = "fail_fmt"] extern fn fail_fmt() -> ! { loop {} }
 
 #[no_mangle]
 pub extern fn ap_entry() {

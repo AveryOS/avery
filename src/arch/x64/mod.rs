@@ -1,12 +1,16 @@
-extern crate core;
-
-use core::prelude::*;
-
 #[cfg(multiboot)]
 pub mod multiboot;
 
 pub mod console {
-	pub use super::vga::{print, cls};
+	pub use super::vga::{cls, putc};
+}
+
+pub fn halt() -> ! {
+    loop {
+        unsafe {
+            asm! { hlt }
+        }
+    }
 }
 
 unsafe fn outb(port: u16, value: u8)
