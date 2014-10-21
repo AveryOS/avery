@@ -1,7 +1,95 @@
-use arch;
+use core;
+use params;
+use util::FixVec;
+
+mod multiboot;
 
 #[no_mangle]
-pub extern "C" fn boot_entry() {
-    arch::console::cls();
-    panic!("Long mode!");
+pub extern "C" fn boot_entry(info: &multiboot::Info) {
+    ::arch::console::cls();
+
+	if info.flags & multiboot::FLAG_MMAP == 0 {
+		panic!("Memory map not passed by Multiboot loader");
+	}
+
+	let mut params = params::Info {
+		ranges: FixVec::new(),
+		segments: FixVec::new()
+
+	};
+
+	extern {
+		static low_end: void;
+		static kernel_start: void;
+		static rodata_start: void;
+		static data_start: void;
+		static kernel_end: void;
+	}
+
+	fn setup_segment(params: &mut params::Info, kind: params::SegmentKind, virtual_start: &void, virtual_end: &void)
+	{
+		let base = offset(virtual_start) - offset(&kernel_start) + offset(&low_end);
+
+		println!("segment - {:x} - {:x}", base, (base + offset(virtual_end) - offset(virtual_start)));
+
+		params.segments.push(params::Segment {
+			kind: kind,
+			base: base as uphys,
+			end: (base + offset(virtual_end) - offset(virtual_start)) as uphys,
+			virtual_base: offset(virtual_end),
+			found: 0,
+			name: unsafe { core::mem::zeroed() }
+		});
+	}
+
+	setup_segment(&mut params, params::SegmentCode, &kernel_start, &rodata_start);
+	setup_segment(&mut params, params::SegmentReadOnlyData, &rodata_start, &data_start);
+	setup_segment(&mut params, params::SegmentData, &data_start, &kernel_end);
+
+	for i in range(0, info.mods_count) {
+		let module = unsafe { &*(info.mods_addr as *const multiboot::Module).offset(i as int) };
+
+		println!("module - {:x} - {:x}", module.start, module.end);
+
+		let segment = params::Segment {
+			kind: params::SegmentModule,
+			base: module.start as uphys,
+			end: module.end as uphys,
+			virtual_base: 0,
+			found: 0,
+			name: unsafe { core::mem::zeroed() }
+		};
+
+		params.segments.push(segment);
+/*
+		*/
+		/*
+		size_t name_size = sizeof(segment.name) - 1;
+
+		strncpy(segment.name, (char *)mod->name, name_size);
+
+		segment.name[name_size] = 0;*/
+	}
+
+	let mmap_end = (info.mmap_addr + info.mmap_length) as uptr;
+
+	let mut mmap = unsafe { &*(info.mmap_addr as *const multiboot::MemoryMap) };
+
+	println!("start {:x} end {:x}", info.mmap_addr, mmap_end);
+
+	while offset(mmap) < mmap_end {
+		if mmap.kind == 1 {
+			println!("mmap - {:x} - {:x}", mmap.base, mmap.base + mmap.size);
+	
+			params.ranges.push(params::Range {
+				kind: params::MemoryUsable,
+				base: mmap.base as uphys,
+				end: (mmap.base + mmap.size) as uphys,
+				next: core::ptr::null_mut()
+			});
+		}
+		mmap = unsafe { &*((offset(mmap) + mmap.struct_size as uptr + 4) as *const multiboot::MemoryMap) };
+	}
+
+	::kernel(&mut params);
 } 

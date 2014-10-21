@@ -2,13 +2,16 @@
 require 'lokar'
 require_relative 'rake/build'
 
+BINUTILS_PATH = File.expand_path(Gem.win_platform? ? '../bin' : '../vendor/binutils/install/bin', __FILE__)
+
 if Gem.win_platform?
-	ENV['PATH'] += ";#{File.expand_path('../bin', __FILE__)}"
+	ENV['PATH'] += ";#{BINUTILS_PATH}"
 else
-	ENV['PATH'] += ":#{File.expand_path('../vendor/binutils/install/bin', __FILE__)}"
+	ENV['PATH'] += ":#{BINUTILS_PATH}"
 end
 
 QEMU = "#{'qemu/' if Gem.win_platform?}qemu-system-x86_64"
+AR = 'x86_64-elf-ar'
 AS = 'x86_64-elf-as'
 LD = 'x86_64-elf-ld'
 
@@ -27,7 +30,8 @@ def assemble(build, source, objects)
 	objects << object_file
 end
 
-RUSTFLAGS = (Gem.win_platform? ? [] : ['--sysroot', File.expand_path('../build/dummy', __FILE__)]) + %w{--opt-level 3 -C no-stack-check -C relocation-model=static -C code-model=kernel -C no-redzone -Z no-landing-pads}
+RUSTFLAGS = ['-C', "ar=#{File.join(BINUTILS_PATH, AR)}", '--sysroot', File.expand_path('../build/sysroot', __FILE__)] +
+	%w{--opt-level 3 -C no-stack-check -C relocation-model=static -C code-model=kernel -C no-redzone -Z no-landing-pads}
 
 def rust_base(build, prefix, flags)
 	crates = File.join(prefix, "crates")
@@ -116,7 +120,11 @@ task :base do
 
 		rust_base(build, build.output(""), %w{--target x86_64-unknown-linux-gnu})
 
-		build.execute 'rustc', '-L', 'build/crates', *RUSTFLAGS, '--target', 'x86_64-unknown-linux-gnu', 'src/std/lib.rs', '--out-dir', 'build/crates'
+		lib_dir = build.output "sysroot/bin/rustlib/x86_64-unknown-linux-gnu/lib"
+
+		build.mkdirs(File.join(lib_dir, '.'))
+		build.execute 'rustc', '-L', 'build/crates', *RUSTFLAGS, '--target', 'x86_64-unknown-linux-gnu', 'src/std/std.rs', '--out-dir', lib_dir
+		build.execute 'rustc', '-L', 'build/crates', *RUSTFLAGS, '--target', 'x86_64-unknown-linux-gnu', 'src/std/native.rs', '--out-dir', lib_dir
 
 		rust_base(build, build.output("bootstrap"), %w{--target i686-unknown-linux-gnu})
 

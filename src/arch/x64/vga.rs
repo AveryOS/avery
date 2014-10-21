@@ -8,7 +8,7 @@ const SIZE_Y: int = 25;
 const MIN_X: int = 2;
 const MIN_Y: int = 1;
 const MAX_X: int = 78;
-const MAX_Y: int = 25;
+const MAX_Y: int = 24;
 
 const COLOR: u16 = (0 << 8) | (7 << 12);
 
@@ -19,7 +19,7 @@ unsafe fn update_cursor()
 {
 	use arch::outb;
 
-	let loc = y * 80 + x;
+	let loc = y * SIZE_X + x;
    
 	outb(0x3D4, 14);
 	outb(0x3D5, (loc >> 8) as u8);
@@ -29,7 +29,7 @@ unsafe fn update_cursor()
 
 pub fn scroll() {
 	unsafe {
-		for i in range(0, SIZE_X * (SIZE_Y - 1)) {
+		for i in range(SIZE_X, SIZE_X * (SIZE_Y - 1)) {
 			*VGA.offset(i) = *VGA.offset(i + SIZE_X);
 		}
 
@@ -56,7 +56,7 @@ pub fn cls() {
 pub fn newline() {
 	unsafe {
 		y += 1;
-		x = MIN_Y;
+		x = MIN_X;
 
 		if y >= MAX_Y {
 			scroll();
