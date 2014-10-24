@@ -2,6 +2,6 @@
 /build
 /bin
 /vendor/rust
-/vendor/binutils/src
-/vendor/binutils/build
-/vendor/binutils/install
+/vendor/binutils
+/vendor/mtools
+/vendor/install

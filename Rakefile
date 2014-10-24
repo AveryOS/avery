@@ -1,13 +1,23 @@
 ﻿require 'fileutils'
-require 'lokar'
 require_relative 'rake/build'
+require_relative 'rake/lokar'
 
-BINUTILS_PATH = File.expand_path(Gem.win_platform? ? '../bin' : '../vendor/binutils/install/bin', __FILE__)
+PREFIX = File.expand_path('../vendor/install/bin', __FILE__)
+
+def mkdirs(target)
+	FileUtils.makedirs(target)
+end
+
+def run(*cmd)
+	puts cmd.join(" ")
+	system([cmd.first, cmd.first], *cmd[1..-1])
+	raise "Command #{cmd.join(" ")} failed with error code #{$?}" if $? != 0
+end
 
 if Gem.win_platform?
-	ENV['PATH'] += ";#{BINUTILS_PATH}"
+	ENV['PATH'] += ";#{PREFIX}"
 else
-	ENV['PATH'] += ":#{BINUTILS_PATH}"
+	ENV['PATH'] += ":#{PREFIX}"
 end
 
 QEMU = "#{'qemu/' if Gem.win_platform?}qemu-system-x86_64"
@@ -24,27 +34,27 @@ end
 def assemble(build, source, objects)
 	object_file = source.output(".o")
 	build.process object_file, source.path do
-		build.execute AS, source.path, '-o', object_file
+		run AS, source.path, '-o', object_file
 	end
 	
 	objects << object_file
 end
 
-RUSTFLAGS = ['-C', "ar=#{File.join(BINUTILS_PATH, AR)}", '--sysroot', File.expand_path('../build/sysroot', __FILE__)] +
+RUSTFLAGS = ['-C', "ar=#{File.join(PREFIX, AR)}", '--sysroot', File.expand_path('../build/sysroot', __FILE__)] +
 	%w{--opt-level 3 -C no-stack-check -C relocation-model=static -C code-model=kernel -C no-redzone -Z no-landing-pads}
 
 def rust_base(build, prefix, flags)
 	crates = File.join(prefix, "crates")
 
-	build.mkdirs(File.join(crates, "."))
+	mkdirs(crates)
 
-	build.execute 'rustc', *RUSTFLAGS, *flags, 'vendor/rust/src/libcore/lib.rs', '--out-dir', crates
-	build.execute 'rustc', '-L', File.join(prefix, "crates"), *RUSTFLAGS, *flags,  'vendor/rust/src/librlibc/lib.rs', '--out-dir', crates
+	run 'rustc', *RUSTFLAGS, *flags, 'vendor/rust/src/libcore/lib.rs', '--out-dir', crates
+	run 'rustc', '-L', File.join(prefix, "crates"), *RUSTFLAGS, *flags,  'vendor/rust/src/librlibc/lib.rs', '--out-dir', crates
 end
 
 def rust_crate(build, base_prefix, prefix, flags, src, src_flags)
-	build.mkdirs(File.join(prefix, "."))
-	build.execute 'rustc', '-C', 'target-feature=-mmx,-sse,-sse2', '-C', 'lto', '-L', File.join(base_prefix, "crates"), '-L', 'build/phase', *RUSTFLAGS, *flags, src,  '--out-dir', prefix, *src_flags
+	mkdirs(prefix)
+	run 'rustc', '-C', 'target-feature=-mmx,-sse,-sse2', '-C', 'lto', '-L', File.join(base_prefix, "crates"), '-L', 'build/phase', *RUSTFLAGS, *flags, src,  '--out-dir', prefix, *src_flags
 end
 
 kernel_object_bootstrap = "build/bootstrap.o"
@@ -93,15 +103,13 @@ build_kernel = proc do
 			preprocess(i, kernel_linker_script, binding)
 		end
 		
-		#bitcode_link(build, kernel_object, build.output("#{type}/kernel_linked.bc"), bitcodes, ['-disable-red-zone', '-code-model=kernel'])
-
 		build.process kernel_binary, *objects, kernel_linker_script do
-			build.execute LD, '-z', 'max-page-size=0x1000', '-T', kernel_linker_script, *objects, '-o', kernel_binary
+			run LD, '-z', 'max-page-size=0x1000', '-T', kernel_linker_script, *objects, '-o', kernel_binary
 		end
 		
 		case type
 			when :multiboot
-				build.execute 'mcopy', '-D', 'o', '-D', 'O', '-i' ,'emu/grubdisk.img@@1M', kernel_binary, '::kernel.elf'
+				run 'mcopy', '-D', 'o', '-D', 'O', '-i' ,'emu/grubdisk.img@@1M', kernel_binary, '::kernel.elf'
 			when :boot
 				FileUtils.cp kernel_binary, "emu/hda/efi/boot"
 		end
@@ -115,16 +123,16 @@ end
 task :base do
 	build = Build.new('build', 'info.yml')
 	build.run do
-		build.mkdirs("build/phase/.")
-		build.execute 'rustc', '-O', '--out-dir', "build/phase", "vendor/asm/assembly.rs"
+		mkdirs("build/phase")
+		run 'rustc', '-O', '--out-dir', "build/phase", "vendor/asm/assembly.rs"
 
 		rust_base(build, build.output(""), %w{--target x86_64-unknown-linux-gnu})
 
 		lib_dir = build.output "sysroot/bin/rustlib/x86_64-unknown-linux-gnu/lib"
 
-		build.mkdirs(File.join(lib_dir, '.'))
-		build.execute 'rustc', '-L', 'build/crates', *RUSTFLAGS, '--target', 'x86_64-unknown-linux-gnu', 'src/std/std.rs', '--out-dir', lib_dir
-		build.execute 'rustc', '-L', 'build/crates', *RUSTFLAGS, '--target', 'x86_64-unknown-linux-gnu', 'src/std/native.rs', '--out-dir', lib_dir
+		mkdirs(lib_dir)
+		run 'rustc', '-L', 'build/crates', *RUSTFLAGS, '--target', 'x86_64-unknown-linux-gnu', 'src/std/std.rs', '--out-dir', lib_dir
+		run 'rustc', '-L', 'build/crates', *RUSTFLAGS, '--target', 'x86_64-unknown-linux-gnu', 'src/std/native.rs', '--out-dir', lib_dir
 
 		rust_base(build, build.output("bootstrap"), %w{--target i686-unknown-linux-gnu})
 
@@ -146,8 +154,8 @@ task :base do
 			file.write content
 		end
 
-		build.execute AS, asm, '-o', kernel_object_bootstrap
-		build.execute 'x86_64-elf-objcopy', '-G', 'setup_long_mode', kernel_object_bootstrap
+		run AS, asm, '-o', kernel_object_bootstrap
+		run 'x86_64-elf-objcopy', '-G', 'setup_long_mode', kernel_object_bootstrap
 	end
 end
 
@@ -164,14 +172,14 @@ end
 task :qemu => :build do
 	Dir.chdir('emu/') do
 		puts "Running QEMU..."
-		Build.execute QEMU, *%w{-L qemu\Bios -hda grubdisk.img -serial file:serial.txt -d int,cpu_reset -no-reboot -s -smp 4}
+		run QEMU, *%w{-L qemu\Bios -hda grubdisk.img -serial file:serial.txt -d int,cpu_reset -no-reboot -s -smp 4}
 	end
 end
 
 task :qemu_efi => :build_boot do
 	Dir.chdir('emu/') do
 		puts "Running QEMU..."
-		Build.execute QEMU, *%w{-L . -bios OVMF.fd -hda fat:hda -serial file:serial.txt -d int,cpu_reset -no-reboot -s -smp 4}
+		run QEMU, *%w{-L . -bios OVMF.fd -hda fat:hda -serial file:serial.txt -d int,cpu_reset -no-reboot -s -smp 4}
 	end
 end
 
@@ -179,7 +187,86 @@ task :bochs => :build do
 	
 	Dir.chdir('emu/') do
 		puts "Running Bochs..."
-		Build.execute 'bochs\bochs', '-q', '-f', 'avery.bxrc'
+		run 'bochs\bochs', '-q', '-f', 'avery.bxrc'
+	end
+end
+
+task :vendor do
+	download = proc do |url, name|
+	end
+
+	build = proc do |url, name, ver, ext = "bz2", &proc|
+		src = "#{name}-#{ver}"
+
+		mkdirs(name)
+		Dir.chdir(name) do
+			mkdirs("install")
+			prefix = File.realpath("install");
+
+			unless File.exists?("built")
+				tar = "#{src}.tar.#{ext}"
+				unless File.exists?(tar)
+					run 'wget', "#{url}#{tar}"
+				end
+
+				run 'rm', '-rf', src
+
+				uncompress = case ext
+					when "bz2"
+						"j"
+					when "xz"
+						"J"
+					when "gz"
+						"z"
+				end
+
+				run 'tar', "#{uncompress}xf", tar
+
+				run 'rm', '-rf', "build"
+				mkdirs("build")
+				Dir.chdir("build") do
+					proc.call(File.join("..", src), prefix)
+					run "make", "-j4"
+					run "make", "install"
+				end
+				#run 'rm', '-rf', "build"
+				run 'rm', '-rf', src
+				run 'touch', "built"
+			end
+
+			run 'cp', '-rf', 'install', ".."
+		end
+	end
+
+	Dir.chdir('vendor/') do
+		run 'rm', '-rf', "install"
+		mkdirs("install")
+
+		build.("ftp://ftp.gnu.org/gnu/binutils/", "binutils", "2.24") do |src, prefix|
+			run File.join(src, 'configure'), "--prefix=#{prefix}", *%w{--target=x86_64-elf --with-sysroot --disable-nls --disable-werror}
+		end
+
+		build.("ftp://ftp.gnu.org/gnu/libiconv/", "libiconv", "1.14", "gz") do |src, prefix|
+			run File.join(src, 'configure'), "--prefix=#{prefix}"
+		end if nil
+
+		build.("ftp://ftp.gnu.org/gnu/mtools/", "mtools", "4.0.18") do |src, prefix|
+			run 'cp', '-rf', "../../libiconv/install", ".."
+			run File.join(src, 'configure'), "--prefix=#{prefix}", "LIBS=-liconv"
+		end
+
+		build.("ftp://ftp.gnu.org/gnu/grub/", "grub", "2.00", "xz") do |src, prefix|
+			run 'cp', '-rf', "../../binutils/install", ".."
+			run File.join(src, 'configure'), "--prefix=#{prefix}", '--target=x86_64-elf', '--disable-nls'
+		end if nil
+
+		unless Dir.exists?("rust")
+			run "git", "clone" , "https://github.com/rust-lang/rust.git"
+		end
+
+		Dir.chdir('rust/') do
+			run *%w{git pull origin master}
+		end
 	end
 end
 
