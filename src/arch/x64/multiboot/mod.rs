@@ -26,7 +26,7 @@ pub extern "C" fn boot_entry(info: &multiboot::Info) {
 		static kernel_end: void;
 	}
 
-	fn setup_segment(params: &mut params::Info, kind: params::SegmentKind, virtual_start: &void, virtual_end: &void)
+	fn setup_segment(params: &mut params::Info, kind: params::SegmentKind, virtual_start: &'static void, virtual_end: &'static void)
 	{
 		let base = offset(virtual_start) - offset(&kernel_start) + offset(&low_end);
 

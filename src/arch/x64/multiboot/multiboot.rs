@@ -35,8 +35,7 @@ pub struct MemoryMap {
 }
 
 #[repr(packed)]
-pub struct Module
-{
+pub struct Module {
 	pub start: u32,
 	pub end: u32,
 	pub name: u32,

@@ -44,8 +44,7 @@ extern {
 
 #[repr(packed)]
 #[allow(dead_code)]
-struct Descriptor
-{
+struct Descriptor {
     limit_low: u16,
     base_low: u16,
     base_middle: u8,
@@ -68,9 +67,8 @@ struct GDT64Pointer {
 
 static mut GDT64_POINTER: GDT64Pointer = GDT64Pointer {limit: 0, base: 0};
 
-fn offset<T>(ptr: &T) -> u64
-{
-    return (ptr as *const T) as u64;
+fn offset<T>(ptr: &'static T) -> u64 {
+    ptr as *const T as u64
 }
 
 struct CPUIDResult {
@@ -80,8 +78,7 @@ struct CPUIDResult {
     edx: u32
 }
 
-unsafe fn cpuid(input: u32) -> CPUIDResult
-{
+unsafe fn cpuid(input: u32) -> CPUIDResult {
     let mut result: CPUIDResult = uninitialized();
 
     asm! {

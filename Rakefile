@@ -41,7 +41,7 @@ def assemble(build, source, objects)
 end
 
 RUSTFLAGS = ['-C', "ar=#{File.join(PREFIX, AR)}", '--sysroot', File.expand_path('../build/sysroot', __FILE__)] +
-	%w{--opt-level 3 -C no-stack-check -C relocation-model=static -C code-model=kernel -C no-redzone -Z no-landing-pads}
+	%w{--opt-level 0 -C no-stack-check -C relocation-model=static -C code-model=kernel -C no-redzone -Z no-landing-pads}
 
 def rust_base(build, prefix, flags)
 	crates = File.join(prefix, "crates")
@@ -69,13 +69,13 @@ build_kernel = proc do
 
 	sources = build.package('src/**/*')
 	
-	boot_files = sources.extract('src/arch/x64/boot/**/*')
+	efi_files = sources.extract('src/arch/x64/efi/**/*')
 	multiboot_files = sources.extract('src/arch/x64/multiboot/**/*')
 
 	if type == :multiboot
 		sources.add multiboot_files
 	else
-		sources.add boot_files
+		sources.add efi_files
 	end
 	
 	bitcodes = []
@@ -85,6 +85,17 @@ build_kernel = proc do
 	build.run do
 		rust_crate(build, "build", build.output("#{type}"), %w{--target x86_64-unknown-linux-gnu}, 'src/kernel.rs', ['--emit=obj,ir'] + (type == :multiboot ? ['--cfg', 'multiboot'] : []))
 	
+		interrupts_asm = 'src/arch/x64/interrupts.s'
+		interrupts_asm_out = build.output File.join("gen", interrupts_asm)
+
+		sources.extract(interrupts_asm)
+
+		build.process interrupts_asm_out, interrupts_asm do |o, i|
+			preprocess(interrupts_asm, interrupts_asm_out, binding)
+		end
+		
+		sources.add build.package(interrupts_asm_out)
+		
 		sources.each do |source|
 			case source.ext.downcase
 				when '.s'

@@ -68,3 +68,9 @@ macro_rules! fix_array_struct(
 		}
     )
 )
+
+macro_rules! offset_of(
+    ($t:ty, $f:ident) => (
+		&mut ((*(0u as *mut $t)).$f) as *mut _ as uptr
+    )
+)

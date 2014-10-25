@@ -18,10 +18,16 @@ mod params;
 #[path = "arch/x64/mod.rs"]
 pub mod arch;
 
+mod cpu;
+
 #[no_mangle]
 pub extern fn ap_entry() {
 } 
 
 fn kernel(info: &mut params::Info) {
+	unsafe {
+		arch::initialize_basic();
+	}
+
 	panic!("Bored");
 }

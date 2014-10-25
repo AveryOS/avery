@@ -12,6 +12,8 @@ pub use core::{fmt, slice};
 pub mod prelude {
     pub use core::prelude::*;
 
+    pub use core::mem::{size_of, size_of_val, uninitialized, transmute};
+
 	pub type uptr = uint;
 	pub type uphys = uint;
 
@@ -19,7 +21,7 @@ pub mod prelude {
 		dummy: u8
 	}
 
-	pub fn offset<T>(obj: &T) -> uptr {
-		obj as *const T as uptr
+	pub fn offset<T>(ptr: &'static T) -> uptr {
+	    ptr as *const T as uptr
 	}
 }
