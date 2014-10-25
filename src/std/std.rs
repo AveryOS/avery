@@ -6,13 +6,17 @@
 extern crate core;
 
 pub use core::ptr;
-pub use core::{fmt, slice};
+pub use core::{fmt, slice, num, cmp};
 
 #[allow(non_camel_case_types, dead_code)]
 pub mod prelude {
+	use core::num::One;
+
     pub use core::prelude::*;
 
+    pub use core::ptr::{null, null_mut};
     pub use core::mem::{size_of, size_of_val, uninitialized, transmute};
+
 
 	pub type uptr = uint;
 	pub type uphys = uint;
@@ -23,5 +27,17 @@ pub mod prelude {
 
 	pub fn offset<T>(ptr: &'static T) -> uptr {
 	    ptr as *const T as uptr
+	}
+
+
+	pub fn align_up<T: Int>(value: T, mut alignment: T) -> T
+	{
+		alignment = alignment - One::one();
+		(value + alignment) & !alignment
+	}
+
+	pub fn align_down<T: Int>(value: T, alignment: T) -> T
+	{
+		value & !(alignment - One::one())
 	}
 }

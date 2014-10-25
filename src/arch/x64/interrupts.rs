@@ -32,6 +32,7 @@ unsafe fn setup_pics() {
 	outb(slave_data, pic_mask_all);
 }
 
+#[allow(dead_code)]
 #[repr(packed)]
 struct Info {
 	ds: u16,
@@ -66,9 +67,10 @@ extern fn default_handler(info: &Info, index: u8, error_code: uptr)
 	    }
 	}
 
-    panic!("Unhandled interrupt: {}", index);
+    panic!("Unhandled interrupt: {}\n\nerrnr: {:x}   rsi: {:x}  cr2: {:x}", index, error_code, info.registers.rsi, cr2);
 }
 
+#[allow(dead_code)]
 #[repr(packed)]
 struct Gate {
 	target_low: u16,
@@ -129,7 +131,7 @@ pub unsafe fn initialize_idt() {
 
 	set_gate(0xFF, spurious_irq);
 
-	for handler in HANDLERS.mut_iter() {
+	for handler in HANDLERS.iter_mut() {
 		*handler = default_handler;
 	}
 

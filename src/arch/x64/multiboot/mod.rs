@@ -6,6 +6,12 @@ mod multiboot;
 
 #[no_mangle]
 pub extern "C" fn boot_entry(info: &multiboot::Info) {
+	init(info);
+	::kernel();
+}
+
+#[inline(never)]
+pub fn init(info: &multiboot::Info) {
     ::arch::console::cls();
 
 	if info.flags & multiboot::FLAG_MMAP == 0 {
@@ -30,14 +36,12 @@ pub extern "C" fn boot_entry(info: &multiboot::Info) {
 	{
 		let base = offset(virtual_start) - offset(&kernel_start) + offset(&low_end);
 
-		println!("segment - {:x} - {:x}", base, (base + offset(virtual_end) - offset(virtual_start)));
-
 		params.segments.push(params::Segment {
 			kind: kind,
 			base: base as uphys,
 			end: (base + offset(virtual_end) - offset(virtual_start)) as uphys,
 			virtual_base: offset(virtual_end),
-			found: 0,
+			found: false,
 			name: unsafe { core::mem::zeroed() }
 		});
 	}
@@ -49,14 +53,12 @@ pub extern "C" fn boot_entry(info: &multiboot::Info) {
 	for i in range(0, info.mods_count) {
 		let module = unsafe { &*(info.mods_addr as *const multiboot::Module).offset(i as int) };
 
-		println!("module - {:x} - {:x}", module.start, module.end);
-
 		let segment = params::Segment {
 			kind: params::SegmentModule,
 			base: module.start as uphys,
 			end: module.end as uphys,
 			virtual_base: 0,
-			found: 0,
+			found: false,
 			name: unsafe { core::mem::zeroed() }
 		};
 
@@ -75,12 +77,8 @@ pub extern "C" fn boot_entry(info: &multiboot::Info) {
 
 	let mut mmap = unsafe { &*(info.mmap_addr as *const multiboot::MemoryMap) };
 
-	println!("start {:x} end {:x}", info.mmap_addr, mmap_end);
-
 	while offset(mmap) < mmap_end {
 		if mmap.kind == 1 {
-			println!("mmap - {:x} - {:x}", mmap.base, mmap.base + mmap.size);
-	
 			params.ranges.push(params::Range {
 				kind: params::MemoryUsable,
 				base: mmap.base as uphys,
@@ -91,5 +89,5 @@ pub extern "C" fn boot_entry(info: &multiboot::Info) {
 		mmap = unsafe { &*((offset(mmap) + mmap.struct_size as uptr + 4) as *const multiboot::MemoryMap) };
 	}
 
-	::kernel(&mut params);
+	::init(&mut params);
 } 

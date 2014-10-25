@@ -1,5 +1,6 @@
 use util::FixVec;
 
+#[deriving(Eq, PartialEq)]
 pub enum MemoryKind {
 	MemoryNone,
 	MemoryUsable,
@@ -14,6 +15,7 @@ pub struct Range {
 	pub next: *mut Range
 }
 
+#[deriving(Eq, PartialEq)]
 pub enum SegmentKind {
 	SegmentCode,
 	SegmentReadOnlyData,
@@ -27,7 +29,7 @@ pub struct Segment {
 	pub base: uphys,
 	pub end: uphys,
 	pub virtual_base: uptr,
-	pub found: uptr,
+	pub found: bool,
 	pub name: [u8, ..0x100]
 }
 

@@ -15,19 +15,27 @@ mod console;
 
 mod params;
 
+
 #[path = "arch/x64/mod.rs"]
 pub mod arch;
 
 mod cpu;
 
+mod memory;
+
 #[no_mangle]
 pub extern fn ap_entry() {
 } 
 
-fn kernel(info: &mut params::Info) {
+fn init(info: &mut params::Info) {
 	unsafe {
 		arch::initialize_basic();
+		memory::initial::initialize_physical(info);
 	}
 
+	panic!("Bored");
+}
+
+fn kernel() {
 	panic!("Bored");
 }

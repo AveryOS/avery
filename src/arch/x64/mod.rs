@@ -7,13 +7,24 @@ pub mod console {
 	pub use super::vga::{cls, putc};
 }
 
+#[allow(dead_code)]
 #[repr(packed)]
 struct CPUPointer {
     limit: u16,
     base: uptr
 }
 
+const RFLAGS_BIT_INTERRUPT: uptr = 1u << 9;
 
+const EFER: u32 = 0xC0000080;
+const EFER_BIT_SYSCALLS: uptr = 1;
+
+const GS_BASE: u32 = 0xC0000101;
+
+pub const PAGE_SIZE: uptr = 0x1000;
+
+
+#[allow(dead_code)]
 #[repr(packed)]
 struct GeneralRegisters {
 	r15: u64,
@@ -45,6 +56,15 @@ pub fn halt() -> ! {
     }
 }
 
+unsafe fn write_msr(reg: u32, value: uptr)
+{
+	asm! {
+		[value => %eax, value >> 32 => %edx, reg => %ecx]
+
+		wrmsr
+	}
+}
+
 unsafe fn outb(port: u16, value: u8)
 {
 	asm! {
@@ -56,6 +76,7 @@ mod vga;
 pub mod segments;
 pub mod interrupts;
 pub mod cpu;
+pub mod memory;
 
 pub unsafe fn initialize_basic() {
     asm! {

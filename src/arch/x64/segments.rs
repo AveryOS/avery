@@ -7,6 +7,7 @@ pub const DATA_SEGMENT: u16 = 0x10;
 pub const USER_CODE_SEGMENT: u16 = 0x23;
 pub const USER_DATA_SEGMENT: u16 = 0x1b;
 
+#[allow(dead_code)]
 #[repr(packed)]
 pub struct TaskState {
 	reserved_0: u32,
@@ -28,6 +29,7 @@ pub const TASK_STATE_DEF: TaskState = TaskState {
 	io_bitmap_offse: 0,
 };
 
+#[allow(dead_code)]
 #[repr(packed)]
 struct TaskStateDescriptor {
 	desc: Descriptor,
