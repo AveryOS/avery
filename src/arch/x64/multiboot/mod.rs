@@ -40,7 +40,7 @@ pub fn init(info: &multiboot::Info) {
 			kind: kind,
 			base: base as uphys,
 			end: (base + offset(virtual_end) - offset(virtual_start)) as uphys,
-			virtual_base: offset(virtual_end),
+			virtual_base: offset(virtual_start),
 			found: false,
 			name: unsafe { core::mem::zeroed() }
 		});

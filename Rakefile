@@ -2,6 +2,8 @@
 require_relative 'rake/build'
 require_relative 'rake/lokar'
 
+ENV['RUST_TARGET_PATH'] = File.expand_path('../targets', __FILE__)
+
 PREFIX = File.expand_path('../vendor/install/bin', __FILE__)
 
 def mkdirs(target)
@@ -41,7 +43,7 @@ def assemble(build, source, objects)
 end
 
 RUSTFLAGS = ['-C', "ar=#{File.join(PREFIX, AR)}", '--sysroot', File.expand_path('../build/sysroot', __FILE__)] +
-	%w{--opt-level 0 -C no-stack-check -C relocation-model=static -C code-model=kernel -C no-redzone -Z no-landing-pads}
+	%w{--opt-level 0 -Z no-landing-pads}
 
 def rust_base(build, prefix, flags)
 	crates = File.join(prefix, "crates")
@@ -49,7 +51,7 @@ def rust_base(build, prefix, flags)
 	mkdirs(crates)
 
 	run 'rustc', *RUSTFLAGS, *flags, 'vendor/rust/src/libcore/lib.rs', '--out-dir', crates
-	run 'rustc', '-L', File.join(prefix, "crates"), *RUSTFLAGS, *flags,  'vendor/rust/src/librlibc/lib.rs', '--out-dir', crates
+	run 'rustc', '-L', File.join(prefix, "crates"), *RUSTFLAGS, *flags, '--crate-type', 'rlib',  'vendor/rlibc/src/lib.rs', '--out-dir', crates
 end
 
 def rust_crate(build, base_prefix, prefix, flags, src, src_flags)
@@ -83,7 +85,7 @@ build_kernel = proc do
 	objects = ['vendor/font.o', kernel_object]
 
 	build.run do
-		rust_crate(build, "build", build.output("#{type}"), %w{--target x86_64-unknown-linux-gnu}, 'src/kernel.rs', ['--emit=obj,ir'] + (type == :multiboot ? ['--cfg', 'multiboot'] : []))
+		rust_crate(build, "build", build.output("#{type}"), %w{--target x86_64-avery-kernel}, 'src/kernel.rs', ['--emit=obj,ir'] + (type == :multiboot ? ['--cfg', 'multiboot'] : []))
 	
 		interrupts_asm = 'src/arch/x64/interrupts.s'
 		interrupts_asm_out = build.output File.join("gen", interrupts_asm)
@@ -137,17 +139,17 @@ task :base do
 		mkdirs("build/phase")
 		run 'rustc', '-O', '--out-dir', "build/phase", "vendor/asm/assembly.rs"
 
-		rust_base(build, build.output(""), %w{--target x86_64-unknown-linux-gnu})
+		rust_base(build, build.output(""), %w{--target x86_64-avery-kernel})
 
-		lib_dir = build.output "sysroot/bin/rustlib/x86_64-unknown-linux-gnu/lib"
+		lib_dir = build.output "sysroot/bin/rustlib/x86_64-avery-kernel/lib"
 
 		mkdirs(lib_dir)
-		run 'rustc', '-L', 'build/crates', *RUSTFLAGS, '--target', 'x86_64-unknown-linux-gnu', 'src/std/std.rs', '--out-dir', lib_dir
-		run 'rustc', '-L', 'build/crates', *RUSTFLAGS, '--target', 'x86_64-unknown-linux-gnu', 'src/std/native.rs', '--out-dir', lib_dir
+		run 'rustc', '-L', 'build/crates', *RUSTFLAGS, '--target', 'x86_64-avery-kernel', 'src/std/std.rs', '--out-dir', lib_dir
+		run 'rustc', '-L', 'build/crates', *RUSTFLAGS, '--target', 'x86_64-avery-kernel', 'src/std/native.rs', '--out-dir', lib_dir
 
-		rust_base(build, build.output("bootstrap"), %w{--target i686-unknown-linux-gnu})
+		rust_base(build, build.output("bootstrap"), %w{--target x86_32-avery-kernel})
 
-		rust_crate(build, build.output("bootstrap"), build.output("bootstrap"), %w{--target i686-unknown-linux-gnu}, 'src/arch/x64/multiboot/bootstrap.rs', ['--emit=asm,ir']) #, '-C', 'llvm-args=-x86-asm-syntax=intel'
+		rust_crate(build, build.output("bootstrap"), build.output("bootstrap"), %w{--target x86_32-avery-kernel}, 'src/arch/x64/multiboot/bootstrap.rs', ['--emit=asm,ir']) #, '-C', 'llvm-args=-x86-asm-syntax=intel'
 
 		asm = build.output("bootstrap/bootstrap.s")
 
@@ -191,6 +193,14 @@ task :qemu_efi => :build_boot do
 	Dir.chdir('emu/') do
 		puts "Running QEMU..."
 		run QEMU, *%w{-L . -bios OVMF.fd -hda fat:hda -serial file:serial.txt -d int,cpu_reset -no-reboot -s -smp 4}
+	end
+end
+
+task :bochsdbg => :build do
+	
+	Dir.chdir('emu/') do
+		puts "Running Bochs..."
+		run 'bochs\bochsdbg', '-q', '-f', 'avery.bxrc'
 	end
 end
 
@@ -240,7 +250,7 @@ task :vendor do
 					run "make", "-j4"
 					run "make", "install"
 				end
-				#run 'rm', '-rf', "build"
+				run 'rm', '-rf', "build"
 				run 'rm', '-rf', src
 				run 'touch', "built"
 			end
@@ -275,8 +285,24 @@ task :vendor do
 			run "git", "clone" , "https://github.com/rust-lang/rust.git"
 		end
 
-		Dir.chdir('rust/') do
+		unless Dir.exists?("rlibc")
+			run "git", "clone" , "https://github.com/rust-lang/rlibc.git"
+		end
+	end
+end
+
+task :update do
+	rustc_ver = /\((.*?) /.match(`rustc --version`)[1]
+
+	Dir.chdir('vendor/') do
+		Dir.chdir('rlibc/') do
 			run *%w{git pull origin master}
+		end
+		
+		Dir.chdir('rust/') do
+			run *%w{git checkout master}
+			run *%w{git pull origin master}
+			run *%w{git checkout}, rustc_ver
 		end
 	end
 end

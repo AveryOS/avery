@@ -67,7 +67,8 @@ extern fn default_handler(info: &Info, index: u8, error_code: uptr)
 	    }
 	}
 
-    panic!("Unhandled interrupt: {}\n\nerrnr: {:x}   rsi: {:x}  cr2: {:x}", index, error_code, info.registers.rsi, cr2);
+    panic!("Unhandled interrupt: {}\n\nerrnr: {:x}   rsi: {:x}  rsp: {:x}  cr2: {:x}",
+    	index, error_code, info.registers.rsi, info.registers.rsp, cr2);
 }
 
 #[allow(dead_code)]

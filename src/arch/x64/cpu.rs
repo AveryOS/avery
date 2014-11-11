@@ -19,7 +19,7 @@ pub unsafe fn setup_gs(cpu: &'static mut cpu::CPU) {
 
 pub fn setup(cpu: &mut cpu::CPU, index: uptr) {
 	cpu.index = index;
-	cpu.local_pages = (arch::memory::CPU_LOCAL_START + index * arch::PAGE_SIZE * cpu::LOCAL_PAGE_COUNT) as *mut memory::Page;
+	cpu.local_pages = memory::Page::new(arch::memory::CPU_LOCAL_START + index * arch::PAGE_SIZE * cpu::LOCAL_PAGE_COUNT);
 }
 
 pub unsafe fn initialize_basic() {

@@ -46,11 +46,7 @@ loop.32:
 
 .code64
 
-.global stack
-.align 16
-stack:
-.fill 0x8000
-stack.end:
+.global stack_end
 
 .global bootstrap.64
 bootstrap.64:
@@ -63,7 +59,7 @@ bootstrap.64:
 	movw %ax, %ss
 	
 	# Load a new higher-half stack
-	movabs $(stack.end), %rsp
+	movabs $(stack_end), %rsp
 
 	# Call the higher-half entry
 	mov %rcx, %rdi

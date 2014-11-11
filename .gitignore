@@ -1,6 +1,7 @@
 /emu
 /build
 /bin
+/vendor/rlibc
 /vendor/rust
 /vendor/binutils
 /vendor/mtools

@@ -3,10 +3,6 @@
 spurious_irq:
 	iretq
 
-.global interrupt_handlers
-interrupt_handlers:
-.fill 256 * 8
-
 .global isr_handler
 isr_handler:
 	push rax
@@ -72,3 +68,8 @@ isr_#{n}:
 	mov rsi, #{n}
 	jmp isr_handler
 % end
+
+.data
+.global interrupt_handlers
+interrupt_handlers:
+.fill 256 * 8

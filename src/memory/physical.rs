@@ -10,3 +10,7 @@ pub struct Hole {
 	units: uptr,
 	bitmap: *mut uptr,
 }
+
+pub unsafe fn initialize() {
+	
+}

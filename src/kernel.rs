@@ -30,7 +30,10 @@ pub extern fn ap_entry() {
 fn init(info: &mut params::Info) {
 	unsafe {
 		arch::initialize_basic();
-		memory::initial::initialize_physical(info);
+		let result = memory::initial::initialize_physical(info);
+		arch::memory::initialize_initial(result);
+		memory::physical::initialize();
+		memory::initialize();
 	}
 
 	panic!("Bored");

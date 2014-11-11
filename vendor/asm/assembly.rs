@@ -1,6 +1,6 @@
 #![crate_type = "dylib"]
 #![crate_name = "assembly"]
-#![feature(plugin_registrar, if_let)]
+#![feature(plugin_registrar, if_let, globs)]
  
 extern crate rustc;
 extern crate syntax;
@@ -18,6 +18,7 @@ use syntax::parse::token;
 use syntax::parse::token::{keywords, intern_and_get_ident};
 use syntax::parse::common::seq_sep_trailing_disallowed;
 use syntax::ext::asm::expand_asm;
+use syntax::print::pprust::token_to_string;
 
 #[plugin_registrar]
 pub fn plugin_registrar(reg: &mut Registry) {
@@ -97,7 +98,7 @@ fn add_binding(data: &mut Data, name: Option<String>, c: Constraint, kind: Bindi
 
 fn get_ident(p: &mut Parser) -> String {
     match p.token {
-        token::IDENT(id, _) => {
+        token::Ident(id, _) => {
             p.bump();
             id.name.as_str().to_string()
         }
@@ -108,12 +109,12 @@ fn get_ident(p: &mut Parser) -> String {
 }
 
 fn parse_c(p: &mut Parser) -> Constraint {
-    if p.eat(&token::BINOP(token::PERCENT)) {
-        let early_clobber = p.eat(&token::BINOP(token::AND));
-        let indirect = p.eat(&token::BINOP(token::STAR));
+    if p.eat(&token::BinOp(token::Percent)) {
+        let early_clobber = p.eat(&token::BinOp(token::And));
+        let indirect = p.eat(&token::BinOp(token::Star));
         Constraint { name: get_ident(p), indirect: indirect, early_clobber: early_clobber }
     } else {
-        p.expect(&token::BINOP(token::PERCENT));
+        p.expect(&token::BinOp(token::Percent));
         unreachable!()
     }
 }
@@ -121,18 +122,18 @@ fn parse_c(p: &mut Parser) -> Constraint {
 fn parse_let(p: &mut Parser) -> String {
     p.expect_keyword(keywords::Let);
     let n = get_ident(p);
-    p.expect(&token::COLON);
+    p.expect(&token::Colon);
     n
 }
 
 fn parse_c_arrow(p: &mut Parser, data: &mut Data) -> uint {
     let c = parse_c(p);
 
-    let rw = if p.eat(&token::LE) {
-        p.expect(&token::GT);
+    let rw = if p.eat(&token::Le) {
+        p.expect(&token::Gt);
         true
     } else {
-        p.expect(&token::FAT_ARROW);
+        p.expect(&token::FatArrow);
         false
     };
 
@@ -149,23 +150,23 @@ fn parse_c_arrow(p: &mut Parser, data: &mut Data) -> uint {
 
 fn parse_operand(p: &mut Parser, data: &mut Data) -> uint {
     match p.token {
-        token::BINOP(token::PERCENT) => {
+        token::BinOp(token::Percent) => {
             parse_c_arrow(p, data)
         }
         _ => {
             let lhs = p.parse_prefix_expr();
             let exp = p.parse_more_binops(lhs, syntax::ast_util::operator_prec(ast::BiBitOr));
 
-            let rw = if p.eat(&token::LE) {
-                p.expect(&token::GT);
+            let rw = if p.eat(&token::Le) {
+                p.expect(&token::Gt);
                 true
             } else {
-                p.expect(&token::FAT_ARROW);
+                p.expect(&token::FatArrow);
                 false
             };
 
             let name = match p.token {
-                token::IDENT(_, _) => Some(parse_let(p)),
+                token::Ident(_, _) => Some(parse_let(p)),
                 _ => None
             };
 
@@ -173,7 +174,7 @@ fn parse_operand(p: &mut Parser, data: &mut Data) -> uint {
 
             let kind = if rw {
                 InputAndOutput(exp)
-            } else if p.eat(&token::FAT_ARROW) {
+            } else if p.eat(&token::FatArrow) {
                 InputThenOutput(exp, p.parse_expr())
             }  else {
                 Input(exp)
@@ -185,11 +186,11 @@ fn parse_operand(p: &mut Parser, data: &mut Data) -> uint {
 }
 
 fn parse_binding(p: &mut Parser, data: &mut Data) -> uint {
-    if p.is_keyword(keywords::Let) {
+    if p.token.is_keyword(keywords::Let) {
         let name = Some(parse_let(p));
         let c = parse_c(p);
 
-        let kind = if p.eat(&token::FAT_ARROW) {
+        let kind = if p.eat(&token::FatArrow) {
             Output(p.parse_expr())
         } else {
             Bare
@@ -202,10 +203,10 @@ fn parse_binding(p: &mut Parser, data: &mut Data) -> uint {
 }
 
 fn parse_opt(cx: &mut ExtCtxt, p: &mut Parser, data: &mut Data) {
-    if p.is_keyword(keywords::Use) {
+    if p.token.is_keyword(keywords::Use) {
         p.bump();
         data.clobbers.push(format!("~{{{}}}", get_ident(p).as_slice()));
-    } else if p.is_keyword(keywords::Mod) {
+    } else if p.token.is_keyword(keywords::Mod) {
         p.bump();
         match get_ident(p).as_slice() {
             "attsyntax" => {
@@ -276,7 +277,7 @@ fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree]) 
     // Fall back to the old syntax if we start with a string
     if tts.len() > 0 {
         match tts[0] {
-            ast::TTTok(_, token::LIT_STR(_)) | ast::TTTok(_, token::LIT_STR_RAW(_, _)) => {
+            ast::TtToken(_, token::LitStr(_)) | ast::TtToken(_, token::LitStrRaw(_, _)) => {
                 return expand_asm(cx, sp, tts);
             }
             _ => ()
@@ -288,10 +289,10 @@ fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree]) 
     let mut data = Data { dialect: ast::AsmIntel, volatile: true, alignstack: false, clobbers: vec!(), idents: HashMap::new(), bindings: vec!() };
 
     match p.token {
-        token::LBRACKET => {
-            p.parse_unspanned_seq(&token::LBRACKET,
-                                  &token::RBRACKET,
-                                  seq_sep_trailing_disallowed(token::COMMA),
+        token::OpenDelim(token::Bracket) => {
+            p.parse_unspanned_seq(&token::OpenDelim(token::Bracket),
+                                  &token::CloseDelim(token::Bracket),
+                                  seq_sep_trailing_disallowed(token::Comma),
                                   |p| {
                                        parse_opt(cx, p, &mut data);
                                   });
@@ -317,7 +318,7 @@ fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree]) 
         println!("Token  {}\nspan |{}|",p.token, cx.parse_sess.span_diagnostic.cm.span_to_snippet(p.span).unwrap());*/
     
         match p.token {
-            token::LBRACE => {
+            token::OpenDelim(token::Brace) => {
                     if is_whitespace_left(cx, p.span) {
                         out.push(OutputStr(" ".to_string()));
                     }
@@ -328,36 +329,36 @@ fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree]) 
                     if is_whitespace_right(cx, p.span) {
                         out.push(OutputStr(" ".to_string()));
                     }
-                    p.expect(&token::RBRACE);
+                    p.expect(&token::CloseDelim(token::Brace));
             }
-            token::IDENT(_, _) => {
+            token::Ident(_, _) => {
                 whitespace_wrap(&mut out, p.span, |out| {
-                    if let Some(idx) = data.idents.find(&token::to_string(&p.token)) {
+                    if let Some(idx) = data.idents.get(&token_to_string(&p.token)) {
                         out.push(OutputBinding(*idx));
                         p.bump();
                     } else {
-                        out.push(OutputStr(token::to_string(&p.token)));
+                        out.push(OutputStr(token_to_string(&p.token)));
                         p.bump();
                     }
                 });
             }
-            token::DOLLAR => {
+            token::Dollar => {
                 whitespace_wrap(&mut out, p.span, |out| {
                     out.push(OutputStr("$$".to_string()));
                 });
                 p.bump();
             }
-            token::SEMI => {
+            token::Semi => {
                 out.push(OutputStr("\n\t".to_string()));
                 p.bump();
             }
-            token::INTERPOLATED(_) => {
+            token::Interpolated(_) => {
                 p.unexpected();
             }
-            token::EOF => break,
+            token::Eof => break,
             _ => {
                 whitespace_wrap(&mut out, p.span, |out| {
-                    out.push(OutputStr(token::to_string(&p.token)));
+                    out.push(OutputStr(token_to_string(&p.token)));
                 });
                 p.bump();
             }
@@ -373,7 +374,7 @@ fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree]) 
 
         b.t_idx = match b.kind.take().unwrap() {
             Bare => {
-                fail!("Bare unsupported")
+                panic!("Bare unsupported")
                 //let c_clobber = intern_and_get_ident(("=&".to_string() + c).as_slice());
                 // this needs an expression - outputs.push((c_clobber, , false));
                 OutputIdx(outputs.len())

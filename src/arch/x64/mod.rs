@@ -4,7 +4,7 @@ pub mod multiboot;
 pub mod efi;
 
 pub mod console {
-	pub use super::vga::{cls, putc};
+	pub use super::vga::{cls, putc, get_buffer_info, set_buffer};
 }
 
 #[allow(dead_code)]

@@ -15,7 +15,7 @@ SECTIONS
 
 	.bootstrap ALIGN(4) :
 	{
-		build/src/arch/x64/multiboot/*(*)
+		build/src/arch/x64/multiboot/bootstrap.s.o
 		build/bootstrap.o(*)
 	}
 % else

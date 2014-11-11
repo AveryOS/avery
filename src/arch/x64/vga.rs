@@ -1,6 +1,6 @@
 use core::prelude::*;
 
-const VGA: *mut u16 = 0xb8000 as *mut u16;
+static mut VGA: *mut u16 = 0xb8000 as *mut u16;
 
 const SIZE_X: int = 80;
 const SIZE_Y: int = 25;
@@ -14,6 +14,14 @@ const COLOR: u16 = (0 << 8) | (7 << 12);
 
 static mut x: int = MIN_X;
 static mut y: int = MIN_Y;
+
+pub fn get_buffer_info() -> (uphys, uptr) {
+	unsafe { (VGA as uphys, (SIZE_X * SIZE_Y) as uptr * size_of::<u16>()) }
+}
+
+pub fn set_buffer(addr: uptr) {
+	unsafe { VGA = addr as *mut u16 };
+}
 
 unsafe fn update_cursor()
 {

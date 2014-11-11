@@ -79,3 +79,9 @@ macro_rules! offset_of(
 		&mut ((*(0u as *mut $t)).$f) as *mut _ as uptr
     )
 )
+
+macro_rules! assert_page_aligned(
+    ($e:expr) => (
+    	assert!((($e) & (::arch::PAGE_SIZE - 1)) == 0)
+    )
+)
