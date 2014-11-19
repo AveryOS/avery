@@ -1,6 +1,7 @@
-This requires wget, libiconv, bison, rake, rustc and rake to be installed.
+This requires git, wget, libiconv, bison, rake, rustc and rake to be installed.
 
-On Windows it expects to find mtools and binutils in `bin/`. binutils can be built from source on other platforms with `vendor/binutils/build.sh` provided with the source for binutils in `vendor/binutils/src`.
-The source of rustc must be placed in `vendor/rustc`. The source of rlibc (https://github.com/rust-lang/rlibc) must be placed in `vendor/rlibc`.
+Run `rake setup` to set up and build dependencies. This doesn't work on Windows and it expects to find mtools and binutils already built in `vendor/install/bin/`.
 
-You can then build the dependencies with `rake base` and finally the kernel with `rake`.
+You then should run `rake update` to ensure the rustc sources matches the rustc version installed. Run this again if you update rustc.
+
+You can then build the bootstrap dependencies with `rake base` and finally the kernel with `rake`.
