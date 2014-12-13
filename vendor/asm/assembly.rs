@@ -1,6 +1,6 @@
 #![crate_type = "dylib"]
 #![crate_name = "assembly"]
-#![feature(plugin_registrar, if_let, globs)]
+#![feature(plugin_registrar, globs)]
  
 extern crate rustc;
 extern crate syntax;
@@ -16,7 +16,7 @@ use rustc::plugin::Registry;
 use syntax::parse::parser::Parser;
 use syntax::parse::token;
 use syntax::parse::token::{keywords, intern_and_get_ident};
-use syntax::parse::common::seq_sep_trailing_disallowed;
+use syntax::parse::common::seq_sep_trailing_allowed;
 use syntax::ext::asm::expand_asm;
 use syntax::print::pprust::token_to_string;
 
@@ -34,8 +34,8 @@ enum BindingKind {
 }
 
 enum BindingIdx {
-    InputIdx(uint),
-    OutputIdx(uint)
+    Input(uint),
+    Output(uint)
 }
 
 struct Constraint {
@@ -87,7 +87,7 @@ fn add_binding(data: &mut Data, name: Option<String>, c: Constraint, kind: Bindi
     data.bindings.push(Binding {
         constraint: c,
         kind: Some(kind),
-        t_idx: InputIdx(0),
+        t_idx: BindingIdx::Input(0),
         idx: 0
     });
     name.map(|name| {
@@ -140,9 +140,9 @@ fn parse_c_arrow(p: &mut Parser, data: &mut Data) -> uint {
     let e = p.parse_expr();
 
     let kind = if rw {
-        InputAndOutput(e)
+        BindingKind::InputAndOutput(e)
     } else {
-        Output(e)
+        BindingKind::Output(e)
     };
 
     add_binding(data, None, c, kind)
@@ -173,11 +173,11 @@ fn parse_operand(p: &mut Parser, data: &mut Data) -> uint {
             let c = parse_c(p);
 
             let kind = if rw {
-                InputAndOutput(exp)
+                BindingKind::InputAndOutput(exp)
             } else if p.eat(&token::FatArrow) {
-                InputThenOutput(exp, p.parse_expr())
+                BindingKind::InputThenOutput(exp, p.parse_expr())
             }  else {
-                Input(exp)
+                BindingKind::Input(exp)
             };
 
             add_binding(data, name, c, kind)
@@ -191,9 +191,9 @@ fn parse_binding(p: &mut Parser, data: &mut Data) -> uint {
         let c = parse_c(p);
 
         let kind = if p.eat(&token::FatArrow) {
-            Output(p.parse_expr())
+            BindingKind::Output(p.parse_expr())
         } else {
-            Bare
+            BindingKind::Bare
         };
 
         add_binding(data, name, c, kind)
@@ -225,9 +225,9 @@ fn parse_opt(cx: &mut ExtCtxt, p: &mut Parser, data: &mut Data) {
     }
 }
 
-enum OutputType {
-    OutputStr(String),
-    OutputBinding(uint)
+enum Output {
+    Str(String),
+    Binding(uint)
 }
 
 fn search(fb: &codemap::FileMapAndBytePos, test: |pos: uint| -> bool, offset: uint) -> Option<u8> {
@@ -277,7 +277,7 @@ fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree]) 
     // Fall back to the old syntax if we start with a string
     if tts.len() > 0 {
         match tts[0] {
-            ast::TtToken(_, token::LitStr(_)) | ast::TtToken(_, token::LitStrRaw(_, _)) => {
+            ast::TtToken(_, token::Literal(token::Lit::Str_(_), _)) | ast::TtToken(_, token::Literal(token::Lit::StrRaw(_, _), _)) => {
                 return expand_asm(cx, sp, tts);
             }
             _ => ()
@@ -292,7 +292,7 @@ fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree]) 
         token::OpenDelim(token::Bracket) => {
             p.parse_unspanned_seq(&token::OpenDelim(token::Bracket),
                                   &token::CloseDelim(token::Bracket),
-                                  seq_sep_trailing_disallowed(token::Comma),
+                                  seq_sep_trailing_allowed(token::Comma),
                                   |p| {
                                        parse_opt(cx, p, &mut data);
                                   });
@@ -300,15 +300,15 @@ fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree]) 
         _ => ()
     }
 
-    let mut out = vec!(OutputStr("\t".to_string()));
+    let mut out = vec!(Output::Str("\t".to_string()));
 
-    let whitespace_wrap = |out: &mut Vec<OutputType>, sp, act: |&mut Vec<OutputType>| -> ()| {
+    let whitespace_wrap = |out: &mut Vec<Output>, sp, act: |&mut Vec<Output>| -> ()| {
         if is_whitespace_left(cx, sp) {
-            out.push(OutputStr(" ".to_string()));
+            out.push(Output::Str(" ".to_string()));
         }
         act(out);
         if is_whitespace_right(cx, sp) {
-            out.push(OutputStr(" ".to_string()));
+            out.push(Output::Str(" ".to_string()));
         }
     };
 
@@ -320,36 +320,36 @@ fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree]) 
         match p.token {
             token::OpenDelim(token::Brace) => {
                     if is_whitespace_left(cx, p.span) {
-                        out.push(OutputStr(" ".to_string()));
+                        out.push(Output::Str(" ".to_string()));
                     }
 
                     p.bump();
-                    out.push(OutputBinding(parse_binding(&mut p, &mut data)));
+                    out.push(Output::Binding(parse_binding(&mut p, &mut data)));
 
                     if is_whitespace_right(cx, p.span) {
-                        out.push(OutputStr(" ".to_string()));
+                        out.push(Output::Str(" ".to_string()));
                     }
                     p.expect(&token::CloseDelim(token::Brace));
             }
             token::Ident(_, _) => {
                 whitespace_wrap(&mut out, p.span, |out| {
                     if let Some(idx) = data.idents.get(&token_to_string(&p.token)) {
-                        out.push(OutputBinding(*idx));
+                        out.push(Output::Binding(*idx));
                         p.bump();
                     } else {
-                        out.push(OutputStr(token_to_string(&p.token)));
+                        out.push(Output::Str(token_to_string(&p.token)));
                         p.bump();
                     }
                 });
             }
             token::Dollar => {
                 whitespace_wrap(&mut out, p.span, |out| {
-                    out.push(OutputStr("$$".to_string()));
+                    out.push(Output::Str("$$".to_string()));
                 });
                 p.bump();
             }
             token::Semi => {
-                out.push(OutputStr("\n\t".to_string()));
+                out.push(Output::Str("\n\t".to_string()));
                 p.bump();
             }
             token::Interpolated(_) => {
@@ -358,7 +358,7 @@ fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree]) 
             token::Eof => break,
             _ => {
                 whitespace_wrap(&mut out, p.span, |out| {
-                    out.push(OutputStr(token_to_string(&p.token)));
+                    out.push(Output::Str(token_to_string(&p.token)));
                 });
                 p.bump();
             }
@@ -373,38 +373,38 @@ fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree]) 
         let c_out = format_c(&b.constraint, false);
 
         b.t_idx = match b.kind.take().unwrap() {
-            Bare => {
+            BindingKind::Bare => {
                 panic!("Bare unsupported")
                 //let c_clobber = intern_and_get_ident(("=&".to_string() + c).as_slice());
                 // this needs an expression - outputs.push((c_clobber, , false));
-                OutputIdx(outputs.len())
+                BindingIdx::Output(outputs.len())
             }
-            Input(e) => {
+            BindingKind::Input(e) => {
                 inputs.push((c_in, e));
-                InputIdx(inputs.len())
+                BindingIdx::Input(inputs.len())
             }
-            Output(e) => {
+            BindingKind::Output(e) => {
                 outputs.push((c_out, e, false));
-                OutputIdx(outputs.len())
+                BindingIdx::Output(outputs.len())
             }
-            InputThenOutput(e_in, e_out) => {
+            BindingKind::InputThenOutput(e_in, e_out) => {
                 let c_outpos = intern_and_get_ident(outputs.len().to_string().as_slice());
                 inputs.push((c_outpos, e_in));
                 outputs.push((c_out, e_out, false));
-                InputIdx(inputs.len());
-                OutputIdx(outputs.len())
+                BindingIdx::Input(inputs.len());
+                BindingIdx::Output(outputs.len())
             }
-            InputAndOutput(e) => {
+            BindingKind::InputAndOutput(e) => {
                 outputs.push((c_out, e, true));
-                OutputIdx(outputs.len())
+                BindingIdx::Output(outputs.len())
             }
         }
     }
 
     for b in data.bindings.iter_mut() {
         b.idx = match b.t_idx {
-            InputIdx(i) => outputs.len() + i,
-            OutputIdx(i) => i
+            BindingIdx::Input(i) => outputs.len() + i,
+            BindingIdx::Output(i) => i
         } - 1;
     }
 
@@ -412,8 +412,8 @@ fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree]) 
 
     for o in out.into_iter() {
         match o {
-            OutputStr(s) => out_str.push_str(s.as_slice()),
-            OutputBinding(idx) => {
+            Output::Str(s) => out_str.push_str(s.as_slice()),
+            Output::Binding(idx) => {
                 out_str.push_str(" $");
                 out_str.push_str(data.bindings[idx].idx.to_string().as_slice());
             }
@@ -436,7 +436,7 @@ fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree]) 
         node: ast::ExprInlineAsm(ast::InlineAsm {
             asm: intern_and_get_ident(out_str.as_slice()),
             asm_str_style: ast::CookedStr,
-            clobbers: intern_and_get_ident(data.clobbers.connect(",").as_slice()),
+            clobbers: data.clobbers.iter().map(|s| intern_and_get_ident(s.as_slice())).collect(),
             inputs: inputs,
             outputs: outputs,
             volatile: data.volatile,

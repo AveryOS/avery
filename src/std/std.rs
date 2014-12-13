@@ -10,7 +10,7 @@ pub use core::{fmt, slice, num, cmp};
 
 #[allow(non_camel_case_types, dead_code)]
 pub mod prelude {
-	use core::num::One;
+	use core::num::Int;
 
     pub use core::prelude::*;
 
@@ -21,6 +21,7 @@ pub mod prelude {
 	pub type uptr = uint;
 	pub type uphys = uint;
 
+	#[allow(missing_copy_implementations)]
 	pub struct void {
 		dummy: u8
 	}
@@ -32,12 +33,12 @@ pub mod prelude {
 
 	pub fn align_up<T: Int>(value: T, mut alignment: T) -> T
 	{
-		alignment = alignment - One::one();
+		alignment = alignment - Int::one();
 		(value + alignment) & !alignment
 	}
 
 	pub fn align_down<T: Int>(value: T, alignment: T) -> T
 	{
-		value & !(alignment - One::one())
+		value & !(alignment - Int::one())
 	}
 }
