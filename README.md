@@ -1,4 +1,4 @@
-This requires git, wget, libiconv, bison, rake, rustc and rake to be installed.
+This requires git, wget, libiconv, bison, rustc and rake to be installed.
 
 Run `rake setup` to set up and build dependencies. This doesn't work on Windows and it expects to find mtools and binutils already built in `vendor/install/bin/`.
 
