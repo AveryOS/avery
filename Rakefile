@@ -227,7 +227,7 @@ task :vendor do
 			unless File.exists?("built")
 				tar = "#{src}.tar.#{ext}"
 				unless File.exists?(tar)
-					run 'wget', "#{url}#{tar}"
+					run 'curl', '-O', "#{url}#{tar}"
 				end
 
 				run 'rm', '-rf', src
@@ -251,7 +251,7 @@ task :vendor do
 					run "make", "install"
 				end
 				run 'rm', '-rf', "build"
-				run 'rm', '-rf', src
+				#run 'rm', '-rf', src
 				run 'touch', "built"
 			end
 
@@ -272,7 +272,10 @@ task :vendor do
 		end if nil
 
 		build.("ftp://ftp.gnu.org/gnu/mtools/", "mtools", "4.0.18") do |src, prefix|
-			run 'cp', '-rf', "../../libiconv/install", ".."
+			#run 'cp', '-rf', "../../libiconv/install", ".."
+			Dir.chdir(src) do
+				run 'patch', '-i', "../../mtools-fix.diff"
+			end
 			run File.join(src, 'configure'), "--prefix=#{prefix}", "LIBS=-liconv"
 		end
 
