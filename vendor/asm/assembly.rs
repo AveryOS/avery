@@ -1,6 +1,6 @@
 #![crate_type = "dylib"]
 #![crate_name = "assembly"]
-#![feature(plugin_registrar, globs)]
+#![feature(plugin_registrar, globs, slicing_syntax)]
  
 extern crate rustc;
 extern crate syntax;
@@ -68,15 +68,15 @@ fn format_c(c: &Constraint, input: bool) -> token::InternedString {
     };
 
     if c.indirect {
-        base = "*".to_string() + base;
+        base = "*".to_string() + base[];
     }
 
     let result = if input {
         base
     } else if c.early_clobber {
-        "=&".to_string() + base
+        "=&".to_string() + base[]
     } else {
-        "=".to_string() + base
+        "=".to_string() + base[]
     };
 
     intern_and_get_ident(result.as_slice())
@@ -230,7 +230,7 @@ enum Output {
     Binding(uint)
 }
 
-fn search(fb: &codemap::FileMapAndBytePos, test: |pos: uint| -> bool, offset: uint) -> Option<u8> {
+fn search<F: Fn(uint) -> bool>(fb: &codemap::FileMapAndBytePos, test: F, offset: uint) -> Option<u8> {
     let mut p = fb.pos.to_uint();
 
     loop {
@@ -273,6 +273,16 @@ fn is_whitespace_right(cx: &ExtCtxt, sp: codemap::Span) -> bool {
     is_whitespace(search(&fb, |p| { p >= fb.fm.src.len() - 1 }, 1))
 }
 
+fn whitespace_wrap<'cx, F: FnOnce(&mut Vec<Output>)>(cx: &'cx mut ExtCtxt, out: &mut Vec<Output>, sp: codemap::Span, act: F) {
+    if is_whitespace_left(cx, sp) {
+        out.push(Output::Str(" ".to_string()));
+    }
+    act(out);
+    if is_whitespace_right(cx, sp) {
+        out.push(Output::Str(" ".to_string()));
+    }
+}
+
 fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree]) -> Box<MacResult + 'cx> {
     // Fall back to the old syntax if we start with a string
     if tts.len() > 0 {
@@ -302,16 +312,6 @@ fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree]) 
 
     let mut out = vec!(Output::Str("\t".to_string()));
 
-    let whitespace_wrap = |out: &mut Vec<Output>, sp, act: |&mut Vec<Output>| -> ()| {
-        if is_whitespace_left(cx, sp) {
-            out.push(Output::Str(" ".to_string()));
-        }
-        act(out);
-        if is_whitespace_right(cx, sp) {
-            out.push(Output::Str(" ".to_string()));
-        }
-    };
-
     loop {
         /*println!("Token-left {}", is_whitespace_left(cx, p.span));
         println!("Token-right {}", is_whitespace_right(cx, p.span));
@@ -332,7 +332,7 @@ fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree]) 
                     p.expect(&token::CloseDelim(token::Brace));
             }
             token::Ident(_, _) => {
-                whitespace_wrap(&mut out, p.span, |out| {
+                whitespace_wrap(cx, &mut out, p.span, |out| {
                     if let Some(idx) = data.idents.get(&token_to_string(&p.token)) {
                         out.push(Output::Binding(*idx));
                         p.bump();
@@ -343,7 +343,7 @@ fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree]) 
                 });
             }
             token::Dollar => {
-                whitespace_wrap(&mut out, p.span, |out| {
+                whitespace_wrap(cx, &mut out, p.span, |out| {
                     out.push(Output::Str("$$".to_string()));
                 });
                 p.bump();
@@ -357,7 +357,7 @@ fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree]) 
             }
             token::Eof => break,
             _ => {
-                whitespace_wrap(&mut out, p.span, |out| {
+                whitespace_wrap(cx, &mut out, p.span, |out| {
                     out.push(Output::Str(token_to_string(&p.token)));
                 });
                 p.bump();
@@ -374,10 +374,10 @@ fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree]) 
 
         b.t_idx = match b.kind.take().unwrap() {
             BindingKind::Bare => {
-                panic!("Bare unsupported")
+                panic!("Bare unsupported");
                 //let c_clobber = intern_and_get_ident(("=&".to_string() + c).as_slice());
                 // this needs an expression - outputs.push((c_clobber, , false));
-                BindingIdx::Output(outputs.len())
+                //BindingIdx::Output(outputs.len())
             }
             BindingKind::Input(e) => {
                 inputs.push((c_in, e));

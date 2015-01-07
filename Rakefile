@@ -43,7 +43,7 @@ def assemble(build, source, objects)
 end
 
 RUSTFLAGS = ['-C', "ar=#{File.join(PREFIX, AR)}", '--sysroot', File.expand_path('../build/sysroot', __FILE__)] +
-	%w{--opt-level 0 -Z no-landing-pads}
+	%w{-C opt-level=0 -Z no-landing-pads}
 
 def rust_base(build, prefix, flags)
 	crates = File.join(prefix, "crates")
@@ -85,7 +85,7 @@ build_kernel = proc do
 	objects = ['vendor/font.o', kernel_object]
 
 	build.run do
-		rust_crate(build, "build", build.output("#{type}"), %w{--target x86_64-avery-kernel}, 'src/kernel.rs', ['--emit=obj,ir'] + (type == :multiboot ? ['--cfg', 'multiboot'] : []))
+		rust_crate(build, "build", build.output("#{type}"), %w{--target x86_64-avery-kernel}, 'src/kernel.rs', ['--emit=obj,llvm-ir'] + (type == :multiboot ? ['--cfg', 'multiboot'] : []))
 	
 		interrupts_asm = 'src/arch/x64/interrupts.s'
 		interrupts_asm_out = build.output File.join("gen", interrupts_asm)
@@ -149,7 +149,7 @@ task :base do
 
 		rust_base(build, build.output("bootstrap"), %w{--target x86_32-avery-kernel})
 
-		rust_crate(build, build.output("bootstrap"), build.output("bootstrap"), %w{--target x86_32-avery-kernel}, 'src/arch/x64/multiboot/bootstrap.rs', ['--emit=asm,ir']) #, '-C', 'llvm-args=-x86-asm-syntax=intel'
+		rust_crate(build, build.output("bootstrap"), build.output("bootstrap"), %w{--target x86_32-avery-kernel}, 'src/arch/x64/multiboot/bootstrap.rs', ['--emit=asm,llvm-ir']) #, '-C', 'llvm-args=-x86-asm-syntax=intel'
 
 		asm = build.output("bootstrap/bootstrap.s")
 

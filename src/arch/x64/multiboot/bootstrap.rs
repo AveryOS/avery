@@ -17,7 +17,7 @@ use multiboot::*;
 #[lang = "eh_personality"] fn eh_personality() {}
 #[lang = "fail_fmt"] fn fail_fmt() {}
 
-type Table = [u64, ..512];
+type Table = [u64; 512];
 
 mod multiboot;
 
@@ -53,7 +53,7 @@ struct Descriptor {
     base_high: u8
 }
 
-static GDT: [Descriptor, ..3] = [
+static GDT: [Descriptor; 3] = [
     Descriptor {limit_low: 0, base_low: 0, base_middle: 0, access: 0, granularity: 0, base_high: 0},
     Descriptor {limit_low: 0, base_low: 0, base_middle: 0, access: 0b10011000, granularity: 0b00100000, base_high: 0}, // 64-bit code
     Descriptor {limit_low: 0xFFFF, base_low: 0, base_middle: 0, access: 0b10010010, granularity: 0b11001111, base_high: 0}, // data
