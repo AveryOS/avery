@@ -1,5 +1,5 @@
 #![no_main]
-//#![allow(improper_ctypes)]
+#![allow(improper_ctypes, unstable)]
 #![feature(lang_items, plugin, asm)]
 #[plugin] #[no_link] extern crate assembly;
 

@@ -44,6 +44,7 @@ pub const MAPPED_PML1TS: usize = 0xFFFFFF0000000000;
 pub const MAPPED_PML2TS: usize = KERNEL_LOCATION - PTL2_SIZE;
 pub const MAPPED_PML3TS: usize = KERNEL_LOCATION + PTL1_SIZE * 511;
 
+#[derive(Copy)]
 #[repr(packed)]
 struct TableEntry(usize);
 
@@ -65,7 +66,7 @@ unsafe fn load_pml4(pml4t: PhysicalPage) {
 
 fn physical_page_from_table_entry(entry: TableEntry) -> PhysicalPage
 {
-	let TableEntry(mut entry) = entry;
+	let TableEntry(entry) = entry;
 
 	PhysicalPage::new(entry & !(PAGE_FLAGS))
 }
@@ -197,9 +198,9 @@ pub unsafe fn initialize_initial(st: memory::initial::State)
 		map_page_table(&mut ptl1_kernel, virtual_offset, virtual_offset + hole.end - hole.base, hole.base, flags);
 	}
 
-	load_pml4(Page::new(offset(&ptl4_static)).to_physical());
-
 	arch::halt();
+
+	load_pml4(Page::new(offset(&ptl4_static)).to_physical());
 
 	console::set_buffer(FRAMEBUFFER_START);
 }

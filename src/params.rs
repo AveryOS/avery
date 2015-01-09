@@ -2,7 +2,6 @@ use util::FixVec;
 
 #[derive(Eq, PartialEq)]
 pub enum MemoryKind {
-	None,
 	Usable,
 	ACPI
 }
