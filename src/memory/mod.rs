@@ -1,17 +1,20 @@
 use arch;
 
-pub struct Page(uptr);
+#[derive(Copy)]
+pub struct Page(usize);
+
+#[derive(Copy)]
 pub struct PhysicalPage(uphys);
 
 pub const PAGE_ZERO: Page = Page(0);
 pub const PHYSICAL_PAGE_ZERO: PhysicalPage = PhysicalPage(0);
 
 impl Page {
-	pub fn new(ptr: uptr) -> Page {
+	pub fn new(ptr: usize) -> Page {
 		assert_page_aligned!(ptr);
 		Page(ptr)
 	}
-	pub fn ptr(&self) -> uptr {
+	pub fn ptr(&self) -> usize {
 		let Page(ptr) = *self;
 		ptr
 	}

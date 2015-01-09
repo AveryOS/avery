@@ -1,16 +1,16 @@
 #![no_main]
-#![allow(ctypes)]
-#![feature(globs, lang_items, phase, macro_rules, asm)]
-#[phase(plugin)] extern crate assembly;
+//#![allow(improper_ctypes)]
+#![feature(lang_items, plugin, asm)]
+#[plugin] #[no_link] extern crate assembly;
 
 //extern crate std;
-#[phase(plugin, link)] extern crate core;
+#[macro_use] #[allow(unstable)] extern crate core;
 extern crate rlibc;
 
-#[macro_escape]
+#[macro_use]
 mod util;
 
-#[macro_escape]
+#[macro_use]
 mod console;
 
 mod params;

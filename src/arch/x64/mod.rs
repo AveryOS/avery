@@ -11,17 +11,17 @@ pub mod console {
 #[repr(packed)]
 struct CPUPointer {
     limit: u16,
-    base: uptr
+    base: usize
 }
 
-const RFLAGS_BIT_INTERRUPT: uptr = 1u << 9;
+const RFLAGS_BIT_INTERRUPT: usize = 1us << 9;
 
 const EFER: u32 = 0xC0000080;
-const EFER_BIT_SYSCALLS: uptr = 1;
+const EFER_BIT_SYSCALLS: usize = 1;
 
 const GS_BASE: u32 = 0xC0000101;
 
-pub const PAGE_SIZE: uptr = 0x1000;
+pub const PAGE_SIZE: usize = 0x1000;
 
 
 #[allow(dead_code)]
@@ -56,7 +56,7 @@ pub fn halt() -> ! {
     }
 }
 
-unsafe fn write_msr(reg: u32, value: uptr)
+unsafe fn write_msr(reg: u32, value: usize)
 {
 	asm! {
 		[value => %eax, value >> 32 => %edx, reg => %ecx]
@@ -84,7 +84,7 @@ pub unsafe fn initialize_basic() {
 
 		// turn on write protect
         mov rax, cr0;
-        or rax, {1u << 16 => %i};
+        or rax, {1us << 16 => %i};
         mov cr0, rax;
     }
     

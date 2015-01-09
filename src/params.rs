@@ -1,10 +1,10 @@
 use util::FixVec;
 
-#[deriving(Eq, PartialEq)]
+#[derive(Eq, PartialEq)]
 pub enum MemoryKind {
-	MemoryNone,
-	MemoryUsable,
-	MemoryACPI
+	None,
+	Usable,
+	ACPI
 }
 
 #[repr(C)]
@@ -15,12 +15,12 @@ pub struct Range {
 	pub next: *mut Range
 }
 
-#[deriving(Eq, PartialEq)]
+#[derive(Eq, PartialEq)]
 pub enum SegmentKind {
-	SegmentCode,
-	SegmentReadOnlyData,
-	SegmentData,
-	SegmentModule
+	Code,
+	ReadOnlyData,
+	Data,
+	Module
 }
 
 #[repr(C)]
@@ -28,13 +28,13 @@ pub struct Segment {
 	pub kind: SegmentKind,
 	pub base: uphys,
 	pub end: uphys,
-	pub virtual_base: uptr,
+	pub virtual_base: usize,
 	pub found: bool,
-	pub name: [u8, ..0x100]
+	pub name: [u8; 0x100]
 }
 
-fix_array_struct!(MemoryRangeVec, 0x100)
-fix_array_struct!(SegmentVec, 0x10)
+fix_array_struct!(MemoryRangeVec, 0x100);
+fix_array_struct!(SegmentVec, 0x10);
 
 #[repr(C)]
 pub struct Info {

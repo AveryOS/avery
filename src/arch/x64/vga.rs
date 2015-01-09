@@ -2,24 +2,24 @@ use core::prelude::*;
 
 static mut VGA: *mut u16 = 0xb8000 as *mut u16;
 
-const SIZE_X: int = 80;
-const SIZE_Y: int = 25;
+const SIZE_X: isize = 80;
+const SIZE_Y: isize = 25;
 
-const MIN_X: int = 2;
-const MIN_Y: int = 1;
-const MAX_X: int = 78;
-const MAX_Y: int = 24;
+const MIN_X: isize = 2;
+const MIN_Y: isize = 1;
+const MAX_X: isize = 78;
+const MAX_Y: isize = 24;
 
 const COLOR: u16 = (0 << 8) | (7 << 12);
 
-static mut x: int = MIN_X;
-static mut y: int = MIN_Y;
+static mut x: isize = MIN_X;
+static mut y: isize = MIN_Y;
 
-pub fn get_buffer_info() -> (uphys, uptr) {
-	unsafe { (VGA as uphys, (SIZE_X * SIZE_Y) as uptr * size_of::<u16>()) }
+pub fn get_buffer_info() -> (uphys, usize) {
+	unsafe { (VGA as uphys, (SIZE_X * SIZE_Y) as usize * size_of::<u16>()) }
 }
 
-pub fn set_buffer(addr: uptr) {
+pub fn set_buffer(addr: usize) {
 	unsafe { VGA = addr as *mut u16 };
 }
 

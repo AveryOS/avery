@@ -5,49 +5,49 @@ use util::FixVec;
 use memory;
 use memory::{Page, PhysicalPage};
 
-pub const PAGE_SIZE: uptr = arch::PAGE_SIZE;
+pub const PAGE_SIZE: usize = arch::PAGE_SIZE;
 
-pub const MAX_OVERHEAD: uptr = PTL1_SIZE;
+pub const MAX_OVERHEAD: usize = PTL1_SIZE;
 
-pub const PTL1_SIZE: uptr = TABLE_ENTRIES * PAGE_SIZE;
-pub const PTL2_SIZE: uptr = TABLE_ENTRIES * PTL1_SIZE;
-pub const PTL3_SIZE: uptr = TABLE_ENTRIES * PTL2_SIZE;
-pub const PTL4_SIZE: uptr = TABLE_ENTRIES * PTL3_SIZE;
+pub const PTL1_SIZE: usize = TABLE_ENTRIES * PAGE_SIZE;
+pub const PTL2_SIZE: usize = TABLE_ENTRIES * PTL1_SIZE;
+pub const PTL3_SIZE: usize = TABLE_ENTRIES * PTL2_SIZE;
+pub const PTL4_SIZE: usize = TABLE_ENTRIES * PTL3_SIZE;
 
-pub const PHYSICAL_ALLOCATOR_MEMORY: uptr = KERNEL_LOCATION + PTL2_SIZE;
-pub const FRAMEBUFFER_START: uptr = PHYSICAL_ALLOCATOR_MEMORY + PTL1_SIZE;
-pub const CPU_LOCAL_START: uptr = FRAMEBUFFER_START + PTL1_SIZE;
+pub const PHYSICAL_ALLOCATOR_MEMORY: usize = KERNEL_LOCATION + PTL2_SIZE;
+pub const FRAMEBUFFER_START: usize = PHYSICAL_ALLOCATOR_MEMORY + PTL1_SIZE;
+pub const CPU_LOCAL_START: usize = FRAMEBUFFER_START + PTL1_SIZE;
 
-const TABLE_ENTRIES: uptr = 0x1000 / ::core::uint::BYTES;
+const TABLE_ENTRIES: usize = 0x1000 / ::core::uint::BYTES;
 
-pub const PRESENT_BIT: uptr = 1u << 0;
-pub const WRITE_BIT: uptr = 1u << 1;
-pub const USERMODE_BIT: uptr = 1u << 2;
-pub const WRITETHROUGH_BIT: uptr = 1u << 3;
-pub const CACHE_DISABLE_BIT: uptr = 1u << 4;
-pub const PAT_PTL1_BIT: uptr = 1u << 7;
-pub const NX_BIT: uptr = 1u << 63;
+pub const PRESENT_BIT: usize = 1us << 0;
+pub const WRITE_BIT: usize = 1us << 1;
+pub const USERMODE_BIT: usize = 1us << 2;
+pub const WRITETHROUGH_BIT: usize = 1us << 3;
+pub const CACHE_DISABLE_BIT: usize = 1us << 4;
+pub const PAT_PTL1_BIT: usize = 1us << 7;
+pub const NX_BIT: usize = 1us << 63;
 
-pub const NO_CACHE_FLAGS: uptr = WRITETHROUGH_BIT | CACHE_DISABLE_BIT | PAT_PTL1_BIT;
-pub const R_DATA_FLAGS: uptr = NX_BIT | WRITE_BIT | PRESENT_BIT;
-pub const RW_DATA_FLAGS: uptr = NX_BIT | WRITE_BIT | PRESENT_BIT;
+pub const NO_CACHE_FLAGS: usize = WRITETHROUGH_BIT | CACHE_DISABLE_BIT | PAT_PTL1_BIT;
+pub const R_DATA_FLAGS: usize = NX_BIT | WRITE_BIT | PRESENT_BIT;
+pub const RW_DATA_FLAGS: usize = NX_BIT | WRITE_BIT | PRESENT_BIT;
 
-pub const PAGE_FLAGS: uptr = 0x80000000000003FF;
+pub const PAGE_FLAGS: usize = 0x80000000000003FF;
 	
-pub const UPPER_HALF_BITS: uptr = 0xFFFF000000000000;
-pub const UPPER_HALF_START: uptr = 0xFFFF800000000000;
-pub const LOWER_HALF_END: uptr = 0x0000800000000000;
+pub const UPPER_HALF_BITS: usize = 0xFFFF000000000000;
+pub const UPPER_HALF_START: usize = 0xFFFF800000000000;
+pub const LOWER_HALF_END: usize = 0x0000800000000000;
 
-pub const KERNEL_LOCATION: uptr = 0xFFFFFFFF80000000;
+pub const KERNEL_LOCATION: usize = 0xFFFFFFFF80000000;
 
-pub const MAPPED_PML1TS: uptr = 0xFFFFFF0000000000;
-pub const MAPPED_PML2TS: uptr = KERNEL_LOCATION - PTL2_SIZE;
-pub const MAPPED_PML3TS: uptr = KERNEL_LOCATION + PTL1_SIZE * 511;
+pub const MAPPED_PML1TS: usize = 0xFFFFFF0000000000;
+pub const MAPPED_PML2TS: usize = KERNEL_LOCATION - PTL2_SIZE;
+pub const MAPPED_PML3TS: usize = KERNEL_LOCATION + PTL1_SIZE * 511;
 
 #[repr(packed)]
-struct TableEntry(uptr);
+struct TableEntry(usize);
 
-type Table = [TableEntry, ..TABLE_ENTRIES];
+type Table = [TableEntry; TABLE_ENTRIES];
 
 unsafe fn load_pml4(pml4t: PhysicalPage) {
     asm! {
@@ -87,7 +87,7 @@ extern {
     static mut ptl1_frame: Table;
 }
 
-fn decode_address(pointer: Page) -> (uptr, uptr, uptr, uptr) {
+fn decode_address(pointer: Page) -> (usize, usize, usize, usize) {
 	let mut address = pointer.ptr();
 
 	address &= !UPPER_HALF_BITS;
@@ -121,11 +121,11 @@ fn get_page_entry(pointer: Page) -> *mut TableEntry {
 		ptl1_index * ::core::uint::BYTES) as *mut TableEntry
 }
 
-fn page_table_entry(page: PhysicalPage, flags: uptr) -> TableEntry {
+fn page_table_entry(page: PhysicalPage, flags: usize) -> TableEntry {
 	TableEntry(page.addr() | flags)
 }
 
-fn map_page_table(pt: &mut Table, start_page_offset: uptr, end_page_offset: uptr, base: uphys, mut flags: uptr) {
+fn map_page_table(pt: &mut Table, start_page_offset: usize, end_page_offset: usize, base: uphys, mut flags: usize) {
 	assert_page_aligned!(base);
 
 	flags |= PRESENT_BIT;
@@ -134,7 +134,7 @@ fn map_page_table(pt: &mut Table, start_page_offset: uptr, end_page_offset: uptr
 
 	println!("kernel-base {:x}, stop: {:x} flags {:x}", KERNEL_LOCATION + start_index * PAGE_SIZE, KERNEL_LOCATION + end_index * PAGE_SIZE, flags);
 
-	println!("base {:x}, start_index: {} - end_index: {} - start_page_offset: {:x} - end_page_offset: {:x}", base, start_index, end_index, start_page_offset, end_page_offset)
+	println!("base {:x}, start_index: {} - end_index: {} - start_page_offset: {:x} - end_page_offset: {:x}", base, start_index, end_index, start_page_offset, end_page_offset);
 
 	assert!(start_index < TABLE_ENTRIES);
 	assert!(start_index < end_index);
@@ -184,10 +184,10 @@ pub unsafe fn initialize_initial(st: memory::initial::State)
 		let mut flags = NX_BIT;
 
 		match hole.kind {
-			params::SegmentModule => continue,
-			params::SegmentCode => flags &= !NX_BIT,
-			params::SegmentData => flags |= WRITE_BIT,
-			params::SegmentReadOnlyData => (),
+			params::SegmentKind::Module => continue,
+			params::SegmentKind::Code => flags &= !NX_BIT,
+			params::SegmentKind::Data => flags |= WRITE_BIT,
+			params::SegmentKind::ReadOnlyData => (),
 		}
 
 		let virtual_offset = hole.virtual_base - KERNEL_LOCATION;

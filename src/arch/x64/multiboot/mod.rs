@@ -46,15 +46,15 @@ pub fn init(info: &multiboot::Info) {
 		});
 	}
 
-	setup_segment(&mut params, params::SegmentCode, &kernel_start, &rodata_start);
-	setup_segment(&mut params, params::SegmentReadOnlyData, &rodata_start, &data_start);
-	setup_segment(&mut params, params::SegmentData, &data_start, &kernel_end);
+	setup_segment(&mut params, params::SegmentKind::Code, &kernel_start, &rodata_start);
+	setup_segment(&mut params, params::SegmentKind::ReadOnlyData, &rodata_start, &data_start);
+	setup_segment(&mut params, params::SegmentKind::Data, &data_start, &kernel_end);
 
 	for i in range(0, info.mods_count) {
-		let module = unsafe { &*(info.mods_addr as *const multiboot::Module).offset(i as int) };
+		let module = unsafe { &*(info.mods_addr as *const multiboot::Module).offset(i as isize) };
 
 		let segment = params::Segment {
-			kind: params::SegmentModule,
+			kind: params::SegmentKind::Module,
 			base: module.start as uphys,
 			end: module.end as uphys,
 			virtual_base: 0,
@@ -73,20 +73,20 @@ pub fn init(info: &multiboot::Info) {
 		segment.name[name_size] = 0;*/
 	}
 
-	let mmap_end = (info.mmap_addr + info.mmap_length) as uptr;
+	let mmap_end = (info.mmap_addr + info.mmap_length) as usize;
 
 	let mut mmap = unsafe { &*(info.mmap_addr as *const multiboot::MemoryMap) };
 
 	while offset(mmap) < mmap_end {
 		if mmap.kind == 1 {
 			params.ranges.push(params::Range {
-				kind: params::MemoryUsable,
+				kind: params::MemoryKind::Usable,
 				base: mmap.base as uphys,
 				end: (mmap.base + mmap.size) as uphys,
 				next: core::ptr::null_mut()
 			});
 		}
-		mmap = unsafe { &*((offset(mmap) + mmap.struct_size as uptr + 4) as *const multiboot::MemoryMap) };
+		mmap = unsafe { &*((offset(mmap) + mmap.struct_size as usize + 4) as *const multiboot::MemoryMap) };
 	}
 
 	::init(&mut params);

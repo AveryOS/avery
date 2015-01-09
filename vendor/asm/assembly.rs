@@ -1,6 +1,7 @@
 #![crate_type = "dylib"]
 #![crate_name = "assembly"]
-#![feature(plugin_registrar, globs, slicing_syntax)]
+#![feature(plugin_registrar)]
+#![allow(unstable)]
  
 extern crate rustc;
 extern crate syntax;
@@ -34,8 +35,8 @@ enum BindingKind {
 }
 
 enum BindingIdx {
-    Input(uint),
-    Output(uint)
+    Input(usize),
+    Output(usize)
 }
 
 struct Constraint {
@@ -48,7 +49,7 @@ struct Binding {
     constraint: Constraint,
     kind: Option<BindingKind>,
     t_idx: BindingIdx,
-    idx: uint
+    idx: usize
 }
 
 struct Data {
@@ -56,7 +57,7 @@ struct Data {
     alignstack: bool,
     volatile: bool,
     clobbers: Vec<String>,
-    idents: HashMap<String, uint>,
+    idents: HashMap<String, usize>,
     bindings: Vec<Binding>
 }
 
@@ -68,21 +69,21 @@ fn format_c(c: &Constraint, input: bool) -> token::InternedString {
     };
 
     if c.indirect {
-        base = "*".to_string() + base[];
+        base = "*".to_string() + base.as_slice();
     }
 
     let result = if input {
         base
     } else if c.early_clobber {
-        "=&".to_string() + base[]
+        "=&".to_string() + base.as_slice()
     } else {
-        "=".to_string() + base[]
+        "=".to_string() + base.as_slice()
     };
 
     intern_and_get_ident(result.as_slice())
 }
 
-fn add_binding(data: &mut Data, name: Option<String>, c: Constraint, kind: BindingKind) -> uint {
+fn add_binding(data: &mut Data, name: Option<String>, c: Constraint, kind: BindingKind) -> usize {
     let idx = data.bindings.len();
     data.bindings.push(Binding {
         constraint: c,
@@ -126,7 +127,7 @@ fn parse_let(p: &mut Parser) -> String {
     n
 }
 
-fn parse_c_arrow(p: &mut Parser, data: &mut Data) -> uint {
+fn parse_c_arrow(p: &mut Parser, data: &mut Data) -> usize {
     let c = parse_c(p);
 
     let rw = if p.eat(&token::Le) {
@@ -148,7 +149,7 @@ fn parse_c_arrow(p: &mut Parser, data: &mut Data) -> uint {
     add_binding(data, None, c, kind)
 }
 
-fn parse_operand(p: &mut Parser, data: &mut Data) -> uint {
+fn parse_operand(p: &mut Parser, data: &mut Data) -> usize {
     match p.token {
         token::BinOp(token::Percent) => {
             parse_c_arrow(p, data)
@@ -185,7 +186,7 @@ fn parse_operand(p: &mut Parser, data: &mut Data) -> uint {
     }
 }
 
-fn parse_binding(p: &mut Parser, data: &mut Data) -> uint {
+fn parse_binding(p: &mut Parser, data: &mut Data) -> usize {
     if p.token.is_keyword(keywords::Let) {
         let name = Some(parse_let(p));
         let c = parse_c(p);
@@ -227,10 +228,10 @@ fn parse_opt(cx: &mut ExtCtxt, p: &mut Parser, data: &mut Data) {
 
 enum Output {
     Str(String),
-    Binding(uint)
+    Binding(usize)
 }
 
-fn search<F: Fn(uint) -> bool>(fb: &codemap::FileMapAndBytePos, test: F, offset: uint) -> Option<u8> {
+fn search<F: Fn(usize) -> bool>(fb: &codemap::FileMapAndBytePos, test: F, offset: usize) -> Option<u8> {
     let mut p = fb.pos.to_uint();
 
     loop {

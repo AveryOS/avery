@@ -9,11 +9,12 @@ pub const USER_DATA_SEGMENT: u16 = 0x1b;
 
 #[allow(dead_code)]
 #[repr(packed)]
+#[derive(Copy)]
 pub struct TaskState {
 	reserved_0: u32,
-	rsps: [u64, ..3],
+	rsps: [u64; 3],
 	reserved_1: u64,
-	ists: [u64, ..7],
+	ists: [u64; 7],
 	reserved_2: u16,
 	reserved_3: u16,
 	io_bitmap_offse: u16,
@@ -21,9 +22,9 @@ pub struct TaskState {
 
 pub const TASK_STATE_DEF: TaskState = TaskState {
 	reserved_0: 0,
-	rsps: [0, ..3],
+	rsps: [0; 3],
 	reserved_1: 0,
-	ists: [0, ..7],
+	ists: [0; 7],
 	reserved_2: 0,
 	reserved_3: 0,
 	io_bitmap_offse: 0,
@@ -31,6 +32,7 @@ pub const TASK_STATE_DEF: TaskState = TaskState {
 
 #[allow(dead_code)]
 #[repr(packed)]
+#[derive(Copy)]
 struct TaskStateDescriptor {
 	desc: Descriptor,
 	base_higher: u32,
@@ -39,6 +41,7 @@ struct TaskStateDescriptor {
 
 #[repr(packed)]
 #[allow(dead_code)]
+#[derive(Copy)]
 struct Descriptor {
     limit_low: u16,
     base_low: u16,
@@ -59,16 +62,16 @@ const DESCRIPTOR_DEF: Descriptor = Descriptor {
 
 #[repr(packed)]
 struct GDT	{
-	 segments: [Descriptor, ..5],
-	 tsds: [TaskStateDescriptor, ..cpu::MAX_CPUS],
+	 segments: [Descriptor; 5],
+	 tsds: [TaskStateDescriptor; cpu::MAX_CPUS],
 }
 
 static mut GDT: GDT = GDT {
-	segments: [DESCRIPTOR_DEF, ..5],
-	tsds: [TaskStateDescriptor {desc: DESCRIPTOR_DEF, base_higher: 0, reserved_1: 0}, ..cpu::MAX_CPUS]
+	segments: [DESCRIPTOR_DEF; 5],
+	tsds: [TaskStateDescriptor {desc: DESCRIPTOR_DEF, base_higher: 0, reserved_1: 0}; cpu::MAX_CPUS]
 };
 
-fn set_segment(index: uint, code: bool, usermode: bool) {
+fn set_segment(index: usize, code: bool, usermode: bool) {
 	let segment = unsafe { &mut GDT.segments[index] };
 
 	segment.access = 0b10010010 | // preset, user_segment, readable 
@@ -93,7 +96,7 @@ fn set_task_segment(tss: &'static TaskState) {
 }
 
 extern {
-	fn load_segments(data: uptr, code: uptr);
+	fn load_segments(data: usize, code: usize);
 } 
 
 pub unsafe fn initialize_gdt() {
@@ -111,7 +114,7 @@ pub unsafe fn initialize_gdt() {
         lgdt {&gdt_ptr => %*m};
     }
     
-	load_segments(DATA_SEGMENT as uptr, CODE_SEGMENT as uptr);
+	load_segments(DATA_SEGMENT as usize, CODE_SEGMENT as usize);
 }
 
 pub unsafe fn setup_tss() {

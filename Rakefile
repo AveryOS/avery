@@ -51,7 +51,7 @@ def rust_base(build, prefix, flags)
 	mkdirs(crates)
 
 	run 'rustc', *RUSTFLAGS, *flags, 'vendor/rust/src/libcore/lib.rs', '--out-dir', crates
-	run 'rustc', '-L', File.join(prefix, "crates"), *RUSTFLAGS, *flags, '--crate-type', 'rlib',  'vendor/rlibc/src/lib.rs', '--out-dir', crates
+	run 'rustc', '-L', File.join(prefix, "crates"), *RUSTFLAGS, *flags, '--crate-type', 'rlib', '--crate-name', 'rlibc', 'vendor/rlibc/src/lib.rs', '--out-dir', crates
 end
 
 def rust_crate(build, base_prefix, prefix, flags, src, src_flags)
@@ -141,11 +141,8 @@ task :base do
 
 		rust_base(build, build.output(""), %w{--target x86_64-avery-kernel})
 
-		lib_dir = build.output "sysroot/bin/rustlib/x86_64-avery-kernel/lib"
-
-		mkdirs(lib_dir)
-		run 'rustc', '-L', 'build/crates', *RUSTFLAGS, '--target', 'x86_64-avery-kernel', 'src/std/std.rs', '--out-dir', lib_dir
-		run 'rustc', '-L', 'build/crates', *RUSTFLAGS, '--target', 'x86_64-avery-kernel', 'src/std/native.rs', '--out-dir', lib_dir
+		run 'rustc', '-L', 'build/crates', *RUSTFLAGS, '--target', 'x86_64-avery-kernel', 'src/std/std.rs', '--out-dir', build.output("crates")
+		#run 'rustc', '-L', 'build/crates', *RUSTFLAGS, '--target', 'x86_64-avery-kernel', 'src/std/native.rs', '--out-dir', build.output("crates")
 
 		rust_base(build, build.output("bootstrap"), %w{--target x86_32-avery-kernel})
 

@@ -1,43 +1,48 @@
-use core::fmt::{FormatWriter, Arguments, FormatError};
+use core::fmt::{Writer, Arguments, Error};
 
 pub use arch;
 
 struct ScreenWriter;
 
-impl FormatWriter for ScreenWriter {
-    fn write(&mut self, bytes: &[u8]) -> Result<(), FormatError> {
-		for c in bytes.iter() {
-			arch::console::putc(*c as char);
+impl Writer for ScreenWriter {
+    fn write_str(&mut self, s: &str) -> Result<(), Error> {
+		for c in s.chars() {
+			arch::console::putc(c);
 		}
 
 		Ok(())
     }
 }
 
-macro_rules! print(
-    ($fmt:expr $($arg:tt)*) => (
-        format_args!(::console::print_args, $fmt $($arg)*)
+macro_rules! print {
+    ($($arg:tt)*) => (
+        ::console::print_args(format_args!($($arg)*))
     )
-)
+}
 
-macro_rules! println(
-    ($fmt:expr $($arg:tt)*) => (
-        format_args!(::console::print_args, concat!($fmt, "\n") $($arg)*)
+macro_rules! println {
+    ($($arg:tt)*) => (
+        ::console::println_args(format_args!($($arg)*))
     )
-)
+}
 
-macro_rules! panic(
-    ($fmt:expr $($arg:tt)*) => (
-        format_args!(::console::panic, concat!($fmt, "\n") $($arg)*)
+macro_rules! panic {
+    ($($arg:tt)*) => (
+        ::console::panic(format_args!($($arg)*))
     )
-)
+}
 
-pub fn print_args(args: &Arguments) {
+pub fn println_args(args: Arguments) {
+    assert!(ScreenWriter.write_fmt(args).is_ok());
+    arch::console::putc('\n');
+}
+
+pub fn print_args(args: Arguments) {
 	assert!(ScreenWriter.write_fmt(args).is_ok());
 }
 
-pub fn panic(args: &Arguments) -> ! {
-	print!("Panic: ")
+pub fn panic(args: Arguments) -> ! {
+	print!("Panic: ");
 	assert!(ScreenWriter.write_fmt(args).is_ok());
 	arch::halt();
 }
@@ -45,7 +50,7 @@ pub fn panic(args: &Arguments) -> ! {
 #[lang = "begin_unwind"]
 extern fn begin_unwind(args: &Arguments,
                        file: &str,
-                       line: uint) -> ! {
+                       line: usize) -> ! {
     panic!("Error (begin_unwind): {} in {}:{}", args, file, line);
 }
 
@@ -60,7 +65,7 @@ extern fn stack_exhausted()
     panic!("Exceptions not supported");
 }
 
-#[lang = "fail_fmt"]
-extern fn fail_fmt(fmt: &Arguments, file: &'static str, line: uint) -> ! {
-    panic!("Error (fail_fmt)\nMsg: {}\nLoc: {}:{}", fmt, file, line);
+#[lang = "panic_fmt"]
+extern fn panic_fmt(fmt: &Arguments, file: &'static str, line: usize) -> ! {
+    panic!("Error\nMsg: {}\nLoc: {}:{}", fmt, file, line);
 }

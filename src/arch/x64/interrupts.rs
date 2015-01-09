@@ -36,26 +36,26 @@ unsafe fn setup_pics() {
 #[repr(packed)]
 struct Info {
 	ds: u16,
-	padding: [u16, ..3],
+	padding: [u16; 3],
 	registers: arch::GeneralRegisters,
 	ss: u64,
 }
 
-pub type Handler = extern fn (info: &Info, index: u8, error_code: uptr);
+pub type Handler = extern fn (info: &Info, index: u8, error_code: usize);
 
-const HANDLER_COUNT: uint = 256; // Same as in interrupts.s 
+const HANDLER_COUNT: usize = 256; // Same as in interrupts.s 
 
 extern {
 	#[link_name = "interrupt_handlers"]
-	pub static mut HANDLERS: [Handler, ..HANDLER_COUNT];
+	pub static mut HANDLERS: [Handler; HANDLER_COUNT];
 
 	#[link_name = "isr_stubs"]
-	static ISR_STUBS: [unsafe extern fn(), ..(HANDLER_COUNT - 1)];
+	static ISR_STUBS: [unsafe extern fn(); HANDLER_COUNT - 1];
 
 	fn spurious_irq();
 }
 
-extern fn default_handler(info: &Info, index: u8, error_code: uptr)
+extern fn default_handler(info: &Info, index: u8, error_code: usize)
 {
 	let mut cr2: u64 = 0;
 
@@ -73,6 +73,7 @@ extern fn default_handler(info: &Info, index: u8, error_code: uptr)
 
 #[allow(dead_code)]
 #[repr(packed)]
+#[derive(Copy)]
 struct Gate {
 	target_low: u16,
 	segment_selector: u16,
@@ -107,12 +108,12 @@ const GATE_DEF: Gate = Gate {
 	reserved_1: 0,
 };
 
-static mut IDT: [Gate, ..HANDLER_COUNT] = [GATE_DEF, ..HANDLER_COUNT];
+static mut IDT: [Gate; HANDLER_COUNT] = [GATE_DEF; HANDLER_COUNT];
 
 unsafe fn set_gate(index: u8, stub: unsafe extern fn ()) {
-	let target: uptr = transmute(stub);
+	let target: usize = transmute(stub);
 
-	let gate = &mut IDT[index as uint];
+	let gate = &mut IDT[index as usize];
 
 	gate.target_low = target as u16;
 	gate.target_medium = (target >> 16) as u16;
@@ -127,7 +128,7 @@ pub unsafe fn initialize_idt() {
 	setup_pics();
 
 	for i in range(0u8, 0xFF) {
-		set_gate(i, ISR_STUBS[i as uint]);
+		set_gate(i, ISR_STUBS[i as usize]);
 	}
 
 	set_gate(0xFF, spurious_irq);

@@ -3,9 +3,10 @@ use arch;
 use memory;
 use cpu;
 
+#[derive(Copy)]
 pub struct CPU {
 	pub tss: segments::TaskState,
-	pub stack_end: uptr,
+	pub stack_end: usize,
 }
 
 pub const CPU_DEF: CPU = CPU {
@@ -17,7 +18,7 @@ pub unsafe fn setup_gs(cpu: &'static mut cpu::CPU) {
 	arch::write_msr(arch::GS_BASE, offset(cpu));
 }
 
-pub fn setup(cpu: &mut cpu::CPU, index: uptr) {
+pub fn setup(cpu: &mut cpu::CPU, index: usize) {
 	cpu.index = index;
 	cpu.local_pages = memory::Page::new(arch::memory::CPU_LOCAL_START + index * arch::PAGE_SIZE * cpu::LOCAL_PAGE_COUNT);
 }

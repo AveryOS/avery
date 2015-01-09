@@ -6,7 +6,7 @@ use util::FixVec;
 
 pub struct State<'a> {
 	pub info: &'a mut params::Info,
-	pub overhead: uptr,
+	pub overhead: usize,
 	list: *mut Range,
 	pub entry: *mut Range // The entry used to store allocator data
 }
@@ -15,7 +15,7 @@ unsafe fn load_memory_map(info: &mut params::Info) -> *mut Range {
 	let mut list = null_mut();
 
 	for entry in info.ranges.iter_mut() {
-		if entry.kind == params::MemoryUsable {
+		if entry.kind == params::MemoryKind::Usable {
 			if entry.base < arch::PAGE_SIZE * 2 { // Ignore the first two pages
 				entry.base = arch::PAGE_SIZE * 2;
 			}
@@ -75,7 +75,7 @@ unsafe fn punch_holes(st: &mut State) {
 					entry.end = hole.base;
 
 					st.info.ranges.push(params::Range {
-						kind: params::MemoryUsable,
+						kind: params::MemoryKind::Usable,
 						base: hole.end,
 						end: entry_end,
 						next: entry.next
@@ -185,12 +185,12 @@ pub unsafe fn initialize_physical(info: &mut params::Info) -> State {
 		let entry = &mut *_entry;
 
 		memory_in_pages += (entry.end - entry.base) / arch::PAGE_SIZE;
-		st.overhead += size_of::<physical::Hole>() + size_of::<uptr>() * align_up(entry.end - entry.base, physical::BYTE_MAP_SIZE) / physical::BYTE_MAP_SIZE;
+		st.overhead += size_of::<physical::Hole>() + size_of::<usize>() * align_up(entry.end - entry.base, physical::BYTE_MAP_SIZE) / physical::BYTE_MAP_SIZE;
 	
 		_entry = entry.next;
 	}
 
-	println!("Available memory: {} MiB", memory_in_pages * arch::PAGE_SIZE / 0x100000)
+	println!("Available memory: {} MiB", memory_in_pages * arch::PAGE_SIZE / 0x100000);
 	
 	assert!(st.overhead <= (*st.entry).end - (*st.entry).base); // Memory allocation overhead is larger than the biggest memory block
 	assert!(st.overhead <= arch::memory::MAX_OVERHEAD); // Memory map doesn't fit in 2 MB.

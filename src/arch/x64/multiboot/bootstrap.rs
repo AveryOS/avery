@@ -1,10 +1,10 @@
 #![no_std]
-#![allow(ctypes)]
+#![allow(unstable)]
 #![crate_type = "staticlib"]
-#![feature(asm, globs, lang_items, phase)]
-#[phase(plugin)] extern crate assembly;
+#![feature(asm, lang_items, plugin)]
+#[plugin] #[no_link] extern crate assembly;
 
-extern crate core;
+#[allow(unstable)] extern crate core;
 extern crate rlibc;
 
 use core::prelude::*;
@@ -15,7 +15,7 @@ use multiboot::*;
 #[lang = "begin_unwind"] fn begin_unwind() {}
 #[lang = "stack_exhausted"] fn stack_exhausted() {}
 #[lang = "eh_personality"] fn eh_personality() {}
-#[lang = "fail_fmt"] fn fail_fmt() {}
+#[lang = "panic_fmt"] fn panic_fmt() {}
 
 type Table = [u64; 512];
 
@@ -102,11 +102,11 @@ fn error(s: &str) -> ! {
     let vga = 0xb8000 as *mut u16;
 
     unsafe {
-        for i in range(0i, 80 * 25) {
+        for i in 0is..(80 * 25) {
             *vga.offset(i) = 0;
         }
 
-        let mut i = 0i;
+        let mut i = 0is;
         for c in s.chars() {
             *vga.offset(82 + i) = c as u16 | (12 << 8);
             i += 1;
@@ -138,7 +138,7 @@ pub unsafe extern fn setup_long_mode(multiboot: u32, magic: u32) {
 
     let mut physical = offset(&low_end);
 
-    for i in range(0, offset(&kernel_size) as uint) { 
+    for i in 0..(offset(&kernel_size) as usize) { 
         pt[i] = physical | 3;
         physical += 0x1000;
     }
@@ -153,7 +153,7 @@ pub unsafe extern fn setup_long_mode(multiboot: u32, magic: u32) {
 
     let mut address = 0;
 
-    for i in range(0, 512) { 
+    for i in 0..512 { 
         pt_low[i] = address | 3;
         address += 0x1000;
     }
@@ -182,20 +182,20 @@ pub unsafe extern fn setup_long_mode(multiboot: u32, magic: u32) {
     
     asm! {
         // set the long mode bit and nx enable bit
-        [0xC0000080u => %ecx, use eax, use edx]
+        [0xC0000080us => %ecx, use eax, use edx]
 
         rdmsr;
-        or eax, {1u << 8 => %i};
+        or eax, {1us << 8 => %i};
         wrmsr;
 
         // enable PAE
         mov eax, cr4;
-        or eax, {1u << 5 => %i};
+        or eax, {1us << 5 => %i};
         mov cr4, eax;
 
         // enable paging
         mov eax, cr0;
-        or eax, {1u << 31 => %i};
+        or eax, {1us << 31 => %i};
         mov cr0, eax;
     }
     
