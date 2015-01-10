@@ -5,7 +5,7 @@ use util::FixVec;
 use memory;
 use memory::{Page, PhysicalPage};
 
-pub const PAGE_SIZE: usize = arch::PAGE_SIZE;
+pub use arch::PAGE_SIZE;
 
 pub const MAX_OVERHEAD: usize = PTL1_SIZE;
 
@@ -55,12 +55,6 @@ unsafe fn load_pml4(pml4t: PhysicalPage) {
         [pml4t.addr() => %rax, use memory]
 
         mov cr3, rax;
-        hm:
-        mov r11, rsp;
-        mov r13, rsp;
-        push rax;
-        xchg bx, bx;
-        jmp hm;
     }
 }
 
@@ -142,9 +136,6 @@ fn map_page_table(pt: &mut Table, start_page_offset: usize, end_page_offset: usi
 	assert!(end_index < TABLE_ENTRIES);
 
 	for i in range(start_index, end_index) {
-		let TableEntry(t) = page_table_entry(PhysicalPage::new(base + (i - start_index) * PAGE_SIZE), flags);
-		println!("addr {:x}, phys: {:x}", KERNEL_LOCATION + i * PAGE_SIZE, t);
-
 		pt[i] = page_table_entry(PhysicalPage::new(base + (i - start_index) * PAGE_SIZE), flags);
 	}
 }
@@ -197,8 +188,6 @@ pub unsafe fn initialize_initial(st: memory::initial::State)
 
 		map_page_table(&mut ptl1_kernel, virtual_offset, virtual_offset + hole.end - hole.base, hole.base, flags);
 	}
-
-	arch::halt();
 
 	load_pml4(Page::new(offset(&ptl4_static)).to_physical());
 

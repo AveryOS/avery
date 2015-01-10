@@ -185,7 +185,7 @@ pub unsafe extern fn setup_long_mode(multiboot: u32, magic: u32) {
         [0xC0000080us => %ecx, use eax, use edx]
 
         rdmsr;
-        or eax, {1us << 8 => %i};
+        or eax, {((1us << 8) | (1us << 11)) => %i};
         wrmsr;
 
         // enable PAE
