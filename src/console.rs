@@ -48,7 +48,7 @@ pub fn panic(args: Arguments) -> ! {
 }
 
 #[lang = "begin_unwind"]
-extern fn begin_unwind(args: &Arguments,
+extern fn begin_unwind(args: Arguments,
                        file: &str,
                        line: usize) -> ! {
     panic!("Error (begin_unwind): {} in {}:{}", args, file, line);
@@ -60,12 +60,13 @@ extern fn stack_exhausted()
     panic!("Stack overflow, which should not happen");
 }
 
-#[lang = "eh_personality"] extern fn eh_personality()
+#[lang = "eh_personality"]
+extern fn eh_personality()
 {
     panic!("Exceptions not supported");
 }
 
 #[lang = "panic_fmt"]
-extern fn panic_fmt(fmt: &Arguments, file: &'static str, line: usize) -> ! {
+extern fn panic_fmt(fmt: Arguments, file: &'static str, line: usize) -> ! {
     panic!("Error\nMsg: {}\nLoc: {}:{}", fmt, file, line);
 }
