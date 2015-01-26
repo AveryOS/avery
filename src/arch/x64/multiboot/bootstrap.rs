@@ -65,8 +65,6 @@ struct GDT64Pointer {
     base: u64
 }
 
-static mut GDT64_POINTER: GDT64Pointer = GDT64Pointer {limit: 0, base: 0};
-
 fn offset<T>(ptr: &'static T) -> u64 {
     ptr as *const T as u64
 }
@@ -126,10 +124,6 @@ pub unsafe extern fn setup_long_mode(multiboot: u32, magic: u32) {
         error("Multiboot structure loaded too high in memory");
     }
 
-    // setup the gdt pointer
-    GDT64_POINTER.limit = size_of_val(&GDT) as u16 - 1;
-    GDT64_POINTER.base = offset(&GDT);
-    
     // setup the higher-half
     pml4t[510] = offset(&pml4t) | 3;
     pml4t[511] = offset(&pdpt) | 3;
@@ -153,7 +147,7 @@ pub unsafe extern fn setup_long_mode(multiboot: u32, magic: u32) {
 
     let mut address = 0;
 
-    for i in 0..512 { 
+    for i in 0us..512 { 
         pt_low[i] = address | 3;
         address += 0x1000;
     }
@@ -168,9 +162,14 @@ pub unsafe extern fn setup_long_mode(multiboot: u32, magic: u32) {
         error("Long mode is not supported (bit was not set)!");
     }
     
+    let gdt_ptr = GDT64Pointer {
+        limit: size_of_val(&GDT) as u16 - 1,
+        base: offset(&GDT)
+    };
+
     // load the 64-bit GDT
     asm! {
-        lgdt {&GDT64_POINTER => %*m};
+        lgdt {&gdt_ptr => %*m};
     }
     
     // load PML4T into CR3
@@ -203,7 +202,7 @@ pub unsafe extern fn setup_long_mode(multiboot: u32, magic: u32) {
     asm! {
         [multiboot => %ecx, mod attsyntax]
 
-        ljmp {size_of::<Descriptor>() => %i}, $bootstrap.64
+        ljmp $8, $bootstrap.64
     }
 
     halt();

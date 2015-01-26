@@ -232,7 +232,7 @@ enum Output {
 }
 
 fn search<F: Fn(usize) -> bool>(fb: &codemap::FileMapAndBytePos, test: F, offset: usize) -> Option<u8> {
-    let mut p = fb.pos.to_uint();
+    let mut p = fb.pos.to_usize();
 
     loop {
         if test(p) {
@@ -270,7 +270,7 @@ fn is_whitespace_left(cx: &ExtCtxt, sp: codemap::Span) -> bool {
 fn is_whitespace_right(cx: &ExtCtxt, sp: codemap::Span) -> bool {
     let cm = &cx.parse_sess.span_diagnostic.cm;
     let mut fb = cm.lookup_byte_offset(sp.hi);
-    fb.pos = codemap::Pos::from_uint(fb.pos.to_uint() - 1);
+    fb.pos = codemap::Pos::from_usize(fb.pos.to_usize() - 1);
     is_whitespace(search(&fb, |p| { p >= fb.fm.src.len() - 1 }, 1))
 }
 

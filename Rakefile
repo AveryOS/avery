@@ -260,7 +260,7 @@ task :vendor do
 		run 'rm', '-rf', "install"
 		mkdirs("install")
 
-		build.("ftp://ftp.gnu.org/gnu/binutils/", "binutils", "2.24") do |src, prefix|
+		build.("ftp://ftp.gnu.org/gnu/binutils/", "binutils", "2.25") do |src, prefix|
 			run File.join(src, 'configure'), "--prefix=#{prefix}", *%w{--target=x86_64-elf --with-sysroot --disable-nls --disable-werror}
 		end
 
