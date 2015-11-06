@@ -1,10 +1,9 @@
 #![no_std]
 #![allow(unstable)]
 #![crate_type = "staticlib"]
-#![feature(asm, lang_items, plugin)]
-#[plugin] #[no_link] extern crate assembly;
+#![feature(no_std, asm, lang_items, plugin)]
+#![plugin(assembly)]
 
-#[allow(unstable)] extern crate core;
 extern crate rlibc;
 
 use core::prelude::*;
@@ -26,7 +25,7 @@ pub static HEADER: Header = Header {
     magic: HEADER_MAGIC,
     flags: HEADER_FLAG_PAGE_ALIGN | HEADER_FLAG_MEMORY_INFO,
     checksum: 0 - (HEADER_MAGIC + (HEADER_FLAG_PAGE_ALIGN | HEADER_FLAG_MEMORY_INFO))
-}; 
+};
 
 extern {
     static mut pdpt_low: Table;
@@ -79,7 +78,7 @@ struct CPUIDResult {
 unsafe fn cpuid(input: u32) -> CPUIDResult {
     let mut result: CPUIDResult = uninitialized();
 
-    asm! {
+    asm2! {
         [input => %eax => result.eax, %ebx => result.ebx, %ecx => result.ecx, %edx => result.edx]
 
         cpuid
@@ -100,11 +99,11 @@ fn error(s: &str) -> ! {
     let vga = 0xb8000 as *mut u16;
 
     unsafe {
-        for i in 0is..(80 * 25) {
+        for i in 0isize..(80 * 25) {
             *vga.offset(i) = 0;
         }
 
-        let mut i = 0is;
+        let mut i = 0isize;
         for c in s.chars() {
             *vga.offset(82 + i) = c as u16 | (12 << 8);
             i += 1;
@@ -132,7 +131,7 @@ pub unsafe extern fn setup_long_mode(multiboot: u32, magic: u32) {
 
     let mut physical = offset(&low_end);
 
-    for i in 0..(offset(&kernel_size) as usize) { 
+    for i in 0..(offset(&kernel_size) as usize) {
         pt[i] = physical | 3;
         physical += 0x1000;
     }
@@ -147,7 +146,7 @@ pub unsafe extern fn setup_long_mode(multiboot: u32, magic: u32) {
 
     let mut address = 0;
 
-    for i in 0us..512 { 
+    for i in 0usize..512 {
         pt_low[i] = address | 3;
         address += 0x1000;
     }
@@ -155,13 +154,13 @@ pub unsafe extern fn setup_long_mode(multiboot: u32, magic: u32) {
     if cpuid(0x80000000).eax < 0x80000001 {
         error("Long mode is not supported (no extended flags was found)!");
     }
-    
+
     let long_mode_flag = 1 << 29;
-    
+
     if cpuid(0x80000001).edx & long_mode_flag == 0 {
         error("Long mode is not supported (bit was not set)!");
     }
-    
+
     let gdt_ptr = GDT64Pointer {
         limit: size_of_val(&GDT) as u16 - 1,
         base: offset(&GDT)
@@ -171,14 +170,14 @@ pub unsafe extern fn setup_long_mode(multiboot: u32, magic: u32) {
     asm! {
         lgdt {&gdt_ptr => %*m};
     }
-    
+
     // load PML4T into CR3
     asm! {
         [&pml4t => %eax]
 
         mov cr3, eax;
     }
-    
+
     asm! {
         // set the long mode bit and nx enable bit
         [0xC0000080us => %ecx, use eax, use edx]
@@ -197,7 +196,7 @@ pub unsafe extern fn setup_long_mode(multiboot: u32, magic: u32) {
         or eax, {1us << 31 => %i};
         mov cr0, eax;
     }
-    
+
     // do a far jump into long mode, pass multiboot information in %ecx
     asm! {
         [multiboot => %ecx, mod attsyntax]

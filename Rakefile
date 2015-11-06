@@ -3,6 +3,7 @@ require_relative 'rake/build'
 require_relative 'rake/lokar'
 
 ENV['RUST_TARGET_PATH'] = File.expand_path('../targets', __FILE__)
+ENV['RUST_BACKTRACE'] = '1'
 
 PREFIX = File.expand_path('../vendor/install/bin', __FILE__)
 
@@ -38,7 +39,7 @@ def assemble(build, source, objects)
 	build.process object_file, source.path do
 		run AS, source.path, '-o', object_file
 	end
-	
+
 	objects << object_file
 end
 
@@ -70,7 +71,7 @@ build_kernel = proc do
 	kernel_assembly_bootstrap = build.output "#{type}/bootstrap.s"
 
 	sources = build.package('src/**/*')
-	
+
 	efi_files = sources.extract('src/arch/x64/efi/**/*')
 	multiboot_files = sources.extract('src/arch/x64/multiboot/**/*')
 
@@ -79,14 +80,14 @@ build_kernel = proc do
 	else
 		sources.add efi_files
 	end
-	
+
 	bitcodes = []
 	bitcodes_bootstrap = []
 	objects = ['vendor/font.o', kernel_object]
 
 	build.run do
 		rust_crate(build, "build", build.output("#{type}"), %w{--target x86_64-avery-kernel}, 'src/kernel.rs', ['--emit=obj,llvm-ir'] + (type == :multiboot ? ['--cfg', 'multiboot'] : []))
-	
+
 		interrupts_asm = 'src/arch/x64/interrupts.s'
 		interrupts_asm_out = build.output File.join("gen", interrupts_asm)
 
@@ -95,31 +96,31 @@ build_kernel = proc do
 		build.process interrupts_asm_out, interrupts_asm do |o, i|
 			preprocess(interrupts_asm, interrupts_asm_out, binding)
 		end
-		
+
 		sources.add build.package(interrupts_asm_out)
-		
+
 		sources.each do |source|
 			case source.ext.downcase
 				when '.s'
 					assemble(build, source, objects)
 			end
 		end
-		
+
 		puts "Linking..."
-		
+
 		objects << kernel_object_bootstrap if type == :multiboot
-		
+
 		kernel_linker_script = build.output "#{type}/kernel.ld"
-	
+
 		build.process kernel_linker_script, 'src/arch/x64/kernel.ld' do |o, i|
 			multiboot = type == :multiboot
 			preprocess(i, kernel_linker_script, binding)
 		end
-		
+
 		build.process kernel_binary, *objects, kernel_linker_script do
 			run LD, '-z', 'max-page-size=0x1000', '-T', kernel_linker_script, *objects, '-o', kernel_binary
 		end
-		
+
 		case type
 			when :multiboot
 				run 'mcopy', '-D', 'o', '-D', 'O', '-i' ,'emu/grubdisk.img@@1M', kernel_binary, '::kernel.elf'
@@ -142,7 +143,6 @@ task :base do
 		rust_base(build, build.output(""), %w{--target x86_64-avery-kernel})
 
 		run 'rustc', '-L', 'build/crates', *RUSTFLAGS, '--target', 'x86_64-avery-kernel', 'src/std/std.rs', '--out-dir', build.output("crates")
-		#run 'rustc', '-L', 'build/crates', *RUSTFLAGS, '--target', 'x86_64-avery-kernel', 'src/std/native.rs', '--out-dir', build.output("crates")
 
 		rust_base(build, build.output("bootstrap"), %w{--target x86_32-avery-kernel})
 
@@ -194,7 +194,7 @@ task :qemu_efi => :build_boot do
 end
 
 task :bochsdbg => :build do
-	
+
 	Dir.chdir('emu/') do
 		puts "Running Bochs..."
 		run 'bochs\bochsdbg', '-q', '-f', 'avery.bxrc'
@@ -202,7 +202,7 @@ task :bochsdbg => :build do
 end
 
 task :bochs => :build do
-	
+
 	Dir.chdir('emu/') do
 		puts "Running Bochs..."
 		run 'bochs\bochs', '-q', '-f', 'avery.bxrc'
@@ -257,12 +257,12 @@ task :vendor do
 	end
 
 	Dir.chdir('vendor/') do
-		run 'rm', '-rf', "install"
+		run 'rm', '-rf', "install" unless Gem.win_platform?
 		mkdirs("install")
 
 		build.("ftp://ftp.gnu.org/gnu/binutils/", "binutils", "2.25") do |src, prefix|
 			run File.join(src, 'configure'), "--prefix=#{prefix}", *%w{--target=x86_64-elf --with-sysroot --disable-nls --disable-werror}
-		end
+		end unless Gem.win_platform?
 
 		build.("ftp://ftp.gnu.org/gnu/libiconv/", "libiconv", "1.14", "gz") do |src, prefix|
 			run File.join(src, 'configure'), "--prefix=#{prefix}"
@@ -274,7 +274,7 @@ task :vendor do
 				run 'patch', '-i', "../../mtools-fix.diff"
 			end
 			run File.join(src, 'configure'), "--prefix=#{prefix}", "LIBS=-liconv"
-		end
+		end unless Gem.win_platform?
 
 		build.("ftp://ftp.gnu.org/gnu/grub/", "grub", "2.00", "xz") do |src, prefix|
 			run 'cp', '-rf', "../../binutils/install", ".."
@@ -298,7 +298,7 @@ task :update do
 		Dir.chdir('rlibc/') do
 			run *%w{git pull origin master}
 		end
-		
+
 		Dir.chdir('rust/') do
 			run *%w{git checkout master}
 			run *%w{git pull origin master}

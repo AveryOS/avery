@@ -1,17 +1,16 @@
 #![crate_name = "std"]
 #![crate_type = "rlib"]
-#![allow(unstable)]
+#![feature(no_std, zero_one)]
 #![no_std]
-
-extern crate core;
 
 pub use core::ptr;
 pub use core::{fmt, slice, num, cmp, ops, marker};
 
 #[allow(non_camel_case_types, dead_code)]
 pub mod prelude {
-	pub mod v1 {	
-		use core::num::Int;
+	pub mod v1 {
+		use core::ops::{Add, Sub, BitAnd, Not};
+		use core::num::One;
 
 	    pub use core::prelude::*;
 
@@ -29,16 +28,15 @@ pub mod prelude {
 		    ptr as *const T as usize
 		}
 
-
-		pub fn align_up<T: Int>(value: T, mut alignment: T) -> T
+		pub fn align_up<T: Clone + One + Add<Output=T> + Sub<Output=T> + BitAnd<Output=T> + Not<Output=T>>(value: T, mut alignment: T) -> T
 		{
-			alignment = alignment - Int::one();
-			(value + alignment) & !alignment
+			alignment = alignment - One::one();
+			(value + alignment.clone()) & !alignment
 		}
 
-		pub fn align_down<T: Int>(value: T, alignment: T) -> T
+		pub fn align_down<T: One + Sub<Output=T> + BitAnd<Output=T> + Not<Output=T>>(value: T, alignment: T) -> T
 		{
-			value & !(alignment - Int::one())
+			value & !(alignment - One::one())
 		}
 	}
 }

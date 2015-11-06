@@ -1,29 +1,42 @@
 #![crate_type = "dylib"]
 #![crate_name = "assembly"]
-#![feature(plugin_registrar)]
-#![allow(unstable)]
- 
+#![feature(plugin_registrar, rustc_private)]
+#![allow()]
+
 extern crate rustc;
 extern crate syntax;
- 
+
 use std::collections::HashMap;
 use syntax::ptr::P;
 use syntax::ast;
-use syntax::ast::{TokenTree, Expr};
+use syntax::ast::{TokenTree, Expr, AsmDialect};
 use syntax::codemap;
 use syntax::codemap::Pos;
-use syntax::ext::base::{ExtCtxt, MacResult, MacExpr};
-use rustc::plugin::Registry; 
+use syntax::ext::base::{ExtCtxt, MacResult, MacEager};
+use rustc::plugin::Registry;
 use syntax::parse::parser::Parser;
 use syntax::parse::token;
 use syntax::parse::token::{keywords, intern_and_get_ident};
 use syntax::parse::common::seq_sep_trailing_allowed;
 use syntax::ext::asm::expand_asm;
 use syntax::print::pprust::token_to_string;
+use syntax::util::parser::AssocOp;
+use syntax::parse::PResult;
+
+macro_rules! panictry {
+    ($e:expr) => ({
+        use std::result::Result::{Ok, Err};
+        use syntax::diagnostic::FatalError;
+        match $e {
+            Ok(e) => e,
+            Err(FatalError) => panic!(FatalError)
+        }
+    })
+}
 
 #[plugin_registrar]
 pub fn plugin_registrar(reg: &mut Registry) {
-    reg.register_macro("asm", expand)
+    reg.register_macro("asm", expand);
 }
 
 enum BindingKind {
@@ -53,7 +66,7 @@ struct Binding {
 }
 
 struct Data {
-    dialect: syntax::ast::AsmDialect,
+    dialect: AsmDialect,
     alignstack: bool,
     volatile: bool,
     clobbers: Vec<String>,
@@ -69,18 +82,18 @@ fn format_c(c: &Constraint, input: bool) -> token::InternedString {
     };
 
     if c.indirect {
-        base = "*".to_string() + base.as_slice();
+        base = "*".to_string() + &base;
     }
 
     let result = if input {
         base
     } else if c.early_clobber {
-        "=&".to_string() + base.as_slice()
+        "=&".to_string() + &base
     } else {
-        "=".to_string() + base.as_slice()
+        "=".to_string() + &base
     };
 
-    intern_and_get_ident(result.as_slice())
+    intern_and_get_ident(&result)
 }
 
 fn add_binding(data: &mut Data, name: Option<String>, c: Constraint, kind: BindingKind) -> usize {
@@ -97,44 +110,40 @@ fn add_binding(data: &mut Data, name: Option<String>, c: Constraint, kind: Bindi
     idx
 }
 
-fn get_ident(p: &mut Parser) -> String {
+fn get_ident(p: &mut Parser) -> PResult<String> {
     match p.token {
         token::Ident(id, _) => {
-            p.bump();
-            id.name.as_str().to_string()
+            try!(p.bump());
+            Ok(id.name.as_str().to_string())
         }
         _ => {
-            p.unexpected()
+            Err(p.unexpected())
         }
     }
 }
 
-fn parse_c(p: &mut Parser) -> Constraint {
-    if p.eat(&token::BinOp(token::Percent)) {
-        let early_clobber = p.eat(&token::BinOp(token::And));
-        let indirect = p.eat(&token::BinOp(token::Star));
-        Constraint { name: get_ident(p), indirect: indirect, early_clobber: early_clobber }
-    } else {
-        p.expect(&token::BinOp(token::Percent));
-        unreachable!()
-    }
+fn parse_c(p: &mut Parser) -> PResult<Constraint> {
+    try!(p.expect(&token::BinOp(token::Percent)));
+    let early_clobber = try!(p.eat(&token::BinOp(token::And)));
+    let indirect = try!(p.eat(&token::BinOp(token::Star)));
+    Ok(Constraint { name: try!(get_ident(p)), indirect: indirect, early_clobber: early_clobber })
 }
 
-fn parse_let(p: &mut Parser) -> String {
-    p.expect_keyword(keywords::Let);
-    let n = get_ident(p);
-    p.expect(&token::Colon);
-    n
+fn parse_let(p: &mut Parser) -> PResult<String> {
+    try!(p.expect_keyword(keywords::Let));
+    let n = try!(get_ident(p));
+    try!(p.expect(&token::Colon));
+    Ok(n)
 }
 
-fn parse_c_arrow(p: &mut Parser, data: &mut Data) -> usize {
-    let c = parse_c(p);
+fn parse_c_arrow(p: &mut Parser, data: &mut Data) -> PResult<usize> {
+    let c = try!(parse_c(p));
 
-    let rw = if p.eat(&token::Le) {
-        p.expect(&token::Gt);
+    let rw = if try!(p.eat(&token::Le)) {
+        try!(p.expect(&token::Gt));
         true
     } else {
-        p.expect(&token::FatArrow);
+        try!(p.expect(&token::FatArrow));
         false
     };
 
@@ -146,72 +155,71 @@ fn parse_c_arrow(p: &mut Parser, data: &mut Data) -> usize {
         BindingKind::Output(e)
     };
 
-    add_binding(data, None, c, kind)
+    Ok(add_binding(data, None, c, kind))
 }
 
-fn parse_operand(p: &mut Parser, data: &mut Data) -> usize {
+fn parse_operand(p: &mut Parser, data: &mut Data) -> PResult<usize> {
     match p.token {
         token::BinOp(token::Percent) => {
             parse_c_arrow(p, data)
         }
         _ => {
-            let lhs = p.parse_prefix_expr();
-            let exp = p.parse_more_binops(lhs, syntax::ast_util::operator_prec(ast::BiBitOr));
+            let exp = try!(p.parse_assoc_expr_with(AssocOp::BitOr.precedence(), None));
 
-            let rw = if p.eat(&token::Le) {
-                p.expect(&token::Gt);
+            let rw = if try!(p.eat(&token::Le)) {
+                try!(p.expect(&token::Gt));
                 true
             } else {
-                p.expect(&token::FatArrow);
+                try!(p.expect(&token::FatArrow));
                 false
             };
 
             let name = match p.token {
-                token::Ident(_, _) => Some(parse_let(p)),
+                token::Ident(_, _) => Some(try!(parse_let(p))),
                 _ => None
             };
 
-            let c = parse_c(p);
+            let c = try!(parse_c(p));
 
             let kind = if rw {
                 BindingKind::InputAndOutput(exp)
-            } else if p.eat(&token::FatArrow) {
+            } else if try!(p.eat(&token::FatArrow)) {
                 BindingKind::InputThenOutput(exp, p.parse_expr())
             }  else {
                 BindingKind::Input(exp)
             };
 
-            add_binding(data, name, c, kind)
+            Ok(add_binding(data, name, c, kind))
         }
     }
 }
 
-fn parse_binding(p: &mut Parser, data: &mut Data) -> usize {
+fn parse_binding(p: &mut Parser, data: &mut Data) -> PResult<usize> {
     if p.token.is_keyword(keywords::Let) {
-        let name = Some(parse_let(p));
-        let c = parse_c(p);
+        let name = Some(try!(parse_let(p)));
+        let c = try!(parse_c(p));
 
-        let kind = if p.eat(&token::FatArrow) {
+        let kind = if try!(p.eat(&token::FatArrow)) {
             BindingKind::Output(p.parse_expr())
         } else {
             BindingKind::Bare
         };
 
-        add_binding(data, name, c, kind)
+        Ok(add_binding(data, name, c, kind))
     } else {
         parse_operand(p, data)
     }
 }
 
-fn parse_opt(cx: &mut ExtCtxt, p: &mut Parser, data: &mut Data) {
+fn parse_opt(cx: &mut ExtCtxt, p: &mut Parser, data: &mut Data) -> PResult<()> {
     if p.token.is_keyword(keywords::Use) {
-        p.bump();
-        data.clobbers.push(format!("~{{{}}}", get_ident(p).as_slice()));
+        try!(p.bump());
+        data.clobbers.push(format!("~{{{}}}", &try!(get_ident(p))));
     } else if p.token.is_keyword(keywords::Mod) {
-        p.bump();
-        match get_ident(p).as_slice() {
+        try!(p.bump());
+        match &try!(get_ident(p))[..] {
             "attsyntax" => {
-                data.dialect = syntax::ast::AsmAtt;
+                data.dialect = AsmDialect::Att;
             }
             "alignstack" => {
                 data.alignstack = true;
@@ -220,10 +228,12 @@ fn parse_opt(cx: &mut ExtCtxt, p: &mut Parser, data: &mut Data) {
                 data.volatile = false;
             }
             _ => cx.span_err(p.last_span, "unknown option")
-        }
+        };
     } else {
-        parse_binding(p, data);
+        try!(parse_binding(p, data));
     }
+
+    Ok(())
 }
 
 enum Output {
@@ -231,7 +241,7 @@ enum Output {
     Binding(usize)
 }
 
-fn search<F: Fn(usize) -> bool>(fb: &codemap::FileMapAndBytePos, test: F, offset: usize) -> Option<u8> {
+fn search<F: Fn(usize) -> bool>(fb: &codemap::FileMapAndBytePos, test: F, offset: isize) -> Option<u8> {
     let mut p = fb.pos.to_usize();
 
     loop {
@@ -239,9 +249,9 @@ fn search<F: Fn(usize) -> bool>(fb: &codemap::FileMapAndBytePos, test: F, offset
             return None;
         }
 
-        p = p + offset;
+        p = p + offset as usize;
 
-        let c = fb.fm.src.as_bytes()[p];
+        let c = fb.fm.src.as_ref().unwrap()[..].as_bytes()[p];
 
         if (c & 0xC0) != 0x80 {
             return Some(c)
@@ -271,7 +281,7 @@ fn is_whitespace_right(cx: &ExtCtxt, sp: codemap::Span) -> bool {
     let cm = &cx.parse_sess.span_diagnostic.cm;
     let mut fb = cm.lookup_byte_offset(sp.hi);
     fb.pos = codemap::Pos::from_usize(fb.pos.to_usize() - 1);
-    is_whitespace(search(&fb, |p| { p >= fb.fm.src.len() - 1 }, 1))
+    is_whitespace(search(&fb, |p| { p >= fb.fm.src.as_ref().unwrap().len() - 1 }, 1))
 }
 
 fn whitespace_wrap<'cx, F: FnOnce(&mut Vec<Output>)>(cx: &'cx mut ExtCtxt, out: &mut Vec<Output>, sp: codemap::Span, act: F) {
@@ -297,7 +307,7 @@ fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree]) 
 
     let mut p = cx.new_parser_from_tts(tts);
 
-    let mut data = Data { dialect: ast::AsmIntel, volatile: true, alignstack: false, clobbers: vec!(), idents: HashMap::new(), bindings: vec!() };
+    let mut data = Data { dialect: AsmDialect::Intel, volatile: true, alignstack: false, clobbers: vec!(), idents: HashMap::new(), bindings: vec!() };
 
     match p.token {
         token::OpenDelim(token::Bracket) => {
@@ -305,8 +315,8 @@ fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree]) 
                                   &token::CloseDelim(token::Bracket),
                                   seq_sep_trailing_allowed(token::Comma),
                                   |p| {
-                                       parse_opt(cx, p, &mut data);
-                                  });
+                                       parse_opt(cx, p, &mut data)
+                                  }).unwrap();
         }
         _ => ()
     }
@@ -317,29 +327,29 @@ fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree]) 
         /*println!("Token-left {}", is_whitespace_left(cx, p.span));
         println!("Token-right {}", is_whitespace_right(cx, p.span));
         println!("Token  {}\nspan |{}|",p.token, cx.parse_sess.span_diagnostic.cm.span_to_snippet(p.span).unwrap());*/
-    
+
         match p.token {
             token::OpenDelim(token::Brace) => {
                     if is_whitespace_left(cx, p.span) {
                         out.push(Output::Str(" ".to_string()));
                     }
 
-                    p.bump();
-                    out.push(Output::Binding(parse_binding(&mut p, &mut data)));
+                    panictry!(p.bump());
+                    out.push(Output::Binding(parse_binding(&mut p, &mut data).unwrap()));
 
                     if is_whitespace_right(cx, p.span) {
                         out.push(Output::Str(" ".to_string()));
                     }
-                    p.expect(&token::CloseDelim(token::Brace));
+                    panictry!(p.expect(&token::CloseDelim(token::Brace)));
             }
             token::Ident(_, _) => {
                 whitespace_wrap(cx, &mut out, p.span, |out| {
                     if let Some(idx) = data.idents.get(&token_to_string(&p.token)) {
                         out.push(Output::Binding(*idx));
-                        p.bump();
+                        panictry!(p.bump());
                     } else {
                         out.push(Output::Str(token_to_string(&p.token)));
-                        p.bump();
+                        panictry!(p.bump());
                     }
                 });
             }
@@ -347,21 +357,21 @@ fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree]) 
                 whitespace_wrap(cx, &mut out, p.span, |out| {
                     out.push(Output::Str("$$".to_string()));
                 });
-                p.bump();
+                panictry!(p.bump());
             }
             token::Semi => {
                 out.push(Output::Str("\n\t".to_string()));
-                p.bump();
+                panictry!(p.bump());
             }
             token::Interpolated(_) => {
-                p.unexpected();
+                panictry!(Err(p.unexpected()));
             }
             token::Eof => break,
             _ => {
                 whitespace_wrap(cx, &mut out, p.span, |out| {
                     out.push(Output::Str(token_to_string(&p.token)));
                 });
-                p.bump();
+                panictry!(p.bump());
             }
         }
     }
@@ -389,7 +399,7 @@ fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree]) 
                 BindingIdx::Output(outputs.len())
             }
             BindingKind::InputThenOutput(e_in, e_out) => {
-                let c_outpos = intern_and_get_ident(outputs.len().to_string().as_slice());
+                let c_outpos = intern_and_get_ident(&outputs.len().to_string());
                 inputs.push((c_outpos, e_in));
                 outputs.push((c_out, e_out, false));
                 BindingIdx::Input(inputs.len());
@@ -413,10 +423,10 @@ fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree]) 
 
     for o in out.into_iter() {
         match o {
-            Output::Str(s) => out_str.push_str(s.as_slice()),
+            Output::Str(s) => out_str.push_str(&s),
             Output::Binding(idx) => {
                 out_str.push_str(" $");
-                out_str.push_str(data.bindings[idx].idx.to_string().as_slice());
+                out_str.push_str(&data.bindings[idx].idx.to_string());
             }
         }
     }
@@ -426,18 +436,18 @@ fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree]) 
     let expn_id = cx.codemap().record_expansion(codemap::ExpnInfo {
         call_site: sp,
         callee: codemap::NameAndSpan {
-            name: "asm".to_string(),
-            format: codemap::MacroBang,
+            format: codemap::MacroBang(token::intern("asm")),
             span: None,
+            allow_internal_unstable: false,
         },
     });
 
-    MacExpr::new(P(Expr {
+    MacEager::expr(P(Expr {
         id: ast::DUMMY_NODE_ID,
         node: ast::ExprInlineAsm(ast::InlineAsm {
-            asm: intern_and_get_ident(out_str.as_slice()),
+            asm: intern_and_get_ident(&out_str),
             asm_str_style: ast::CookedStr,
-            clobbers: data.clobbers.iter().map(|s| intern_and_get_ident(s.as_slice())).collect(),
+            clobbers: data.clobbers.iter().map(|s| intern_and_get_ident(&s)).collect(),
             inputs: inputs,
             outputs: outputs,
             volatile: data.volatile,

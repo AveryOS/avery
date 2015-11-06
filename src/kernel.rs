@@ -1,7 +1,7 @@
 #![no_main]
 #![allow(improper_ctypes, unstable)]
 #![feature(lang_items, plugin, asm)]
-#[plugin] #[no_link] extern crate assembly;
+#![plugin(assembly)]
 
 //extern crate std;
 #[macro_use] #[allow(unstable)] extern crate core;
@@ -25,7 +25,7 @@ mod memory;
 
 #[no_mangle]
 pub extern fn ap_entry() {
-} 
+}
 
 fn init(info: &mut params::Info) {
 	unsafe {

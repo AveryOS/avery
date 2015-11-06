@@ -3,6 +3,7 @@
 	"llvm-target": "i386-generic-generic",
 	"target-endian": "little",
 	"target-word-size": "32",
+	"target-pointer-width": "32",
 	"arch": "x86",
 	"os": "avery",
 	"linker": "no-linker",
