@@ -1,10 +1,8 @@
 #![no_main]
-#![allow(improper_ctypes, unstable)]
-#![feature(lang_items, plugin, asm)]
+#![allow(improper_ctypes)]
+#![feature(lang_items, plugin, asm, negate_unsigned, core_slice_ext, core_str_ext)]
 #![plugin(assembly)]
 
-//extern crate std;
-#[macro_use] #[allow(unstable)] extern crate core;
 extern crate rlibc;
 
 #[macro_use]

@@ -1,13 +1,11 @@
 #![no_std]
-#![allow(unstable)]
 #![crate_type = "staticlib"]
-#![feature(no_std, asm, lang_items, plugin)]
+#![feature(no_std, asm, lang_items, plugin, core_str_ext, negate_unsigned)]
 #![plugin(assembly)]
 
 extern crate rlibc;
 
-use core::prelude::*;
-use core::mem::{size_of, size_of_val, uninitialized};
+use core::mem::{size_of_val, uninitialized};
 
 use multiboot::*;
 
@@ -24,7 +22,7 @@ mod multiboot;
 pub static HEADER: Header = Header {
     magic: HEADER_MAGIC,
     flags: HEADER_FLAG_PAGE_ALIGN | HEADER_FLAG_MEMORY_INFO,
-    checksum: 0 - (HEADER_MAGIC + (HEADER_FLAG_PAGE_ALIGN | HEADER_FLAG_MEMORY_INFO))
+    checksum: -(HEADER_MAGIC + (HEADER_FLAG_PAGE_ALIGN | HEADER_FLAG_MEMORY_INFO))
 };
 
 extern {
@@ -59,6 +57,7 @@ static GDT: [Descriptor; 3] = [
 ];
 
 #[repr(packed)]
+#[allow(dead_code)]
 struct GDT64Pointer {
     limit: u16,
     base: u64
@@ -78,7 +77,7 @@ struct CPUIDResult {
 unsafe fn cpuid(input: u32) -> CPUIDResult {
     let mut result: CPUIDResult = uninitialized();
 
-    asm2! {
+    asm! {
         [input => %eax => result.eax, %ebx => result.ebx, %ecx => result.ecx, %edx => result.edx]
 
         cpuid
@@ -180,20 +179,20 @@ pub unsafe extern fn setup_long_mode(multiboot: u32, magic: u32) {
 
     asm! {
         // set the long mode bit and nx enable bit
-        [0xC0000080us => %ecx, use eax, use edx]
+        [0xC0000080usize => %ecx, use eax, use edx]
 
         rdmsr;
-        or eax, {((1us << 8) | (1us << 11)) => %i};
+        or eax, {((1usize << 8) | (1usize << 11)) => %i};
         wrmsr;
 
         // enable PAE
         mov eax, cr4;
-        or eax, {1us << 5 => %i};
+        or eax, {1usize << 5 => %i};
         mov cr4, eax;
 
         // enable paging
         mov eax, cr0;
-        or eax, {1us << 31 => %i};
+        or eax, {1usize << 31 => %i};
         mov cr0, eax;
     }
 

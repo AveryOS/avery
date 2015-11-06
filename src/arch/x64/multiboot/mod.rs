@@ -1,4 +1,4 @@
-use core;
+use std;
 use params;
 use util::FixVec;
 
@@ -42,7 +42,7 @@ pub fn init(info: &multiboot::Info) {
 			end: (base + offset(virtual_end) - offset(virtual_start)) as uphys,
 			virtual_base: offset(virtual_start),
 			found: false,
-			name: unsafe { core::mem::zeroed() }
+			name: unsafe { std::mem::zeroed() }
 		});
 	}
 
@@ -50,7 +50,7 @@ pub fn init(info: &multiboot::Info) {
 	setup_segment(&mut params, params::SegmentKind::ReadOnlyData, &rodata_start, &data_start);
 	setup_segment(&mut params, params::SegmentKind::Data, &data_start, &kernel_end);
 
-	for i in range(0, info.mods_count) {
+	for i in 0..info.mods_count {
 		let module = unsafe { &*(info.mods_addr as *const multiboot::Module).offset(i as isize) };
 
 		let segment = params::Segment {
@@ -59,7 +59,7 @@ pub fn init(info: &multiboot::Info) {
 			end: module.end as uphys,
 			virtual_base: 0,
 			found: false,
-			name: unsafe { core::mem::zeroed() }
+			name: unsafe { std::mem::zeroed() }
 		};
 
 		params.segments.push(segment);
@@ -83,11 +83,11 @@ pub fn init(info: &multiboot::Info) {
 				kind: params::MemoryKind::Usable,
 				base: mmap.base as uphys,
 				end: (mmap.base + mmap.size) as uphys,
-				next: core::ptr::null_mut()
+				next: std::ptr::null_mut()
 			});
 		}
 		mmap = unsafe { &*((offset(mmap) + mmap.struct_size as usize + 4) as *const multiboot::MemoryMap) };
 	}
 
 	::init(&mut params);
-} 
+}

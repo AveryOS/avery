@@ -3,7 +3,7 @@ use arch;
 use memory;
 use cpu;
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct CPU {
 	pub tss: segments::TaskState,
 	pub stack_end: usize,

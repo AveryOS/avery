@@ -44,7 +44,7 @@ def assemble(build, source, objects)
 end
 
 RUSTFLAGS = ['-C', "ar=#{File.join(PREFIX, AR)}", '--sysroot', File.expand_path('../build/sysroot', __FILE__)] +
-	%w{-C opt-level=0 -Z no-landing-pads}
+	%w{-C opt-level=1 -Z no-landing-pads}
 
 def rust_base(build, prefix, flags)
 	crates = File.join(prefix, "crates")

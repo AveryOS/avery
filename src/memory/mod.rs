@@ -1,9 +1,9 @@
 use arch;
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct Page(usize);
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct PhysicalPage(uphys);
 
 pub const PAGE_ZERO: Page = Page(0);
@@ -38,5 +38,5 @@ pub mod initial;
 pub mod physical;
 
 pub unsafe fn initialize() {
-	
+
 }

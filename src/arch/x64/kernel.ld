@@ -27,7 +27,7 @@ SECTIONS
 	high_offset = high_start - low_end;
 
 	. = high_start;
-	
+
 	kernel_start = .;
 
 	ap_bootstrap_start = .;
@@ -49,26 +49,26 @@ SECTIONS
 		*(.text*)
 		*(.gnu.linkonce.t*)
 	}
-	
+
 	. = ALIGN(page_size);
 	rodata_start = .;
-	
+
 	.rodata : AT(ADDR(.rodata) - high_offset)
 	{
 		ctors_start = .;
 		*(.ctor*)
 		ctors_end = .;
-		
+
 		*(.rodata*)
 		*(.gnu.linkonce.r*)
-		
+
 		raw_bitmap_font = .;
 		*(.font)
 	}
-	
+
 	. = ALIGN(page_size);
 	data_start = .;
-	
+
 	.data : AT(ADDR(.data) - high_offset)
 	{
 		*(.data*)
@@ -80,7 +80,7 @@ SECTIONS
 		*(.bss*)
 		*(.gnu.linkonce.b*)
 	}
-	
+
 	. = ALIGN(page_size);
 	kernel_end = .;
 	kernel_size = (kernel_end - kernel_start) / page_size;

@@ -9,7 +9,7 @@ pub const USER_DATA_SEGMENT: u16 = 0x1b;
 
 #[allow(dead_code)]
 #[repr(packed)]
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct TaskState {
 	reserved_0: u32,
 	rsps: [u64; 3],
@@ -32,7 +32,7 @@ pub const TASK_STATE_DEF: TaskState = TaskState {
 
 #[allow(dead_code)]
 #[repr(packed)]
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 struct TaskStateDescriptor {
 	desc: Descriptor,
 	base_higher: u32,
@@ -41,7 +41,7 @@ struct TaskStateDescriptor {
 
 #[repr(packed)]
 #[allow(dead_code)]
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 struct Descriptor {
     limit_low: u16,
     base_low: u16,
@@ -74,7 +74,7 @@ static mut GDT: GDT = GDT {
 fn set_segment(index: usize, code: bool, usermode: bool) {
 	let segment = unsafe { &mut GDT.segments[index] };
 
-	segment.access = 0b10010010 | // preset, user_segment, readable 
+	segment.access = 0b10010010 | // preset, user_segment, readable
 		((if code { 1 } else { 0 }) << 3) |
 		((if usermode { 3 } else { 0 }) << 5);
 
@@ -97,7 +97,7 @@ fn set_task_segment(tss: &'static TaskState) {
 
 extern {
 	fn load_segments(data: usize, code: usize);
-} 
+}
 
 pub unsafe fn initialize_gdt() {
 	set_segment(1, true, false);
@@ -113,7 +113,7 @@ pub unsafe fn initialize_gdt() {
     asm! {
         lgdt {&gdt_ptr => %*m};
     }
-    
+
 	load_segments(DATA_SEGMENT as usize, CODE_SEGMENT as usize);
 }
 

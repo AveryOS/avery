@@ -43,7 +43,7 @@ struct Info {
 
 pub type Handler = extern fn (info: &Info, index: u8, error_code: usize);
 
-const HANDLER_COUNT: usize = 256; // Same as in interrupts.s 
+const HANDLER_COUNT: usize = 256; // Same as in interrupts.s
 
 extern {
 	#[link_name = "interrupt_handlers"]
@@ -74,7 +74,7 @@ rip: {:x}",
 
 #[allow(dead_code)]
 #[repr(packed)]
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 struct Gate {
 	target_low: u16,
 	segment_selector: u16,
@@ -92,7 +92,7 @@ struct Gate {
 	unsigned int present : 1;
 */
 	misc: u8,
-	
+
 
 	target_medium: u16,
 	target_high: u32,
@@ -128,7 +128,7 @@ unsafe fn set_gate(index: u8, stub: unsafe extern fn ()) {
 pub unsafe fn initialize_idt() {
 	setup_pics();
 
-	for i in range(0u8, 0xFF) {
+	for i in 0u8..0xFF {
 		set_gate(i, ISR_STUBS[i as usize]);
 	}
 
@@ -146,5 +146,5 @@ pub unsafe fn initialize_idt() {
     asm! {
         lidt {&idt_ptr => %*m};
     }
-    
+
 }

@@ -14,7 +14,7 @@ struct CPUPointer {
     base: usize
 }
 
-const RFLAGS_BIT_INTERRUPT: usize = 1us << 9;
+const RFLAGS_BIT_INTERRUPT: usize = 1usize << 9;
 
 const EFER: u32 = 0xC0000080;
 const EFER_BIT_SYSCALLS: usize = 1;
@@ -84,10 +84,10 @@ pub unsafe fn initialize_basic() {
 
 		// turn on write protect
         mov rax, cr0;
-        or rax, {1us << 16 => %i};
+        or rax, {1usize << 16 => %i};
         mov cr0, rax;
     }
-    
+
 	segments::initialize_gdt();
 	cpu::initialize_basic();
 	interrupts::initialize_idt();

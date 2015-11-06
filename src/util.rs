@@ -14,17 +14,13 @@ pub trait FixVec<T> {
 		*self.mut_len() = idx + 1;
 	}
 
-	fn as_slice(&self) -> &[T] {
-		self.raw_data().slice(0, self.len())
-	}
-
 	fn iter<'a>(&'a self) -> std::slice::Iter<'a, T> {
-		self.as_slice().iter()
+		self.raw_data().iter()
 	}
 
 	fn iter_mut<'a>(&'a mut self) -> std::slice::IterMut<'a, T> {
 		let len = self.len();
-		self.mut_raw_data().slice_mut(0, len).iter_mut()
+		self.mut_raw_data()[0..len].iter_mut()
 	}
 
 	fn new() -> Self;
@@ -55,7 +51,7 @@ macro_rules! fix_array_struct {
 			fn new() -> $name<T> {
 				$name {
 					len: 0,
-					data: unsafe { ::core::mem::uninitialized() }
+					data: unsafe { ::std::mem::uninitialized() }
 				}
 			}
 		}
@@ -63,16 +59,14 @@ macro_rules! fix_array_struct {
 		impl<T> ::std::ops::Index<usize> for $name<T> {
 			type Output = T;
 
-		    fn index<'a>(&'a self, index: &usize) -> &'a T {
-		        &self.raw_data()[*index]
+		    fn index<'a>(&'a self, index: usize) -> &'a T {
+		        &self.raw_data()[index]
 		    }
 		}
 
 		impl<T> ::std::ops::IndexMut<usize> for $name<T> {
-			type Output = T;
-			
-		    fn index_mut<'a>(&'a mut self, index: &usize) -> &'a mut T {
-		        &mut self.mut_raw_data()[*index]
+		    fn index_mut<'a>(&'a mut self, index: usize) -> &'a mut T {
+		        &mut self.mut_raw_data()[index]
 		    }
 		}
     )
@@ -80,7 +74,7 @@ macro_rules! fix_array_struct {
 
 macro_rules! offset_of {
     ($t:ty, $f:ident) => (
-		&mut ((*(0us as *mut $t)).$f) as *mut _ as usize
+		&mut ((*(0usize as *mut $t)).$f) as *mut _ as usize
     )
 }
 

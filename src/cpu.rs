@@ -1,7 +1,7 @@
 use arch;
 use memory;
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct CPU {
 	pub index: usize,
 	pub arch: arch::cpu::CPU,

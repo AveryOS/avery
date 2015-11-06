@@ -1,6 +1,6 @@
 use arch;
 
-pub const BITS_PER_UNIT: usize = ::core::uint::BITS;
+pub const BITS_PER_UNIT: usize = PTR_BYTES;
 pub const BYTE_MAP_SIZE: usize = BITS_PER_UNIT * arch::PAGE_SIZE;
 
 pub struct Hole {
@@ -12,5 +12,5 @@ pub struct Hole {
 }
 
 pub unsafe fn initialize() {
-	
+
 }

@@ -1,5 +1,3 @@
-use core::prelude::*;
-
 static mut VGA: *mut u16 = 0xb8000 as *mut u16;
 
 const SIZE_X: isize = 80;
@@ -28,7 +26,7 @@ unsafe fn update_cursor()
 	use arch::outb;
 
 	let loc = y * SIZE_X + x;
-   
+
 	outb(0x3D4, 14);
 	outb(0x3D5, (loc >> 8) as u8);
 	outb(0x3D4, 15);
@@ -37,11 +35,11 @@ unsafe fn update_cursor()
 
 pub fn scroll() {
 	unsafe {
-		for i in range(SIZE_X, SIZE_X * (SIZE_Y - 1)) {
+		for i in SIZE_X..(SIZE_X * (SIZE_Y - 1)) {
 			*VGA.offset(i) = *VGA.offset(i + SIZE_X);
 		}
 
-		for i in range(0, SIZE_X) {
+		for i in 0..SIZE_X {
 			*VGA.offset((SIZE_Y - 1) * SIZE_X + i) = ' ' as u16 | COLOR;
 		}
 	}
@@ -49,7 +47,7 @@ pub fn scroll() {
 
 pub fn cls() {
 	unsafe {
-		for i in range(0, SIZE_X * SIZE_Y) {
+		for i in 0..(SIZE_X * SIZE_Y) {
 			*VGA.offset(i) = ' ' as u16 | COLOR;
 		}
 

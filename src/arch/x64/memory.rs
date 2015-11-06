@@ -18,22 +18,22 @@ pub const PHYSICAL_ALLOCATOR_MEMORY: usize = KERNEL_LOCATION + PTL2_SIZE;
 pub const FRAMEBUFFER_START: usize = PHYSICAL_ALLOCATOR_MEMORY + PTL1_SIZE;
 pub const CPU_LOCAL_START: usize = FRAMEBUFFER_START + PTL1_SIZE;
 
-const TABLE_ENTRIES: usize = 0x1000 / ::core::uint::BYTES;
+const TABLE_ENTRIES: usize = 0x1000 / PTR_BYTES;
 
-pub const PRESENT_BIT: usize = 1us << 0;
-pub const WRITE_BIT: usize = 1us << 1;
-pub const USERMODE_BIT: usize = 1us << 2;
-pub const WRITETHROUGH_BIT: usize = 1us << 3;
-pub const CACHE_DISABLE_BIT: usize = 1us << 4;
-pub const PAT_PTL1_BIT: usize = 1us << 7;
-pub const NX_BIT: usize = 1us << 63;
+pub const PRESENT_BIT: usize = 1usize << 0;
+pub const WRITE_BIT: usize = 1usize << 1;
+pub const USERMODE_BIT: usize = 1usize << 2;
+pub const WRITETHROUGH_BIT: usize = 1usize << 3;
+pub const CACHE_DISABLE_BIT: usize = 1usize << 4;
+pub const PAT_PTL1_BIT: usize = 1usize << 7;
+pub const NX_BIT: usize = 1usize << 63;
 
 pub const NO_CACHE_FLAGS: usize = WRITETHROUGH_BIT | CACHE_DISABLE_BIT | PAT_PTL1_BIT;
 pub const R_DATA_FLAGS: usize = NX_BIT | WRITE_BIT | PRESENT_BIT;
 pub const RW_DATA_FLAGS: usize = NX_BIT | WRITE_BIT | PRESENT_BIT;
 
 pub const PAGE_FLAGS: usize = 0x80000000000003FF;
-	
+
 pub const UPPER_HALF_BITS: usize = 0xFFFF000000000000;
 pub const UPPER_HALF_START: usize = 0xFFFF800000000000;
 pub const LOWER_HALF_END: usize = 0x0000800000000000;
@@ -44,7 +44,7 @@ pub const MAPPED_PML1TS: usize = 0xFFFFFF0000000000;
 pub const MAPPED_PML2TS: usize = KERNEL_LOCATION - PTL2_SIZE;
 pub const MAPPED_PML3TS: usize = KERNEL_LOCATION + PTL1_SIZE * 511;
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 #[repr(packed)]
 struct TableEntry(usize);
 
@@ -111,9 +111,9 @@ fn get_page_entry(pointer: Page) -> *mut TableEntry {
 
 	(MAPPED_PML1TS +
 		ptl4_index * PTL2_SIZE +
-		ptl3_index * PTL1_SIZE + 
-		ptl2_index * PAGE_SIZE + 
-		ptl1_index * ::core::uint::BYTES) as *mut TableEntry
+		ptl3_index * PTL1_SIZE +
+		ptl2_index * PAGE_SIZE +
+		ptl1_index * PTR_BYTES) as *mut TableEntry
 }
 
 fn page_table_entry(page: PhysicalPage, flags: usize) -> TableEntry {
@@ -135,7 +135,7 @@ fn map_page_table(pt: &mut Table, start_page_offset: usize, end_page_offset: usi
 	assert!(start_index < end_index);
 	assert!(end_index < TABLE_ENTRIES);
 
-	for i in range(start_index, end_index) {
+	for i in start_index..end_index {
 		pt[i] = page_table_entry(PhysicalPage::new(base + (i - start_index) * PAGE_SIZE), flags);
 	}
 }
@@ -152,7 +152,7 @@ pub unsafe fn initialize_initial(st: memory::initial::State)
 	ptl3_static[509] = table_entry_from_data(&ptl4_static); // map ptl3 to ptl4
 	ptl3_static[510] = table_entry_from_data(&ptl2_kernel);
 	ptl3_static[511] = table_entry_from_data(&ptl2_dynamic);
-	
+
 	ptl2_kernel[0] = table_entry_from_data(&ptl1_kernel);
 	ptl2_kernel[511] = table_entry_from_data(&ptl4_static); // map ptl2 to ptl4
 

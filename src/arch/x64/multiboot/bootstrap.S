@@ -57,7 +57,7 @@ bootstrap.64:
 	movw %ax, %fs
 	movw %ax, %gs
 	movw %ax, %ss
-	
+
 	# Load a new higher-half stack
 	movabs $(stack_end), %rsp
 

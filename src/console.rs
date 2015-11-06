@@ -1,10 +1,10 @@
-use core::fmt::{Writer, Arguments, Error};
+use std::fmt::{Write, Arguments, Error};
 
 pub use arch;
 
 struct ScreenWriter;
 
-impl Writer for ScreenWriter {
+impl Write for ScreenWriter {
     fn write_str(&mut self, s: &str) -> Result<(), Error> {
 		for c in s.chars() {
 			arch::console::putc(c);
@@ -43,7 +43,7 @@ pub fn print_args(args: Arguments) {
 
 pub fn panic(args: Arguments) -> ! {
 	print!("Panic: ");
-	assert!(ScreenWriter.write_fmt(args).is_ok());
+	ScreenWriter.write_fmt(args).is_ok();
 	arch::halt();
 }
 
@@ -67,6 +67,6 @@ extern fn eh_personality()
 }
 
 #[lang = "panic_fmt"]
-extern fn panic_fmt(fmt: Arguments, file: &'static str, line: usize) -> ! {
+extern fn panic_fmt(fmt: Arguments, file: &'static str, line: u32) -> ! {
     panic!("Error\nMsg: {}\nLoc: {}:{}", fmt, file, line);
 }
