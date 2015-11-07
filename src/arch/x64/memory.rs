@@ -144,7 +144,7 @@ fn table_entry_from_data(table: &'static Table) -> TableEntry {
 	page_table_entry(Page::new(offset(table)).to_physical(), PRESENT_BIT | WRITE_BIT)
 }
 
-pub unsafe fn initialize_initial(st: memory::initial::State)
+pub unsafe fn initialize_initial(st: &memory::initial::State)
 {
 	ptl4_static[511] = table_entry_from_data(&ptl3_static);
 	ptl4_static[510] = table_entry_from_data(&ptl4_static); // map ptl4 to itself

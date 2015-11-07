@@ -7,7 +7,7 @@ use util::FixVec;
 pub struct State<'a> {
 	pub info: &'a mut params::Info,
 	pub overhead: usize,
-	list: *mut Range,
+	pub list: *mut Range,
 	pub entry: *mut Range // The entry used to store allocator data
 }
 

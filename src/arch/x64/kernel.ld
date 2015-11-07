@@ -64,6 +64,10 @@ SECTIONS
 
 		raw_bitmap_font = .;
 		*(.font)
+
+		debug_line_start = .;
+		*(.debug_line)
+		debug_line_end = .;
 	}
 
 	. = ALIGN(page_size);
@@ -84,4 +88,8 @@ SECTIONS
 	. = ALIGN(page_size);
 	kernel_end = .;
 	kernel_size = (kernel_end - kernel_start) / page_size;
+	
+	/DISCARD/ : {
+		*(*)
+	}
 }

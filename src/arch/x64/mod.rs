@@ -3,6 +3,10 @@ pub mod multiboot;
 #[cfg(not(multiboot))]
 pub mod efi;
 
+pub mod dwarf;
+
+pub mod symbols;
+
 pub mod console {
 	pub use super::vga::{cls, putc, get_buffer_info, set_buffer};
 }

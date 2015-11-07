@@ -1,7 +1,9 @@
 #![no_main]
 #![allow(improper_ctypes)]
-#![feature(lang_items, plugin, asm, negate_unsigned, core_slice_ext, core_str_ext)]
+#![feature(core, core_char_ext, lang_items, plugin, asm, negate_unsigned, core_slice_ext, core_str_ext)]
 #![plugin(assembly)]
+
+extern crate core;
 
 extern crate rlibc;
 
@@ -29,8 +31,8 @@ fn init(info: &mut params::Info) {
 	unsafe {
 		arch::initialize_basic();
 		let result = memory::initial::initialize_physical(info);
-		arch::memory::initialize_initial(result);
-		memory::physical::initialize();
+		arch::memory::initialize_initial(&result);
+		memory::physical::initialize(&result);
 		memory::initialize();
 	}
 

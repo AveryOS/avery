@@ -26,12 +26,6 @@ macro_rules! println {
     )
 }
 
-macro_rules! panic {
-    ($($arg:tt)*) => (
-        ::console::panic(format_args!($($arg)*))
-    )
-}
-
 pub fn println_args(args: Arguments) {
     assert!(ScreenWriter.write_fmt(args).is_ok());
     arch::console::putc('\n');
@@ -39,25 +33,6 @@ pub fn println_args(args: Arguments) {
 
 pub fn print_args(args: Arguments) {
 	assert!(ScreenWriter.write_fmt(args).is_ok());
-}
-
-pub fn panic(args: Arguments) -> ! {
-	print!("Panic: ");
-	ScreenWriter.write_fmt(args).is_ok();
-	arch::halt();
-}
-
-#[lang = "begin_unwind"]
-extern fn begin_unwind(args: Arguments,
-                       file: &str,
-                       line: usize) -> ! {
-    panic!("Error (begin_unwind): {} in {}:{}", args, file, line);
-}
-
-#[lang = "stack_exhausted"]
-extern fn stack_exhausted()
-{
-    panic!("Stack overflow, which should not happen");
 }
 
 #[lang = "eh_personality"]
@@ -68,5 +43,20 @@ extern fn eh_personality()
 
 #[lang = "panic_fmt"]
 extern fn panic_fmt(fmt: Arguments, file: &'static str, line: u32) -> ! {
-    panic!("Error\nMsg: {}\nLoc: {}:{}", fmt, file, line);
+
+    println!("Error\nMsg: {}\nLoc: {}:{}", fmt, file, line);
+
+    unsafe {
+        static mut TRIED_BACKTRACE: bool = false;
+        
+        if !TRIED_BACKTRACE {
+            TRIED_BACKTRACE = true;
+            arch::symbols::print_backtrace();
+            print!("@@@");
+        } else {
+            print!("Panic during backtrace...");
+        }
+
+    	arch::halt();
+    }
 }

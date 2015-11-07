@@ -1,4 +1,5 @@
 use arch;
+use std::mem;
 
 #[derive(Copy, Clone)]
 pub struct Page(usize);
@@ -8,6 +9,16 @@ pub struct PhysicalPage(uphys);
 
 pub const PAGE_ZERO: Page = Page(0);
 pub const PHYSICAL_PAGE_ZERO: PhysicalPage = PhysicalPage(0);
+
+#[inline]
+pub fn offset<T>(obj: *const T, count: usize) -> *const T {
+    ((obj as usize) + mem::size_of::<T>() * count) as *const T
+}
+
+#[inline]
+pub fn offset_mut<T>(obj: *mut T, count: usize) -> *mut T {
+    ((obj as usize) + mem::size_of::<T>() * count) as *mut T
+}
 
 impl Page {
 	pub fn new(ptr: usize) -> Page {

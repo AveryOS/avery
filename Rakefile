@@ -44,7 +44,7 @@ def assemble(build, source, objects)
 end
 
 RUSTFLAGS = ['-C', "ar=#{File.join(PREFIX, AR)}", '--sysroot', File.expand_path('../build/sysroot', __FILE__)] +
-	%w{-C opt-level=1 -Z no-landing-pads}
+	%w{-C opt-level=1 -C debuginfo=1 -Z no-landing-pads}
 
 def rust_base(build, prefix, flags)
 	crates = File.join(prefix, "crates")
@@ -165,7 +165,7 @@ task :base do
 		end
 
 		run AS, asm, '-o', kernel_object_bootstrap
-		run 'x86_64-elf-objcopy', '-G', 'setup_long_mode', kernel_object_bootstrap
+		run 'x86_64-elf-objcopy', '--strip-debug', '-G', 'setup_long_mode', kernel_object_bootstrap
 	end
 end
 
@@ -266,12 +266,13 @@ task :vendor do
 
 		build.("ftp://ftp.gnu.org/gnu/libiconv/", "libiconv", "1.14", "gz") do |src, prefix|
 			run File.join(src, 'configure'), "--prefix=#{prefix}"
-		end if nil
+		end if nil #RbConfig::CONFIG['host_os'] == 'msys'
 
 		build.("ftp://ftp.gnu.org/gnu/mtools/", "mtools", "4.0.18") do |src, prefix|
 			#run 'cp', '-rf', "../../libiconv/install", ".."
 			Dir.chdir(src) do
 				run 'patch', '-i', "../../mtools-fix.diff"
+				run 'patch', '-i', "../../mtools-fix2.diff"
 			end
 			run File.join(src, 'configure'), "--prefix=#{prefix}", "LIBS=-liconv"
 		end unless Gem.win_platform?
