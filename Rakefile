@@ -117,6 +117,10 @@ build_kernel = proc do
 			preprocess(i, kernel_linker_script, binding)
 		end
 
+		objects.each do |obj|
+			run 'x86_64-elf-objcopy', '--set-section-flags', '.debug*=alloc,contents,load,readonly,data,debug', obj
+		end
+
 		build.process kernel_binary, *objects, kernel_linker_script do
 			run LD, '-z', 'max-page-size=0x1000', '-T', kernel_linker_script, *objects, '-o', kernel_binary
 		end

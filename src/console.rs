@@ -44,11 +44,11 @@ extern fn eh_personality()
 #[lang = "panic_fmt"]
 extern fn panic_fmt(fmt: Arguments, file: &'static str, line: u32) -> ! {
 
-    println!("Error\nMsg: {}\nLoc: {}:{}", fmt, file, line);
+    println!("\n\nError\nMsg: {}\nLoc: {}:{}", fmt, file, line);
 
     unsafe {
         static mut TRIED_BACKTRACE: bool = false;
-        
+
         if !TRIED_BACKTRACE {
             TRIED_BACKTRACE = true;
             arch::symbols::print_backtrace();

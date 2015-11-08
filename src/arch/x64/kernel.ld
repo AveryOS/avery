@@ -55,20 +55,37 @@ SECTIONS
 
 	.rodata : AT(ADDR(.rodata) - high_offset)
 	{
-		ctors_start = .;
-		*(.ctor*)
-		ctors_end = .;
-
 		*(.rodata*)
 		*(.gnu.linkonce.r*)
 
 		raw_bitmap_font = .;
 		*(.font)
-
-		debug_line_start = .;
-		*(.debug_line)
-		debug_line_end = .;
 	}
+
+	debug_ranges_start = .;
+	.debug_ranges 0 : AT(debug_ranges_start - high_offset) { *(.debug_ranges) }
+	. += debug_ranges_start;
+	debug_ranges_end = .;
+
+	debug_abbrev_start = .;
+	.debug_abbrev 0 : AT(debug_abbrev_start - high_offset) { *(.debug_abbrev) }
+	. += debug_abbrev_start;
+	debug_abbrev_end = .;
+
+	debug_info_start = .;
+	.debug_info 0 : AT(debug_info_start - high_offset) { *(.debug_info) }
+	. += debug_info_start;
+	debug_info_end = .;
+
+	debug_line_start = .;
+	.debug_line 0 : AT(debug_line_start - high_offset) { *(.debug_line) }
+	. += debug_line_start;
+	debug_line_end = .;
+
+	debug_str_start = .;
+	.debug_str 0 : AT(debug_str_start - high_offset) { *(.debug_str) }
+ 	. += debug_str_start;
+	debug_str_end = .;
 
 	. = ALIGN(page_size);
 	data_start = .;
@@ -88,7 +105,7 @@ SECTIONS
 	. = ALIGN(page_size);
 	kernel_end = .;
 	kernel_size = (kernel_end - kernel_start) / page_size;
-	
+
 	/DISCARD/ : {
 		*(*)
 	}

@@ -67,7 +67,7 @@ impl<'a> ReadInt for &'a str {
 	}
 }
 
-pub fn get_symbol_for_addr(addr: usize) -> Option<(&'static str, usize, &'static str, usize)> {
+pub fn get_symbol_info_for_addr(addr: usize) -> Option<(&'static str, usize, &'static str, usize, usize)> {
 	extern {
 		static debug_line_start: u8;
 		static debug_line_end: u8;
@@ -75,22 +75,28 @@ pub fn get_symbol_for_addr(addr: usize) -> Option<(&'static str, usize, &'static
 
 	let info = unsafe { std::slice::from_raw_parts(&debug_line_start, offset(&debug_line_end) - offset(&debug_line_start)) };
 
-	let bound = dwarf::parse_units(info, addr).unwrap();
+	let bound = dwarf::parse_line_units(&dwarf::get_dwarf_info(), addr).unwrap();
 
-	Some((bound.name, bound.line as usize, "unknown", bound.address as usize))
+	let sym = dwarf::parse_info_units(&dwarf::get_dwarf_info(), addr as u64).unwrap().unwrap_or("<unknown>");
+
+	//let (sym, start_addr) = get_symbol_for_addr(addr).unwrap_or(("unknown", 0));
+
+	Some((bound.name, bound.line as usize, sym, 0, bound.address as usize))
 }
-/*
+
 pub fn get_symbol_for_addr(addr: usize) -> Option<(&'static str, usize)> {
 	// SAFE: This should only ever be initialised once, and from an empty state
 	let (symtab, addr_offset) = unsafe { (S_SYMS.symtab, S_SYMS.addr_offset) };
 	let mut best = (!0, 0);
+	println!(" ssearch {:x}", addr);
 	for (i,s) in symtab.iter().enumerate()
 	{
+	println!(" sentry");
 		if s.st_info & 0xF == 0x02
 		{
 			let base = s.st_value as usize + addr_offset;
 			let len = s.st_size as usize;
-			//log_debug!("- {} {:#x}+{:#x}", get_name(s.st_name as usize), base, len);
+			println!("- {} {:#x}+{:#x}", get_name(s.st_name as usize), base, len);
 			if base != addr_offset && base <= addr {
 				let ofs = addr - base;
 				if len > 0 {
@@ -113,7 +119,7 @@ pub fn get_symbol_for_addr(addr: usize) -> Option<(&'static str, usize)> {
 		None
 	}
 }
-*/
+
 
 fn get_name(ofs: usize) -> &'static str {
 	// SAFE: This should only ever be initialised once, and from an empty state
@@ -184,8 +190,8 @@ impl ::core::fmt::Display for Backtrace {
 		while let Option::Some((newbp, ip)) = backtrace(bp)
 		{
 			try!(write!(f, " {:#x}", ip));
-			if let Some( (file, line, name, ofs) ) = get_symbol_for_addr(ip as usize - 1) {
-				try!(write!(f, "({}:{} {}+{:#x})", file, line, Demangle(name), ofs + 1));
+			if let Some( (file, line, name, ofs, mofs) ) = get_symbol_info_for_addr(ip as usize - 1) {
+				try!(write!(f, "({}:{} {}+{:#x} M@{:#x})", file, line, Demangle(name), ofs + 1, mofs));
 			}
 			try!(write!(f, "\n"));
 			bp = newbp;

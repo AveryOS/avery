@@ -61,6 +61,230 @@ fn read_str<'s>(r: &mut Cursor<&'s [u8]>) -> Result<&'s str, Error> {
     }
 }
 
+fn read_abbrev_pair<R: Read>(r: &mut R) -> Result<Option<(u64, u64)>, Error> {
+    let name = try!(read_lebu128(r));
+    let form = try!(read_lebu128(r));
+    //println!("  name: {}  form: {}", name, form);
+
+    Ok(if name == 0 && form == 0 {
+        None
+    } else {
+        Some((name, form))
+    })
+}
+
+fn read_abbrev(r: &mut Cursor<&[u8]>, abbrev_code: u64) -> Result<(), Error> {
+    loop {
+        let p = r.position();
+        let code = try!(read_lebu128(r));
+        let tag = try!(read_lebu128(r));
+        let children: u8 = try!(read(r));
+
+        //println!("abbrev code @ {:#x}: {} tag: {} children {}", p, code, tag, children);
+
+        if code == abbrev_code {
+            break
+        }
+
+        while try!(read_abbrev_pair(r)).is_some() {}
+    }
+
+    Ok(())
+}
+
+pub struct DwarfInfo<'s> {
+    pub info: &'s [u8],
+    pub abbrev: &'s [u8],
+    pub str: &'s [u8],
+    pub line: &'s [u8],
+}
+
+pub fn get_dwarf_info() -> DwarfInfo<'static> {
+	extern {
+		static debug_line_start: u8;
+		static debug_line_end: u8;
+
+		static debug_abbrev_start: u8;
+		static debug_abbrev_end: u8;
+
+		static debug_str_start: u8;
+		static debug_str_end: u8;
+
+		static debug_info_start: u8;
+		static debug_info_end: u8;
+	}
+
+    unsafe {
+        let line = slice::from_raw_parts(&debug_line_start, offset(&debug_line_end) - offset(&debug_line_start));
+        let abbrev = slice::from_raw_parts(&debug_abbrev_start, offset(&debug_abbrev_end) - offset(&debug_abbrev_start));
+        let str = slice::from_raw_parts(&debug_str_start, offset(&debug_str_end) - offset(&debug_str_start));
+        let info = slice::from_raw_parts(&debug_info_start, offset(&debug_info_end) - offset(&debug_info_start));
+
+        DwarfInfo {
+            info: info,
+            abbrev: abbrev,
+            str: str,
+            line: line,
+        }
+   }
+}
+
+fn parse_info_unit<'s>(data: &mut Cursor<&'s [u8]>, dwarf: &DwarfInfo<'s>, target: u64) -> Result<Option<&'s str>, Error> {
+    let mut adata = &mut Cursor::new(dwarf.abbrev);
+    let mut sdata = &mut Cursor::new(dwarf.str);
+
+    let unit_length: u32 = try!(read(data));
+    let unit_end = data.position() + unit_length as u64;
+    let version: u16 = try!(read(data));
+    let abbrev_offset: u32 = try!(read(data));
+    let ptr_size: u8 = try!(read(data));
+
+    macro_rules! debug {
+        ($($arg:tt)*) => (
+            if true {
+                print!($($arg)*);
+            }
+        );
+    }
+
+    debug!("unit_end: {:#x}", unit_end);
+    debug!("version: {}", version);
+    debug!("abbrev_offset: {}", abbrev_offset);
+    debug!("ptr_size: {}", ptr_size);
+
+    while data.position() < unit_end {
+        let p = data.position();
+        let abbrev_code = try!(read_lebu128(data));
+
+        if abbrev_code == 0 {
+            continue;
+        }
+
+        adata.set_position(abbrev_offset as u64);
+
+        read_abbrev(adata, abbrev_code);
+
+        let mut name = None;
+        let mut low_pc = None;
+        let mut high_pc = None;
+
+        loop {
+            let (attr, form) = match try!(read_abbrev_pair(adata)) {
+                Some(p) => p,
+                None => break
+            };
+
+            debug!("    <{:x}>   abbrev {} attr {} form: {} - ", data.position(), abbrev_code, attr, form);
+
+            let mut str_val = None;
+            let mut uint_val = None;
+
+            match form {
+                /* DW_FORM_addr */ 0x01 => {
+                    let data: usize = try!(read(data));
+                    debug!("DW_FORM_addr {:#x}", data);
+                    uint_val = Some(data as u64);
+                }
+                /* DW_FORM_data2 */ 0x05 => {
+                    let data: u16 = try!(read(data));
+                    debug!("DW_FORM_data2 {:#x}", data);
+                }
+                /* DW_FORM_data4 */ 0x06 => {
+                    let data: u32 = try!(read(data));
+                    debug!("DW_FORM_data4 {:#x}", data);
+                    uint_val = Some(data as u64);
+                }
+                /* DW_FORM_data1 */ 0x0b => {
+                    let data: u8 = try!(read(data));
+                    debug!("DW_FORM_data1 {:#x}", data);
+                    uint_val = Some(data as u64);
+                }
+                /* DW_FORM_sdata */ 0x0d => {
+                    let data = try!(read_lebi128(data));
+                    debug!("DW_FORM_sdata {:#x}", data);
+                }
+                /* DW_FORM_strp */ 0x0e => {
+                    let str_offset: u32 = try!(read(data));
+                    //sdata.set_position(str_offset as u64);
+                    let str = try!(read_str(sdata));
+                    debug!("DW_FORM_strp {:#x}  {}", str_offset, str);
+                    str_val = Some(str);
+                }
+                /* DW_FORM_ref_addr */ 0x10 => {
+                    let data: usize = try!(read(data));
+                    debug!("DW_FORM_ref_addr {:#x}", data);
+                }
+                /* DW_FORM_ref4 */ 0x13 => {
+                    let data: u32 = try!(read(data));
+                    debug!("DW_FORM_ref4 {:#x}", data);
+                }
+                /* DW_FORM_sec_offset */ 0x17 => {
+                    let data: u32 = try!(read(data));
+                    debug!("DW_FORM_sec_offset {:#x}", data);
+                }
+                /* DW_FORM_exprloc */ 0x18 => {
+                    let len = try!(read_lebu128(data));
+                    let p = data.position();
+                    data.set_position(p + len);
+                    debug!("DW_FORM_exprloc len {:#x}", len);
+                }
+                /* DW_FORM_flag_present */ 0x19 => {
+                    debug!("DW_FORM_flag_present");
+                }
+                _ => {
+                    panic!("Unknown form {:#x}", form);
+                }
+            }
+
+            debug!("\n");
+
+            match attr {
+                /* DW_AT_low_pc */ 0x11 => {
+                    low_pc = uint_val;
+                    debug!("DW_AT_low_pc = {:#x}\n", uint_val.unwrap());
+
+                }
+                /* DW_AT_high_pc */ 0x12 => {
+                    high_pc = uint_val;
+                    debug!("DW_AT_high_pc = {:#x}\n", uint_val.unwrap());
+                }
+                /* DW_AT_linkage_name */ 0x6e => {
+                    name = str_val;
+                    debug!("DW_AT_linkage_name = {}\n", str_val.unwrap());
+                }
+                _ => {}
+            }
+        }
+
+        match (name, low_pc, high_pc) {
+            (Some(name), Some(low_pc), Some(high_pc)) => {
+                debug!("COMPARING  {} {:#x}-{:#x} with {:#x}\n", name, low_pc, high_pc, target);
+
+                if target >= low_pc && target < low_pc + high_pc {
+                    return Ok(Some(name))
+                };
+            }
+            _ => {}
+        }
+    }
+
+
+    Ok(None)
+}
+
+pub fn parse_info_units<'s>(dwarf: &DwarfInfo<'s>, target: u64) -> Result<Option<&'s str>, Error> {
+    let mut cursor = Cursor::new(dwarf.info);
+
+    while (cursor.position() as usize) < dwarf.info.len() {
+        let name = try!(parse_info_unit(&mut cursor, dwarf, target));
+        if name.is_some() {
+            return Ok(name);
+        }
+    }
+
+    Ok(None)
+}
+
 pub struct Bound<'s> {
     target: u64,
     pub address: u64,
@@ -68,7 +292,8 @@ pub struct Bound<'s> {
     pub line: usize,
 }
 
-fn parse_unit<'s>(data: &mut Cursor<&'s [u8]>, bound: &mut Bound<'s>) -> Result<(), Error> {
+fn parse_line_unit<'s>(data: &mut Cursor<&'s [u8]>, bound: &mut Bound<'s>) -> Result<(), Error> {
+    let offset = data.position();
     let unit_length: u32 = try!(read(data));
     let unit_end = data.position() + unit_length as u64;
     let version: u16 = try!(read(data));
@@ -81,26 +306,29 @@ fn parse_unit<'s>(data: &mut Cursor<&'s [u8]>, bound: &mut Bound<'s>) -> Result<
     let line_range: u8 = try!(read(data));
     let opcode_base: u8 = try!(read(data));
 
+    let mut print = false;
+
     macro_rules! debug {
         ($($arg:tt)*) => (
-            if false {
+            if print {
                 print!($($arg)*);
             }
         );
     }
 
-    debug!("\nversion: {}", version);
-    debug!("header_length: {}", header_length);
-    debug!("post_header: {}", post_header);
-    debug!("minimum_instruction_length: {}", minimum_instruction_length);
-    debug!("maximum_operations_per_instruction: {}", maximum_operations_per_instruction);
-    debug!("line_base: {}", line_base);
-    debug!("line_range: {}", line_range);
-    debug!("opcode_base: {}", opcode_base);
+    debug!("\nversion: {}\n", version);
+    debug!("header_length: {}\n", header_length);
+    debug!("post_header: {}\n", post_header);
+    debug!("minimum_instruction_length: {}\n", minimum_instruction_length);
+    debug!("maximum_operations_per_instruction: {}\n", maximum_operations_per_instruction);
+    debug!("line_base: {}\n", line_base);
+    debug!("line_range: {}\n", line_range);
+    debug!("opcode_base: {}\n", opcode_base);
+    debug!("offset: {:#x} next {:#x}\n", offset, unit_end);
 
     for _ in 0..(opcode_base - 1) {
         let e = try!(read_lebu128(data));
-        debug!("opcode_base-e: has {} args", e);
+        debug!("opcode_base-e: has {} args\n", e);
     }
 
     loop {
@@ -110,11 +338,10 @@ fn parse_unit<'s>(data: &mut Cursor<&'s [u8]>, bound: &mut Bound<'s>) -> Result<
             break;
         }
 
-        debug!("Directory: {}", dir);
+        debug!("Directory: {}\n", dir);
     }
 
     let file_table_offset = data.position();
-
 /*
     debug!(" The File Name Table (offset {:#x}):\n", data.position());
     debug!("  Entry	Dir	Time	Size	Name\n");
@@ -185,10 +412,7 @@ fn parse_unit<'s>(data: &mut Cursor<&'s [u8]>, bound: &mut Bound<'s>) -> Result<
     reset!();
 
     while data.position() < unit_end as u64 {
-        let mut opcode: u8 = match read(data) {
-            Ok(val) => val,
-            Err(_) => break
-        };
+        let mut opcode: u8 = try!(read(data));
 
         debug!("  [0x{:08x}]  ", data.position() - 1);
 
@@ -294,6 +518,8 @@ fn parse_unit<'s>(data: &mut Cursor<&'s [u8]>, bound: &mut Bound<'s>) -> Result<
         }
     }
 
+    assert!(data.position() == unit_end);
+
     if let Some(file_index) = bound_file {
         data.set_position(file_table_offset);
 
@@ -321,10 +547,12 @@ fn parse_unit<'s>(data: &mut Cursor<&'s [u8]>, bound: &mut Bound<'s>) -> Result<
         }
     }
 
+    data.set_position(unit_end);
+
     Ok(())
 }
 
-pub fn parse_units<'s>(info: &'s [u8], target: usize) -> Result<Bound<'s>, Error> {
+pub fn parse_line_units<'s>(dwarf: &DwarfInfo<'s>, target: usize) -> Result<Bound<'s>, Error> {
     let mut bound = Bound {
         target: target as u64,
         address: 0,
@@ -332,11 +560,10 @@ pub fn parse_units<'s>(info: &'s [u8], target: usize) -> Result<Bound<'s>, Error
         name: "<unknown>",
     };
 
-    let mut cursor = Cursor::new(info);
+    let mut cursor = Cursor::new(dwarf.line);
 
-    while (cursor.position() as usize) < info.len() {
-        try!(parse_unit(&mut cursor, &mut bound));
-        break;
+    while (cursor.position() as usize) < dwarf.line.len() {
+        try!(parse_line_unit(&mut cursor, &mut bound));
     }
 
     Ok(bound)
