@@ -1,15 +1,16 @@
 use arch;
 use memory;
+use memory::{Addr, PhysicalPage};
 use std::slice;
 
 pub const BITS_PER_UNIT: usize = PTR_BYTES;
-pub const BYTE_MAP_SIZE: usize = BITS_PER_UNIT * arch::PAGE_SIZE;
+pub const BYTE_MAP_SIZE: Addr = BITS_PER_UNIT as Addr * arch::PHYS_PAGE_SIZE;
 
 pub struct Hole {
-	base: uphys,
-	end: uphys,
+	base: Addr,
+	end: Addr,
 	pages: usize,
-	bitmap: &'static mut [usize],
+	bitmap: &'static mut [usize], // NOT THREAD SAFE
 }
 
 impl Hole {
@@ -29,29 +30,75 @@ impl Hole {
 	}
 }
 
-const HOLES: *mut Hole = arch::memory::PHYSICAL_ALLOCATOR_MEMORY as *mut Hole;
+pub static mut HOLES: &'static mut [Hole] = &mut [];
+
+pub fn free_page(page: PhysicalPage) {
+	let page = page.addr();
+
+	for hole in unsafe { HOLES.iter_mut() } {
+		if page >= hole.base && page < hole.end	{
+			let base = hole.base;
+			hole.clear(((page - base) / arch::PHYS_PAGE_SIZE) as usize);
+			return;
+		}
+	}
+
+	panic!("Memory doesn't belong to any of the holes");
+}
+
+pub fn allocate_dirty_page() -> PhysicalPage {
+	use std::intrinsics::cttz64;
+
+	for (hole_idx, hole) in unsafe { HOLES.iter_mut().enumerate() } {
+		for unit in hole.bitmap.iter_mut() {
+			if *unit == !0 {
+				continue;
+			}
+			let bit_idx = unsafe { cttz64(!(*unit as u64)) } as usize;
+
+			*unit |= 1 << bit_idx;
+
+			return PhysicalPage::new(hole.base + (hole_idx * BITS_PER_UNIT + bit_idx) as Addr * arch::PHYS_PAGE_SIZE);
+		}
+	}
+
+	panic!("Out of physical memory");
+}
+
+pub fn allocate_page() -> PhysicalPage {
+	let result = allocate_dirty_page();
+
+	//clear_physical_page(result);
+
+	return result;
+}
+
 
 pub unsafe fn initialize(st: &memory::initial::State) {
+	const HOLES_ADDR: *mut Hole = arch::memory::PHYSICAL_ALLOCATOR_MEMORY as *mut Hole;
+
 	let mut _entry = st.list;
 
 	let mut overhead_hole = None;
-	let mut hole_count = 0;
-	let mut pos = memory::offset_mut(HOLES, hole_count) as *mut usize;
+	let mut pos = memory::offset_mut(HOLES_ADDR, st.holes) as *mut usize;
+	let mut hole_index = 0;
+
+	HOLES = slice::from_raw_parts_mut(HOLES_ADDR, st.holes);
 
 	while _entry != null_mut() {
 		let entry = &mut *_entry;
 
-		let hole = &mut *memory::offset_mut(HOLES, hole_count);
+		let hole = &mut HOLES[hole_index];
 
 		if _entry == st.entry {
-			overhead_hole = Some(hole_count);
+			overhead_hole = Some(hole_index);
 		}
 
 		hole.base = entry.base;
-		hole.pages = (entry.end - entry.base) / arch::PAGE_SIZE;
+		hole.pages = ((entry.end - entry.base) / arch::PHYS_PAGE_SIZE) as usize;
 		hole.end = entry.end;
 
-		let units = align_up(hole.pages, BITS_PER_UNIT) / BITS_PER_UNIT;
+		let units = div_up(hole.pages, BITS_PER_UNIT);
 
 		hole.bitmap = slice::from_raw_parts_mut(pos, units);
 
@@ -71,14 +118,18 @@ pub unsafe fn initialize(st: &memory::initial::State) {
 
 		pos = memory::offset_mut(pos, units);
 
-		hole_count += 1;
+		hole_index += 1;
 		_entry = entry.next;
 	}
 
+	let overhead = pos as usize - arch::memory::PHYSICAL_ALLOCATOR_MEMORY;
+
+	assert!(overhead == st.overhead);
+
 	// Mark overhead as used
 
-	let used = (align_up(pos as usize, arch::PAGE_SIZE) - arch::memory::PHYSICAL_ALLOCATOR_MEMORY) / arch::PAGE_SIZE;
-	let overhead_hole = &mut *memory::offset_mut(HOLES, overhead_hole.unwrap());
+	let used = div_up(overhead, arch::PAGE_SIZE);
+	let overhead_hole =  &mut HOLES[overhead_hole.unwrap()];
 
 	for page in 0..used {
 		overhead_hole.set(page);

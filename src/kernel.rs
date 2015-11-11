@@ -1,6 +1,8 @@
 #![no_main]
 #![allow(improper_ctypes)]
-#![feature(core, core_char_ext, lang_items, plugin, asm, negate_unsigned, core_slice_ext, core_str_ext)]
+#![feature(core, core_char_ext, lang_items,
+           plugin, asm, negate_unsigned, core_slice_ext,
+		   core_str_ext, core_intrinsics)]
 #![plugin(assembly)]
 
 extern crate core;

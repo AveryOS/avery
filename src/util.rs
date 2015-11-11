@@ -80,6 +80,6 @@ macro_rules! offset_of {
 
 macro_rules! assert_page_aligned {
     ($e:expr) => (
-    	assert!((($e) & (::arch::PAGE_SIZE - 1)) == 0)
+    	assert!((($e) as ::arch::Addr & (::arch::PHYS_PAGE_SIZE - 1)) == 0)
     )
 }

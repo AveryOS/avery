@@ -141,7 +141,7 @@ fn parse_info_unit<'s>(data: &mut Cursor<&'s [u8]>, dwarf: &DwarfInfo<'s>, targe
 
     macro_rules! debug {
         ($($arg:tt)*) => (
-            if true {
+            if false {
                 print!($($arg)*);
             }
         );
@@ -205,13 +205,13 @@ fn parse_info_unit<'s>(data: &mut Cursor<&'s [u8]>, dwarf: &DwarfInfo<'s>, targe
                 }
                 /* DW_FORM_strp */ 0x0e => {
                     let str_offset: u32 = try!(read(data));
-                    //sdata.set_position(str_offset as u64);
+                    sdata.set_position(str_offset as u64);
                     let str = try!(read_str(sdata));
                     debug!("DW_FORM_strp {:#x}  {}", str_offset, str);
                     str_val = Some(str);
                 }
                 /* DW_FORM_ref_addr */ 0x10 => {
-                    let data: usize = try!(read(data));
+                    let data: u32 = try!(read(data));
                     debug!("DW_FORM_ref_addr {:#x}", data);
                 }
                 /* DW_FORM_ref4 */ 0x13 => {

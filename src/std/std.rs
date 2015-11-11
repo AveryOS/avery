@@ -19,6 +19,7 @@ pub use core::clone;
 pub use core::cmp;
 pub use core::convert;
 pub use core::default;
+pub use core::num;
 pub use core::hash;
 pub use core::intrinsics;
 pub use core::iter;
@@ -37,15 +38,13 @@ pub use core::panicking;
 #[allow(non_camel_case_types, dead_code)]
 pub mod prelude {
 	pub mod v1 {
-		use core::ops::{Add, Sub, BitAnd, Not};
+		use core::ops::{Add, Sub, BitAnd, Not, Div};
 		use core::num::One;
 
 	    pub use core::prelude::v1::*;
 
 	    pub use core::ptr::{null, null_mut};
 	    pub use core::mem::{size_of, size_of_val, uninitialized, transmute};
-
-		pub type uphys = usize;
 
 		pub const PTR_BYTES: usize = ::core::usize::BYTES;
 
@@ -56,6 +55,11 @@ pub mod prelude {
 
 		pub fn offset<T>(ptr: &'static T) -> usize {
 		    ptr as *const T as usize
+		}
+
+		pub fn div_up<T: Clone + One + Add<Output=T> + Sub<Output=T> + BitAnd<Output=T> + Div<Output=T> + Not<Output=T>>(value: T, alignment: T) -> T
+		{
+            align_up(value, alignment.clone()) / alignment
 		}
 
 		pub fn align_up<T: Clone + One + Add<Output=T> + Sub<Output=T> + BitAnd<Output=T> + Not<Output=T>>(value: T, mut alignment: T) -> T

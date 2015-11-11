@@ -3,9 +3,9 @@ use arch::console;
 use params;
 use util::FixVec;
 use memory;
-use memory::{Page, PhysicalPage};
+use memory::{Page, PhysicalPage, Addr};
 
-pub use arch::PAGE_SIZE;
+pub use arch::{PAGE_SIZE, PHYS_PAGE_SIZE};
 
 pub const MAX_OVERHEAD: usize = PTL1_SIZE;
 
@@ -20,19 +20,19 @@ pub const CPU_LOCAL_START: usize = FRAMEBUFFER_START + PTL1_SIZE;
 
 const TABLE_ENTRIES: usize = 0x1000 / PTR_BYTES;
 
-pub const PRESENT_BIT: usize = 1usize << 0;
-pub const WRITE_BIT: usize = 1usize << 1;
-pub const USERMODE_BIT: usize = 1usize << 2;
-pub const WRITETHROUGH_BIT: usize = 1usize << 3;
-pub const CACHE_DISABLE_BIT: usize = 1usize << 4;
-pub const PAT_PTL1_BIT: usize = 1usize << 7;
-pub const NX_BIT: usize = 1usize << 63;
+pub const PRESENT_BIT: Addr = 1 << 0;
+pub const WRITE_BIT: Addr = 1 << 1;
+pub const USERMODE_BIT: Addr = 1 << 2;
+pub const WRITETHROUGH_BIT: Addr = 1 << 3;
+pub const CACHE_DISABLE_BIT: Addr = 1 << 4;
+pub const PAT_PTL1_BIT: Addr = 1 << 7;
+pub const NX_BIT: Addr = 1 << 63;
 
-pub const NO_CACHE_FLAGS: usize = WRITETHROUGH_BIT | CACHE_DISABLE_BIT | PAT_PTL1_BIT;
-pub const R_DATA_FLAGS: usize = NX_BIT | WRITE_BIT | PRESENT_BIT;
-pub const RW_DATA_FLAGS: usize = NX_BIT | WRITE_BIT | PRESENT_BIT;
+pub const NO_CACHE_FLAGS: Addr = WRITETHROUGH_BIT | CACHE_DISABLE_BIT | PAT_PTL1_BIT;
+pub const R_DATA_FLAGS: Addr = NX_BIT | WRITE_BIT | PRESENT_BIT;
+pub const RW_DATA_FLAGS: Addr = NX_BIT | WRITE_BIT | PRESENT_BIT;
 
-pub const PAGE_FLAGS: usize = 0x80000000000003FF;
+pub const PAGE_FLAGS: Addr = 0x80000000000003FF;
 
 pub const UPPER_HALF_BITS: usize = 0xFFFF000000000000;
 pub const UPPER_HALF_START: usize = 0xFFFF800000000000;
@@ -46,7 +46,7 @@ pub const MAPPED_PML3TS: usize = KERNEL_LOCATION + PTL1_SIZE * 511;
 
 #[derive(Copy, Clone)]
 #[repr(packed)]
-struct TableEntry(usize);
+struct TableEntry(Addr);
 
 type Table = [TableEntry; TABLE_ENTRIES];
 
@@ -116,32 +116,32 @@ fn get_page_entry(pointer: Page) -> *mut TableEntry {
 		ptl1_index * PTR_BYTES) as *mut TableEntry
 }
 
-fn page_table_entry(page: PhysicalPage, flags: usize) -> TableEntry {
+fn page_table_entry(page: PhysicalPage, flags: Addr) -> TableEntry {
 	TableEntry(page.addr() | flags)
 }
 
-fn map_page_table(pt: &mut Table, start_page_offset: usize, end_page_offset: usize, base: uphys, mut flags: usize) {
+fn map_page_table(pt: &mut Table, start_page_offset: usize, end_page_offset: usize, base: Addr, mut flags: Addr) {
 	assert_page_aligned!(base);
 
 	flags |= PRESENT_BIT;
 	let start_index = align_down(start_page_offset, PAGE_SIZE) / PAGE_SIZE;
 	let end_index = align_up(end_page_offset, PAGE_SIZE) / PAGE_SIZE;
 
-	println!("kernel-base {:x}, stop: {:x} flags {:x}", KERNEL_LOCATION + start_index * PAGE_SIZE, KERNEL_LOCATION + end_index * PAGE_SIZE, flags);
+	//println!("kernel-base {:x}, stop: {:x} flags {:x}", KERNEL_LOCATION + start_index * PAGE_SIZE, KERNEL_LOCATION + end_index * PAGE_SIZE, flags);
 
-	println!("base {:x}, start_index: {} - end_index: {} - start_page_offset: {:x} - end_page_offset: {:x}", base, start_index, end_index, start_page_offset, end_page_offset);
+	//println!("base {:x}, start_index: {} - end_index: {} - start_page_offset: {:x} - end_page_offset: {:x}", base, start_index, end_index, start_page_offset, end_page_offset);
 
 	assert!(start_index < TABLE_ENTRIES);
 	assert!(start_index < end_index);
 	assert!(end_index < TABLE_ENTRIES);
 
 	for i in start_index..end_index {
-		pt[i] = page_table_entry(PhysicalPage::new(base + (i - start_index) * PAGE_SIZE), flags);
+		pt[i] = page_table_entry(PhysicalPage::new(base + (i - start_index) as Addr * PHYS_PAGE_SIZE), flags);
 	}
 }
 
 fn table_entry_from_data(table: &'static Table) -> TableEntry {
-	page_table_entry(Page::new(offset(table)).to_physical(), PRESENT_BIT | WRITE_BIT)
+	page_table_entry(Page::new(offset(table)).get_physical(), PRESENT_BIT | WRITE_BIT)
 }
 
 pub unsafe fn initialize_initial(st: &memory::initial::State)
@@ -184,12 +184,12 @@ pub unsafe fn initialize_initial(st: &memory::initial::State)
 
 		let virtual_offset = hole.virtual_base - KERNEL_LOCATION;
 
-		println!("segment {:x} - end {:x}", hole.virtual_base, hole.virtual_base + hole.end - hole.base);
+		//println!("segment {:x} - end {:x}", hole.virtual_base, hole.virtual_base + hole.end - hole.base);
 
-		map_page_table(&mut ptl1_kernel, virtual_offset, virtual_offset + hole.end - hole.base, hole.base, flags);
+		map_page_table(&mut ptl1_kernel, virtual_offset, virtual_offset + (hole.end - hole.base) as usize, hole.base, flags);
 	}
 
-	load_pml4(Page::new(offset(&ptl4_static)).to_physical());
+	load_pml4(Page::new(offset(&ptl4_static)).get_physical());
 
 	console::set_buffer(FRAMEBUFFER_START);
 }

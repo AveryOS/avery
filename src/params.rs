@@ -1,4 +1,5 @@
 use util::FixVec;
+use memory::Addr;
 
 #[derive(Eq, PartialEq)]
 pub enum MemoryKind {
@@ -9,8 +10,8 @@ pub enum MemoryKind {
 #[repr(C)]
 pub struct Range {
 	pub kind: MemoryKind,
-	pub base: uphys,
-	pub end: uphys,
+	pub base: Addr,
+	pub end: Addr,
 	pub next: *mut Range
 }
 
@@ -25,8 +26,8 @@ pub enum SegmentKind {
 #[repr(C)]
 pub struct Segment {
 	pub kind: SegmentKind,
-	pub base: uphys,
-	pub end: uphys,
+	pub base: Addr,
+	pub end: Addr,
 	pub virtual_base: usize,
 	pub found: bool,
 	pub name: [u8; 0x100]

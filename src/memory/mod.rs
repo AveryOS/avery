@@ -1,11 +1,13 @@
 use arch;
 use std::mem;
 
+pub use arch::Addr;
+
 #[derive(Copy, Clone)]
 pub struct Page(usize);
 
 #[derive(Copy, Clone)]
-pub struct PhysicalPage(uphys);
+pub struct PhysicalPage(Addr);
 
 pub const PAGE_ZERO: Page = Page(0);
 pub const PHYSICAL_PAGE_ZERO: PhysicalPage = PhysicalPage(0);
@@ -29,19 +31,18 @@ impl Page {
 		let Page(ptr) = *self;
 		ptr
 	}
-	pub fn to_physical(&self) -> PhysicalPage {
+	pub fn get_physical(&self) -> PhysicalPage {
 		arch::memory::get_physical_page(*self)
 	}
 }
 
 impl PhysicalPage {
-	pub fn new(addr: uphys) -> PhysicalPage {
+	pub fn new(addr: Addr) -> PhysicalPage {
 		assert_page_aligned!(addr);
 		PhysicalPage(addr)
 	}
-	pub fn addr(&self) -> uphys {
-		let PhysicalPage(addr) = *self;
-		addr
+	pub fn addr(&self) -> Addr {
+        self.0
 	}
 }
 

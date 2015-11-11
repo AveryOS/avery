@@ -1,11 +1,13 @@
 use arch;
 use memory::physical;
+use memory::Addr;
 use params;
 use params::Range;
 use util::FixVec;
 
 pub struct State<'a> {
 	pub info: &'a mut params::Info,
+	pub holes: usize,
 	pub overhead: usize,
 	pub list: *mut Range,
 	pub entry: *mut Range // The entry used to store allocator data
@@ -16,8 +18,8 @@ unsafe fn load_memory_map(info: &mut params::Info) -> *mut Range {
 
 	for entry in info.ranges.iter_mut() {
 		if entry.kind == params::MemoryKind::Usable {
-			if entry.base < arch::PAGE_SIZE * 2 { // Ignore the first two pages
-				entry.base = arch::PAGE_SIZE * 2;
+			if entry.base < arch::PHYS_PAGE_SIZE * 2 { // Ignore the first two pages
+				entry.base = arch::PHYS_PAGE_SIZE * 2;
 			}
 
 			entry.next = list;
@@ -108,8 +110,8 @@ unsafe fn align_holes(st: &mut State) {
 	while _entry != null_mut() {
 		let entry = &mut *_entry;
 
-		entry.base = align_up(entry.base, arch::PAGE_SIZE);
-		entry.end = align_down(entry.end, arch::PAGE_SIZE);
+		entry.base = align_up(entry.base, arch::PHYS_PAGE_SIZE);
+		entry.end = align_down(entry.end, arch::PHYS_PAGE_SIZE);
 
 		if entry.end > entry.base {
 			prev = _entry; // Go to the next entry
@@ -152,6 +154,7 @@ unsafe fn find_biggest_entry(mut _entry: *mut Range) -> Option<*mut Range> {
 pub unsafe fn initialize_physical(info: &mut params::Info) -> State {
 	let mut st = State {
 		info: info,
+		holes: 0,
 		overhead: 0,
 		list: null_mut(),
 		entry: null_mut()
@@ -184,15 +187,17 @@ pub unsafe fn initialize_physical(info: &mut params::Info) -> State {
 	while _entry != null_mut() {
 		let entry = &mut *_entry;
 
-		memory_in_pages += (entry.end - entry.base) / arch::PAGE_SIZE;
-		st.overhead += size_of::<physical::Hole>() + size_of::<usize>() * align_up(entry.end - entry.base, physical::BYTE_MAP_SIZE) / physical::BYTE_MAP_SIZE;
+		memory_in_pages += (entry.end - entry.base) / arch::PHYS_PAGE_SIZE;
+		st.overhead += size_of::<physical::Hole>() + size_of::<usize>() * div_up(entry.end - entry.base, physical::BYTE_MAP_SIZE) as usize;
+
+		st.holes += 1;
 
 		_entry = entry.next;
 	}
 
-	println!("Available memory: {} MiB", memory_in_pages * arch::PAGE_SIZE / 0x100000);
+	println!("Available memory: {} MiB", memory_in_pages * arch::PHYS_PAGE_SIZE / 0x100000);
 
-	assert!(st.overhead <= (*st.entry).end - (*st.entry).base); // Memory allocation overhead is larger than the biggest memory block
+	assert!(st.overhead as Addr <= (*st.entry).end - (*st.entry).base); // Memory allocation overhead is larger than the biggest memory block
 	assert!(st.overhead <= arch::memory::MAX_OVERHEAD); // Memory map doesn't fit in 2 MB.
 
 	st

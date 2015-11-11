@@ -1,7 +1,10 @@
+
 #[cfg(multiboot)]
 pub mod multiboot;
 #[cfg(not(multiboot))]
 pub mod efi;
+
+pub type Addr = u64;
 
 pub mod dwarf;
 
@@ -26,7 +29,7 @@ const EFER_BIT_SYSCALLS: usize = 1;
 const GS_BASE: u32 = 0xC0000101;
 
 pub const PAGE_SIZE: usize = 0x1000;
-
+pub const PHYS_PAGE_SIZE: Addr = PAGE_SIZE as Addr;
 
 #[allow(dead_code)]
 #[repr(packed)]

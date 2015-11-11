@@ -1,6 +1,7 @@
 use std;
 use params;
 use util::FixVec;
+use memory::{Addr};
 
 mod multiboot;
 
@@ -38,8 +39,8 @@ pub fn init(info: &multiboot::Info) {
 
 		params.segments.push(params::Segment {
 			kind: kind,
-			base: base as uphys,
-			end: (base + offset(virtual_end) - offset(virtual_start)) as uphys,
+			base: base as Addr,
+			end: (base + offset(virtual_end) - offset(virtual_start)) as Addr,
 			virtual_base: offset(virtual_start),
 			found: false,
 			name: unsafe { std::mem::zeroed() }
@@ -55,8 +56,8 @@ pub fn init(info: &multiboot::Info) {
 
 		let segment = params::Segment {
 			kind: params::SegmentKind::Module,
-			base: module.start as uphys,
-			end: module.end as uphys,
+			base: module.start as Addr,
+			end: module.end as Addr,
 			virtual_base: 0,
 			found: false,
 			name: unsafe { std::mem::zeroed() }
@@ -81,8 +82,8 @@ pub fn init(info: &multiboot::Info) {
 		if mmap.kind == 1 {
 			params.ranges.push(params::Range {
 				kind: params::MemoryKind::Usable,
-				base: mmap.base as uphys,
-				end: (mmap.base + mmap.size) as uphys,
+				base: mmap.base as Addr,
+				end: (mmap.base + mmap.size) as Addr,
 				next: std::ptr::null_mut()
 			});
 		}

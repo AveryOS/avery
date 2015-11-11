@@ -1,3 +1,5 @@
+use memory::Addr;
+
 static mut VGA: *mut u16 = 0xb8000 as *mut u16;
 
 const SIZE_X: isize = 80;
@@ -13,8 +15,8 @@ const COLOR: u16 = (0 << 8) | (7 << 12);
 static mut x: isize = MIN_X;
 static mut y: isize = MIN_Y;
 
-pub fn get_buffer_info() -> (uphys, usize) {
-	unsafe { (VGA as uphys, (SIZE_X * SIZE_Y) as usize * size_of::<u16>()) }
+pub fn get_buffer_info() -> (Addr, usize) {
+	unsafe { (VGA as Addr, (SIZE_X * SIZE_Y) as usize * size_of::<u16>()) }
 }
 
 pub fn set_buffer(addr: usize) {
