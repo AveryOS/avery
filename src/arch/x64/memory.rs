@@ -1,9 +1,9 @@
-use arch;
 use arch::console;
 use params;
+use cpu;
 use util::FixVec;
 use memory;
-use memory::{Page, PhysicalPage, Addr};
+use memory::{Page, PhysicalPage, Addr, physical};
 
 pub use arch::{PAGE_SIZE, PHYS_PAGE_SIZE};
 
@@ -17,6 +17,9 @@ pub const PTL4_SIZE: usize = TABLE_ENTRIES * PTL3_SIZE;
 pub const PHYSICAL_ALLOCATOR_MEMORY: usize = KERNEL_LOCATION + PTL2_SIZE;
 pub const FRAMEBUFFER_START: usize = PHYSICAL_ALLOCATOR_MEMORY + PTL1_SIZE;
 pub const CPU_LOCAL_START: usize = FRAMEBUFFER_START + PTL1_SIZE;
+
+pub const ALLOCATOR_START: usize = CPU_LOCAL_START + cpu::MAX_CPUS * cpu::LOCAL_PAGE_COUNT * PAGE_SIZE;
+pub const ALLOCATOR_END: usize = (PHYSICAL_ALLOCATOR_MEMORY - PAGE_SIZE) + PTL2_SIZE;
 
 const TABLE_ENTRIES: usize = 0x1000 / PTR_BYTES;
 
@@ -44,11 +47,92 @@ pub const MAPPED_PML1TS: usize = 0xFFFFFF0000000000;
 pub const MAPPED_PML2TS: usize = KERNEL_LOCATION - PTL2_SIZE;
 pub const MAPPED_PML3TS: usize = KERNEL_LOCATION + PTL1_SIZE * 511;
 
+const NULL_ENTRY: TableEntry = TableEntry(0);
+
 #[derive(Copy, Clone)]
 #[repr(packed)]
 struct TableEntry(Addr);
 
 type Table = [TableEntry; TABLE_ENTRIES];
+
+pub fn map(address: Page, pages: usize, flags: Addr) {
+    for i in 0..pages {
+        let page = Page::new(address.ptr() + i * PAGE_SIZE);
+        unsafe {
+        	set_page_entry(page, page_table_entry(physical::allocate_page(), flags));
+        }
+    }
+}
+
+pub fn unmap(address: Page, pages: usize) {
+    for i in 0..pages {
+        let page = Page::new(address.ptr() + i * PAGE_SIZE);
+
+		let page_entry = get_page_entry(page);
+
+        unsafe {
+    		if entry_present(*page_entry) {
+    			physical::free_page(physical_page_from_table_entry(*page_entry));
+    			*page_entry = NULL_ENTRY;
+
+    			invalidate_page(page);
+    		}
+        }
+	}
+}
+
+fn entry_present(entry: TableEntry) -> bool {
+	entry.0 & PRESENT_BIT != 0
+}
+
+fn ensure_page_entry(pointer: Page) -> *mut TableEntry {
+    unsafe {
+    	let (ptl4_index, ptl3_index, ptl2_index, ptl1_index) = decode_address(pointer);
+
+    	let ptl3 = &mut *((MAPPED_PML3TS + ptl4_index * PAGE_SIZE) as *mut Table);
+
+    	ensure_table_entry(&mut ptl4_static, ptl4_index, ptl3);
+
+    	let ptl2 = &mut *((MAPPED_PML2TS + ptl4_index * PTL1_SIZE + ptl3_index * PAGE_SIZE) as *mut Table);
+
+    	ensure_table_entry(ptl3, ptl3_index, ptl2);
+
+    	let ptl1 = &mut *((MAPPED_PML1TS + ptl4_index * PTL2_SIZE + ptl3_index * PTL1_SIZE + ptl2_index * PAGE_SIZE) as *mut Table);
+
+    	ensure_table_entry(ptl2, ptl2_index, ptl1);
+
+    	return &mut ptl1[ptl1_index] as  *mut TableEntry;
+    }
+}
+
+unsafe fn set_page_entry(address: Page, entry: TableEntry)
+{
+	*ensure_page_entry(address) = entry;
+
+    asm! {
+        [use memory]
+    }
+}
+
+fn ensure_table_entry(table: &mut Table, index: usize, lower: &mut Table)
+{
+	if !entry_present(table[index]) {
+		let page = physical::allocate_dirty_page();
+		let flags = PRESENT_BIT | WRITE_BIT;
+
+		table[index] = page_table_entry(page, flags);
+
+        *lower = [NULL_ENTRY; TABLE_ENTRIES];
+	}
+}
+
+unsafe fn invalidate_page(page: Page) {
+    asm! {
+        [page.ptr() => %rdi, use memory]
+
+        invlpg [rdi]
+    }
+}
 
 unsafe fn load_pml4(pml4t: PhysicalPage) {
     asm! {

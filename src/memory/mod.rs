@@ -46,9 +46,16 @@ impl PhysicalPage {
 	}
 }
 
+pub mod allocator;
 pub mod initial;
 pub mod physical;
 
-pub unsafe fn initialize() {
+static mut alloc: Option<allocator::Allocator> = None;
 
+pub unsafe fn initialize() {
+    alloc = Some(allocator::Allocator::new(Page::new(arch::memory::ALLOCATOR_START), Page::new(arch::memory::ALLOCATOR_END)));
+}
+
+pub fn alloc_pages(pages: usize, kind: allocator::Kind) -> Page {
+    unsafe { Page::new((*alloc.as_mut().unwrap().allocate(kind, pages)).base * arch::PAGE_SIZE) }
 }

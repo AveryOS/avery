@@ -1,3 +1,5 @@
+#![allow(unused_variables, unused_mut)]
+
 use std::mem;
 use std::slice;
 use std::io::{Read, Error, Cursor};
@@ -162,7 +164,7 @@ fn parse_info_unit<'s>(data: &mut Cursor<&'s [u8]>, dwarf: &DwarfInfo<'s>, targe
 
         adata.set_position(abbrev_offset as u64);
 
-        read_abbrev(adata, abbrev_code);
+        try!(read_abbrev(adata, abbrev_code));
 
         let mut name = None;
         let mut low_pc = None;

@@ -57,7 +57,7 @@ extern {
 
 extern fn default_handler(info: &Info, index: u8, error_code: usize)
 {
-	let mut cr2: u64;
+	let cr2: u64;
 
 	unsafe {
 	    asm! {

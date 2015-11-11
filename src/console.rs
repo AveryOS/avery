@@ -41,6 +41,7 @@ extern fn eh_personality()
     panic!("Exceptions not supported");
 }
 
+#[allow(unreachable_code)]
 #[lang = "panic_fmt"]
 extern fn panic_fmt(fmt: Arguments, file: &'static str, line: u32) -> ! {
 

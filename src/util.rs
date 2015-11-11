@@ -72,9 +72,104 @@ macro_rules! fix_array_struct {
     )
 }
 
+pub struct LinkedList<T> {
+    pub first: Option<*mut T>,
+    pub last: Option<*mut T>,
+    prev_offset: usize,
+    next_offset: usize,
+}
+
+unsafe fn get<T>(node: *mut T, offset: usize) -> *mut Option<*mut T> {
+    (node as usize + offset) as *mut Option<*mut T>
+}
+
+unsafe fn insert_position<T>(node: *mut T, offset_a: usize, offset_b: usize, abs: &mut Option<*mut T>, target: *mut T) {
+	*get(node, offset_a) = Some(target);
+
+	let target_attr = *get(target, offset_b);
+
+    match target_attr {
+        Some(target_attr) => {
+    		*get(target_attr, offset_a) = Some(node);
+        }
+        None => {
+            *abs = Some(node);
+        }
+    };
+
+	*get(node, offset_b) = target_attr;
+	*get(target, offset_b) = Some(node);
+}
+
+impl<T> LinkedList<T> {
+    pub fn new(prev_offset: usize, next_offset: usize) -> LinkedList<T> {
+		LinkedList {
+			first: None,
+			last: None,
+			prev_offset: prev_offset,
+			next_offset: next_offset,
+		}
+    }
+
+    unsafe fn next(&self, node: *mut T) -> *mut Option<*mut T> {
+        get(node, self.next_offset)
+    }
+
+    unsafe fn prev(&self, node: *mut T) -> *mut Option<*mut T> {
+        get(node, self.prev_offset)
+    }
+
+	pub unsafe fn append(&mut self, node: *mut T) {
+		*self.next(node) = None;
+
+		match self.last {
+			Some(prev_last) => {
+				*self.prev(node) = Some(prev_last);
+				*self.next(prev_last) = Some(node);
+				self.last = Some(node);
+			}
+			None => {
+				*self.prev(node) = None;
+
+				self.first = Some(node);
+				self.last = Some(node);
+
+			}
+		}
+	}
+
+    pub unsafe fn remove(&mut self, node: *mut T) {
+        match *self.prev(node) {
+            Some(val) => {
+                *self.next(val) = *self.next(node);
+            }
+            None => {
+                self.first = *self.next(node);
+            }
+        }
+
+        match *self.next(node) {
+            Some(val) => {
+                *self.prev(val) = *self.prev(node);
+            }
+            None => {
+                self.last = *self.next(node);
+            }
+        }
+    }
+
+	pub unsafe fn insert_before(&mut self, node: *mut T, before: *mut T) {
+		insert_position(node, self.next_offset, self.prev_offset, &mut self.first, before);
+	}
+
+	pub unsafe fn insert_after(&mut self, node: *mut T, after: *mut T) {
+		insert_position(node, self.prev_offset, self.next_offset, &mut self.last, after);
+	}
+}
+
 macro_rules! offset_of {
     ($t:ty, $f:ident) => (
-		&mut ((*(0usize as *mut $t)).$f) as *mut _ as usize
+		unsafe { &mut ((*(0usize as *mut $t)).$f) as *mut _ as usize }
     )
 }
 

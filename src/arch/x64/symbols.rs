@@ -1,4 +1,3 @@
-use std;
 use arch::dwarf;
 
 #[repr(C)]
@@ -68,13 +67,6 @@ impl<'a> ReadInt for &'a str {
 }
 
 pub fn get_symbol_info_for_addr(addr: usize) -> Option<(&'static str, usize, &'static str, usize, usize)> {
-	extern {
-		static debug_line_start: u8;
-		static debug_line_end: u8;
-	}
-
-	let info = unsafe { std::slice::from_raw_parts(&debug_line_start, offset(&debug_line_end) - offset(&debug_line_start)) };
-
 	let bound = dwarf::parse_line_units(&dwarf::get_dwarf_info(), addr).unwrap();
 
 	let sym = dwarf::parse_info_units(&dwarf::get_dwarf_info(), addr as u64).unwrap().unwrap_or("<unknown>");
