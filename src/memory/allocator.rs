@@ -172,12 +172,12 @@ impl Allocator {
         }
     }
 
-    fn free(&mut self, block: *mut Block) {
+    pub fn free(&mut self, block: *mut Block) {
         unsafe {
             let block = &mut *block;
 
         	if block.kind == Kind::PhysicalView {
-        		//unmap_address(block.base, block.pages);
+        		memory::unmap_view(Page::new(block.base * PAGE_SIZE), block.pages);
         	} else {
         		memory::unmap(Page::new(block.base * PAGE_SIZE), block.pages);
             }

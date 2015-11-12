@@ -1,7 +1,55 @@
 use arch;
 use std::mem;
+use std::slice;
 
 pub use arch::Addr;
+
+pub struct PhysicalView {
+    block: Option<*mut allocator::Block>,
+}
+
+impl PhysicalView {
+    pub unsafe fn map<'s>(&'s mut self, base: Addr, size: usize, flags: Addr) -> &'s [u8] {
+        let start = align_down(base, arch::PHYS_PAGE_SIZE);
+        let end = align_up(base + size as Addr, arch::PHYS_PAGE_SIZE);
+        let pages = ((end - start) / arch::PHYS_PAGE_SIZE) as usize;
+
+        let (block, page) = alloc_block(pages, allocator::Kind::PhysicalView);
+
+        arch::memory::map_view(page, PhysicalPage::new(start), pages, flags);
+
+        self.block = Some(block);
+
+        let start = page.ptr() + (base & (arch::PHYS_PAGE_SIZE - 1)) as usize;
+
+        slice::from_raw_parts(start as *const u8, size)
+    }
+
+    pub unsafe fn map_object<'s, T>(&'s mut self, base: Addr, flags: Addr) -> &'s T {
+        let view = self.map(base, mem::size_of::<T>(), flags);
+        &*(view.as_ptr() as *const T)
+    }
+
+    pub fn new() -> PhysicalView {
+        PhysicalView {
+            block: None,
+        }
+    }
+}
+
+impl Drop for PhysicalView {
+    fn drop(&mut self) {
+        if let Some(block) = self.block {
+            unsafe {
+                let base = Page::new((*block).base * arch::PAGE_SIZE);
+                arch::memory::unmap_view(base, (*block).pages);
+
+                free_block(block);
+            }
+
+        }
+    }
+}
 
 #[derive(Copy, Clone)]
 pub struct Page(usize);
@@ -56,6 +104,13 @@ pub unsafe fn initialize() {
     alloc = Some(allocator::Allocator::new(Page::new(arch::memory::ALLOCATOR_START), Page::new(arch::memory::ALLOCATOR_END)));
 }
 
-pub fn alloc_pages(pages: usize, kind: allocator::Kind) -> Page {
-    unsafe { Page::new((*alloc.as_mut().unwrap().allocate(kind, pages)).base * arch::PAGE_SIZE) }
+pub fn alloc_block(pages: usize, kind: allocator::Kind) -> (*mut allocator::Block, Page) {
+    unsafe {
+        let block = alloc.as_mut().unwrap().allocate(kind, pages);
+        (block, Page::new((*block).base * arch::PAGE_SIZE))
+    }
+}
+
+pub unsafe fn free_block(block: *mut allocator::Block) {
+    alloc.as_mut().unwrap().free(block)
 }

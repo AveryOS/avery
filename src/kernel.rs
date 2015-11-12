@@ -36,6 +36,7 @@ fn init(info: &mut params::Info) {
 		arch::memory::initialize_initial(&result);
 		memory::physical::initialize(&result);
 		memory::initialize();
+		arch::initialize();
 	}
 
 	panic!("Bored");

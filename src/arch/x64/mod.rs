@@ -1,3 +1,5 @@
+use cpu::CPUVec;
+use util::FixVec;
 
 #[cfg(multiboot)]
 pub mod multiboot;
@@ -80,6 +82,8 @@ unsafe fn outb(port: u16, value: u8)
 }
 
 mod vga;
+mod acpi;
+
 pub mod segments;
 pub mod interrupts;
 pub mod cpu;
@@ -98,4 +102,11 @@ pub unsafe fn initialize_basic() {
 	segments::initialize_gdt();
 	cpu::initialize_basic();
 	interrupts::initialize_idt();
+}
+
+pub unsafe fn initialize() {
+	cpu::map_local_page_tables(cpu::bsp());
+
+	let mut cpu_info = CPUVec::new();
+	acpi::initialize(&mut cpu_info);
 }

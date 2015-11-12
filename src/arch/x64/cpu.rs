@@ -18,12 +18,23 @@ pub unsafe fn setup_gs(cpu: &'static mut cpu::CPU) {
 	arch::write_msr(arch::GS_BASE, offset(cpu));
 }
 
+pub unsafe fn bsp() -> &'static mut cpu::CPU {
+	&mut cpu::CPUS[0]
+}
+
+pub fn map_local_page_tables(cpu: &mut cpu::CPU) {
+	for page in 0..cpu::LOCAL_PAGE_COUNT {
+		let page = memory::Page::new(cpu.local_pages.ptr() + page * arch::PAGE_SIZE);
+		arch::memory::ensure_page_entry(page);
+	}
+}
+
 pub fn setup(cpu: &mut cpu::CPU, index: usize) {
 	cpu.index = index;
 	cpu.local_pages = memory::Page::new(arch::memory::CPU_LOCAL_START + index * arch::PAGE_SIZE * cpu::LOCAL_PAGE_COUNT);
 }
 
 pub unsafe fn initialize_basic() {
-	setup(&mut cpu::CPUS[0], 0);
-	setup_gs(&mut cpu::CPUS[0]);
+	setup(bsp(), 0);
+	setup_gs(bsp());
 }

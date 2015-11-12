@@ -1,3 +1,4 @@
+use arch;
 use arch::console;
 use params;
 use cpu;
@@ -51,9 +52,35 @@ const NULL_ENTRY: TableEntry = TableEntry(0);
 
 #[derive(Copy, Clone)]
 #[repr(packed)]
-struct TableEntry(Addr);
+pub struct TableEntry(Addr);
 
 type Table = [TableEntry; TABLE_ENTRIES];
+
+pub fn map_view(address: Page, mut target: PhysicalPage, pages: usize, flags: Addr) {
+    for i in 0..pages {
+        let page = Page::new(address.ptr() + i * PAGE_SIZE);
+        unsafe {
+        	set_page_entry(page, page_table_entry(target, flags));
+            target = PhysicalPage::new(target.addr() + arch::PHYS_PAGE_SIZE);
+        }
+    }
+}
+
+pub fn unmap_view(address: Page, pages: usize) {
+    for i in 0..pages {
+        let page = Page::new(address.ptr() + i * PAGE_SIZE);
+
+		let page_entry = get_page_entry(page);
+
+        unsafe {
+    		if entry_present(*page_entry) {
+    			*page_entry = NULL_ENTRY;
+
+    			invalidate_page(page);
+    		}
+        }
+	}
+}
 
 pub fn map(address: Page, pages: usize, flags: Addr) {
     for i in 0..pages {
@@ -85,7 +112,7 @@ fn entry_present(entry: TableEntry) -> bool {
 	entry.0 & PRESENT_BIT != 0
 }
 
-fn ensure_page_entry(pointer: Page) -> *mut TableEntry {
+pub fn ensure_page_entry(pointer: Page) -> *mut TableEntry {
     unsafe {
     	let (ptl4_index, ptl3_index, ptl2_index, ptl1_index) = decode_address(pointer);
 
@@ -105,8 +132,7 @@ fn ensure_page_entry(pointer: Page) -> *mut TableEntry {
     }
 }
 
-unsafe fn set_page_entry(address: Page, entry: TableEntry)
-{
+unsafe fn set_page_entry(address: Page, entry: TableEntry) {
 	*ensure_page_entry(address) = entry;
 
     asm! {
@@ -114,8 +140,7 @@ unsafe fn set_page_entry(address: Page, entry: TableEntry)
     }
 }
 
-fn ensure_table_entry(table: &mut Table, index: usize, lower: &mut Table)
-{
+fn ensure_table_entry(table: &mut Table, index: usize, lower: &mut Table) {
 	if !entry_present(table[index]) {
 		let page = physical::allocate_dirty_page();
 		let flags = PRESENT_BIT | WRITE_BIT;
@@ -142,8 +167,7 @@ unsafe fn load_pml4(pml4t: PhysicalPage) {
     }
 }
 
-fn physical_page_from_table_entry(entry: TableEntry) -> PhysicalPage
-{
+fn physical_page_from_table_entry(entry: TableEntry) -> PhysicalPage {
 	let TableEntry(entry) = entry;
 
 	PhysicalPage::new(entry & !(PAGE_FLAGS))
