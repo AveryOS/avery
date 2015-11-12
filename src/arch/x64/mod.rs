@@ -65,7 +65,21 @@ pub fn halt() -> ! {
     }
 }
 
-unsafe fn write_msr(reg: u32, value: usize)
+unsafe fn read_msr(reg: u32) -> u64
+{
+	let low: u32;
+	let high: u32;
+
+	asm! {
+		[%eax => low, %edx => high, reg => %ecx]
+
+		rdmsr
+	}
+
+	low as u64 | ((high as u64) << 32)
+}
+
+unsafe fn write_msr(reg: u32, value: u64)
 {
 	asm! {
 		[value => %eax, value >> 32 => %edx, reg => %ecx]
@@ -95,6 +109,7 @@ unsafe fn outb(port: u16, value: u8)
 mod serial;
 mod vga;
 mod acpi;
+pub mod apic;
 
 pub mod segments;
 pub mod interrupts;
@@ -122,4 +137,5 @@ pub unsafe fn initialize() {
 
 	let mut cpu_info = CPUVec::new();
 	acpi::initialize(&mut cpu_info);
+	apic::initialize();
 }

@@ -157,7 +157,7 @@ unsafe fn search() -> RSDP {
 }
 
 unsafe fn load_table(view: &mut PhysicalView, address: Addr) -> *const SDT {
-    let mut sdt_map = PhysicalView::new();
+	let mut sdt_map = PhysicalView::new();
 	let sdt = sdt_map.map_object::<SDT>(address, R_DATA_FLAGS);
 	let sdt = view.map(address, sdt.length as usize, R_DATA_FLAGS).as_ptr() as *const SDT;
 	assert_valid(sdt);
@@ -177,11 +177,11 @@ unsafe fn parse_madt(madt: *const MADT, vec: &mut CPUVec<CPUInfo>) {
 				let processor = &*(entry as *const ProcessorLocalAPIC);
 
 				if processor.flags & FLAG_ENABLED != 0 {
-                    vec.push(CPUInfo {
-                        acpi_id: processor.processor_id as usize,
-                        apic_id: processor.apic_id as usize,
-                    });
-                }
+					vec.push(CPUInfo {
+						acpi_id: processor.processor_id as usize,
+						apic_id: processor.apic_id as usize,
+					});
+				}
 			}
 			KIND_IOAPIC => {
 				let io = &*(entry as *const IOAPIC);

@@ -147,7 +147,7 @@ fn parse_c_arrow(p: &mut Parser, data: &mut Data) -> PResult<usize> {
         false
     };
 
-    let e = p.parse_expr();
+    let e = p.parse_expr_panic();
 
     let kind = if rw {
         BindingKind::InputAndOutput(e)
@@ -184,7 +184,7 @@ fn parse_operand(p: &mut Parser, data: &mut Data) -> PResult<usize> {
             let kind = if rw {
                 BindingKind::InputAndOutput(exp)
             } else if try!(p.eat(&token::FatArrow)) {
-                BindingKind::InputThenOutput(exp, p.parse_expr())
+                BindingKind::InputThenOutput(exp, p.parse_expr_panic())
             }  else {
                 BindingKind::Input(exp)
             };
@@ -200,7 +200,7 @@ fn parse_binding(p: &mut Parser, data: &mut Data) -> PResult<usize> {
         let c = try!(parse_c(p));
 
         let kind = if try!(p.eat(&token::FatArrow)) {
-            BindingKind::Output(p.parse_expr())
+            BindingKind::Output(p.parse_expr_panic())
         } else {
             BindingKind::Bare
         };
@@ -298,7 +298,7 @@ fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree]) 
     // Fall back to the old syntax if we start with a string
     if tts.len() > 0 {
         match tts[0] {
-            ast::TtToken(_, token::Literal(token::Lit::Str_(_), _)) | ast::TtToken(_, token::Literal(token::Lit::StrRaw(_, _), _)) => {
+            ast::TokenTree::Token(_, token::Literal(token::Lit::Str_(_), _)) | ast::TokenTree::Token(_, token::Literal(token::Lit::StrRaw(_, _), _)) => {
                 return expand_asm(cx, sp, tts);
             }
             _ => ()

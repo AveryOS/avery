@@ -3,6 +3,7 @@ use std::mem;
 use std::slice;
 
 pub use arch::Addr;
+pub use self::allocator::Block;
 
 pub struct PhysicalView {
     block: Option<*mut allocator::Block>,
@@ -14,9 +15,7 @@ impl PhysicalView {
         let end = align_up(base + size as Addr, arch::PHYS_PAGE_SIZE);
         let pages = ((end - start) / arch::PHYS_PAGE_SIZE) as usize;
 
-        let (block, page) = alloc_block(pages, allocator::Kind::PhysicalView);
-
-        arch::memory::map_view(page, PhysicalPage::new(start), pages, flags);
+        let (block, page) = map_physical(PhysicalPage::new(start), pages, flags);
 
         self.block = Some(block);
 
@@ -49,6 +48,14 @@ impl Drop for PhysicalView {
 
         }
     }
+}
+
+pub fn map_physical(base: PhysicalPage, pages: usize, flags: Addr) -> (*mut Block, Page) {
+    let (block, page) = alloc_block(pages, allocator::Kind::PhysicalView);
+
+    arch::memory::map_view(page, base, pages, flags);
+
+	(block, page)
 }
 
 #[derive(Copy, Clone)]

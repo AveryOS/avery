@@ -15,7 +15,7 @@ pub const CPU_DEF: CPU = CPU {
 };
 
 pub unsafe fn setup_gs(cpu: &'static mut cpu::CPU) {
-	arch::write_msr(arch::GS_BASE, offset(cpu));
+	arch::write_msr(arch::GS_BASE, offset(cpu) as u64);
 }
 
 pub unsafe fn bsp() -> &'static mut cpu::CPU {

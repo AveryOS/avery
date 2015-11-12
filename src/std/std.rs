@@ -39,6 +39,8 @@ pub use core::panicking;
 #[allow(non_camel_case_types, dead_code)]
 pub mod prelude {
 	pub mod v1 {
+        pub use core::intrinsics::{volatile_store, volatile_load};
+
 		use core::ops::{Add, Sub, BitAnd, Not, Div};
 		use core::num::One;
 

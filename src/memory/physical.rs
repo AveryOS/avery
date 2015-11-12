@@ -47,14 +47,14 @@ pub fn free_page(page: PhysicalPage) {
 }
 
 pub fn allocate_dirty_page() -> PhysicalPage {
-	use std::intrinsics::cttz64;
+	use std::intrinsics::cttz;
 
 	for (hole_idx, hole) in unsafe { HOLES.iter_mut().enumerate() } {
 		for unit in hole.bitmap.iter_mut() {
 			if *unit == !0 {
 				continue;
 			}
-			let bit_idx = unsafe { cttz64(!(*unit as u64)) } as usize;
+			let bit_idx = unsafe { cttz(!(*unit)) };
 
 			*unit |= 1 << bit_idx;
 
