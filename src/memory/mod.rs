@@ -101,7 +101,8 @@ pub mod physical;
 static mut alloc: Option<allocator::Allocator> = None;
 
 pub unsafe fn initialize() {
-    alloc = Some(allocator::Allocator::new(Page::new(arch::memory::ALLOCATOR_START), Page::new(arch::memory::ALLOCATOR_END)));
+    static mut alloc_first_block: Option<allocator::Block> = None;
+    alloc = Some(allocator::Allocator::new(Page::new(arch::memory::ALLOCATOR_START), Page::new(arch::memory::ALLOCATOR_END), &mut alloc_first_block));
 }
 
 pub fn alloc_block(pages: usize, kind: allocator::Kind) -> (*mut allocator::Block, Page) {
@@ -113,4 +114,8 @@ pub fn alloc_block(pages: usize, kind: allocator::Kind) -> (*mut allocator::Bloc
 
 pub unsafe fn free_block(block: *mut allocator::Block) {
     alloc.as_mut().unwrap().free(block)
+}
+
+pub fn virtual_dump() {
+    unsafe { alloc.as_mut().unwrap().dump() }
 }

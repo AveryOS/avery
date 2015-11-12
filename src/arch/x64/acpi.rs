@@ -171,6 +171,7 @@ unsafe fn parse_madt(madt: *const MADT, vec: &mut CPUVec<CPUInfo>) {
 	let end = (madt as usize + (*madt).sdt.length as usize) as *const MADTEntry;
 
 	while entry < end {
+
 		match (*entry).kind {
 			KIND_PROCESSOR_LOCAL_APIC => {
 				let processor = &*(entry as *const ProcessorLocalAPIC);
@@ -246,5 +247,6 @@ pub unsafe fn initialize(vec: &mut CPUVec<CPUInfo>) {
 		if table.signature == MADT_SIGNATURE_MAGIC.as_bytes() {
 			parse_madt(table as *const SDT as *const MADT, vec);
 		}
+
 	}
 }

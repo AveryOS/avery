@@ -186,6 +186,7 @@ end
 task :qemu => :build do
 	Dir.chdir('emu/') do
 		puts "Running QEMU..."
+		FileUtils.rm("serial.txt")
 		run QEMU, *%w{-L qemu\Bios -hda grubdisk.img -serial file:serial.txt -d int,cpu_reset -no-reboot -s -smp 4}
 	end
 end
@@ -193,6 +194,7 @@ end
 task :qemu_efi => :build_boot do
 	Dir.chdir('emu/') do
 		puts "Running QEMU..."
+		FileUtils.rm("serial.txt")
 		run QEMU, *%w{-L . -bios OVMF.fd -hda fat:hda -serial file:serial.txt -d int,cpu_reset -no-reboot -s -smp 4}
 	end
 end

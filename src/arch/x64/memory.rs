@@ -61,6 +61,9 @@ pub fn map_view(address: Page, mut target: PhysicalPage, pages: usize, flags: Ad
         let page = Page::new(address.ptr() + i * PAGE_SIZE);
         unsafe {
         	set_page_entry(page, page_table_entry(target, flags));
+
+            //println!("MAP VIEW @ {:#x} to {:#x}", page.ptr(), target.addr());
+
             target = PhysicalPage::new(target.addr() + arch::PHYS_PAGE_SIZE);
         }
     }
@@ -74,6 +77,8 @@ pub fn unmap_view(address: Page, pages: usize) {
 
         unsafe {
     		if entry_present(*page_entry) {
+                //println!("UNMAP VIEW @ {:#x} to {:#x}", page.ptr(), physical_page_from_table_entry(*page_entry).addr());
+
     			*page_entry = NULL_ENTRY;
 
     			invalidate_page(page);
@@ -86,7 +91,10 @@ pub fn map(address: Page, pages: usize, flags: Addr) {
     for i in 0..pages {
         let page = Page::new(address.ptr() + i * PAGE_SIZE);
         unsafe {
-        	set_page_entry(page, page_table_entry(physical::allocate_page(), flags));
+            let alloc = physical::allocate_page();
+            //println!("MAP PAGE @ {:#x} to {:#x}", page.ptr(), alloc.addr());
+
+        	set_page_entry(page, page_table_entry(alloc, flags));
         }
     }
 }
@@ -99,6 +107,8 @@ pub fn unmap(address: Page, pages: usize) {
 
         unsafe {
     		if entry_present(*page_entry) {
+                //println!("UNMAP PAGE @ {:#x} to {:#x}", page.ptr(), physical_page_from_table_entry(*page_entry).addr());
+
     			physical::free_page(physical_page_from_table_entry(*page_entry));
     			*page_entry = NULL_ENTRY;
 
@@ -292,10 +302,20 @@ pub unsafe fn initialize_initial(st: &memory::initial::State)
 
 		let virtual_offset = hole.virtual_base - KERNEL_LOCATION;
 
-		//println!("segment {:x} - end {:x}", hole.virtual_base, hole.virtual_base + hole.end - hole.base);
+		println!("Segment {:?} {:#x} - {:#x} ", hole.kind, hole.virtual_base, hole.virtual_base + (hole.end - hole.base) as usize);
 
 		map_page_table(&mut ptl1_kernel, virtual_offset, virtual_offset + (hole.end - hole.base) as usize, hole.base, flags);
 	}
+
+	extern {
+		static stack_start: void;
+		static stack_end: void;
+	}
+
+    // Unmap the stack guard page
+    *get_page_entry(Page::new(offset(&stack_start))) = NULL_ENTRY;
+
+    println!("BSP Stack is {:#x} - {:#x}", offset(&stack_start), offset(&stack_end));
 
 	load_pml4(Page::new(offset(&ptl4_static)).get_physical());
 

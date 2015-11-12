@@ -76,7 +76,7 @@ unsafe fn write_msr(reg: u32, value: usize)
 
 unsafe fn inb(port: u16) -> u8
 {
-	let mut ret: u8;
+	let ret: u8;
 
 	asm! {
 		in {%al => ret}, {port => %dx}

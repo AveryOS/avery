@@ -153,7 +153,7 @@ impl<T> LinkedList<T> {
                 *self.prev(val) = *self.prev(node);
             }
             None => {
-                self.last = *self.next(node);
+                self.last = *self.prev(node);
             }
         }
     }

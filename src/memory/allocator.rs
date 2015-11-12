@@ -4,7 +4,7 @@ use arch::PAGE_SIZE;
 use arch::memory;
 use util::LinkedList;
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Debug)]
 pub enum Kind {
 	Free,
 	Overhead,
@@ -40,13 +40,23 @@ pub struct Allocator {
 
 	current_block: *mut Block,
 	end_block: *mut Block,
-
-	first_block: Block,
 }
 
 impl Allocator {
-    pub fn new(start: Page, end: Page) -> Allocator {
+    pub fn new(start: Page, end: Page, first_block: &'static mut Option<Block>) -> Allocator {
         use std::ptr::null_mut;
+
+		*first_block = Some(Block {
+			base: start.ptr() / PAGE_SIZE,
+			pages: (end.ptr() - start.ptr()) / PAGE_SIZE,
+			kind: Kind::Free,
+			linear_prev: None,
+			linear_next: None,
+			list_prev: None,
+			list_next: None,
+		});
+
+        //println!("    NEW ALLOCATOR @ {:#x} - {:#x}",  start.ptr(), end.ptr());
 
         let mut alloc = Allocator {
         	free_block_list: LinkedList::new(offset_of!(Block, list_prev), offset_of!(Block, list_next)),
@@ -55,25 +65,53 @@ impl Allocator {
 
         	current_block: null_mut(),
         	end_block: null_mut(),
-
-        	first_block: Block {
-                base: start.ptr() / PAGE_SIZE,
-                pages: (end.ptr() - start.ptr()) / PAGE_SIZE,
-                kind: Kind::Free,
-            	linear_prev: None,
-            	linear_next: None,
-            	list_prev: None,
-            	list_next: None,
-            },
         };
 
         unsafe {
-        	alloc.free_list.append(&mut alloc.first_block as *mut Block);
-        	alloc.linear_list.append(&mut alloc.first_block as *mut Block);
+			let first = first_block.as_mut().unwrap() as *mut Block;
+        	alloc.free_list.append(first);
+        	alloc.linear_list.append(first);
         }
 
         alloc
     }
+
+	pub fn dump(&self) {
+		unsafe {
+	        println!("  Free list");
+
+	        let mut c = self.free_list.first;
+	        loop {
+	            let current = &mut *match c {
+	                Some(v) => v,
+	                None => break
+	            };
+
+	            println!("    FREE LIST block @ {:#x} - {:#x} - {:#x}", current as *mut Block as usize, current.base * PAGE_SIZE, (current.base + current.pages) * PAGE_SIZE);
+
+	    		c = current.list_next;
+	    	}
+
+			println!("  Linear list");
+
+	        let mut c = self.linear_list.first;
+	        loop {
+	            let current = &mut *match c {
+	                Some(v) => v,
+	                None => break
+	            };
+
+	            println!("    LINEAR block @ {:#x} - {:#x} - {:#x} {:?}", current as *mut Block as usize, current.base * PAGE_SIZE, (current.base + current.pages) * PAGE_SIZE, current.kind);
+
+	    		c = current.linear_next;
+	    	}
+
+			println!("   FREELIST first {:?}", self.free_list.first);
+			println!("   FREELIST last {:?}", self.free_list.last);
+
+			println!("  End dump");
+		}
+	}
 
     unsafe fn allocate_block(&mut self) -> *mut Block {
         // Check if any free block is available
@@ -114,7 +152,7 @@ impl Allocator {
         memory::map(Page::new(overhead), 1, memory::RW_DATA_FLAGS);
 
         overhead_block.kind = Kind::Overhead;
-        overhead_block.base = overhead;
+        overhead_block.base = overhead / PAGE_SIZE;
         overhead_block.pages = 1;
 
         self.linear_list.insert_before(overhead_block, free);
@@ -137,17 +175,17 @@ impl Allocator {
 
         unsafe {
         	let result = &mut *self.allocate_block(); // Allocate a result block first since it can modify free regions
+/*
+			println!("allocate_block @@ @ {:#x}", result as *mut Block as usize);
 
-            println!("ALLOC {}", pages);
-
+			self.dump();
+*/
             let mut c = self.free_list.first;
             loop {
                 let current = &mut *match c {
                     Some(v) => v,
                     None => break
                 };
-
-                println!("FREE LIST block @ {:#x} - {:#x} - {:#x}", current as *mut Block as usize, current.base * PAGE_SIZE, (current.base + current.pages) * PAGE_SIZE);
 
         		if current.pages >= pages { // We have a winner
         			if current.pages == pages { // It fits perfectly
@@ -167,7 +205,9 @@ impl Allocator {
         			current.base += pages;
         			current.pages -= pages;
 
-                    println!("allocate block @ {:#x} - {:#x} - {:#x}", result as *mut Block as usize, (*result).base * PAGE_SIZE, ((*result).base + pages) * PAGE_SIZE);
+                    //println!("ALLOCATE block @ {:#x} - {:#x} - {:#x}", result as *mut Block as usize, (*result).base * PAGE_SIZE, ((*result).base + pages) * PAGE_SIZE);
+
+					//self.dump();
 
         			return result;
         		}
@@ -181,7 +221,7 @@ impl Allocator {
 
     pub fn free(&mut self, block: *mut Block) {
         unsafe {
-            println!("free block @ {:#x} - {:#x} - {:#x}", block as usize, (*block).base * PAGE_SIZE, ((*block).base + (*block).pages) * PAGE_SIZE);
+            //println!("free block @ {:#x} - {:#x} - {:#x}", block as usize, (*block).base * PAGE_SIZE, ((*block).base + (*block).pages) * PAGE_SIZE);
 
             let block = &mut *block;
 
@@ -201,6 +241,7 @@ impl Allocator {
                 let prev = &mut *prev;
                 if prev.kind == Kind::Free {
             		assert!(prev.base + prev.pages == current.base);
+
             		prev.pages += current.pages;
 
             		self.free_block_list.append(current);
