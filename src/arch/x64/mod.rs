@@ -74,6 +74,17 @@ unsafe fn write_msr(reg: u32, value: usize)
 	}
 }
 
+unsafe fn inb(port: u16) -> u8
+{
+	let mut ret: u8;
+
+	asm! {
+		in {%al => ret}, {port => %dx}
+	}
+
+	ret
+}
+
 unsafe fn outb(port: u16, value: u8)
 {
 	asm! {
@@ -81,6 +92,7 @@ unsafe fn outb(port: u16, value: u8)
 	}
 }
 
+mod serial;
 mod vga;
 mod acpi;
 
@@ -102,6 +114,7 @@ pub unsafe fn initialize_basic() {
 	segments::initialize_gdt();
 	cpu::initialize_basic();
 	interrupts::initialize_idt();
+	serial::initialize();
 }
 
 pub unsafe fn initialize() {

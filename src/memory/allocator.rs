@@ -128,6 +128,7 @@ impl Allocator {
 
         let result = self.current_block;
         self.current_block = offset_mut(self.current_block, 1);
+
         return result;
     }
 
@@ -137,12 +138,16 @@ impl Allocator {
         unsafe {
         	let result = &mut *self.allocate_block(); // Allocate a result block first since it can modify free regions
 
+            println!("ALLOC {}", pages);
+
             let mut c = self.free_list.first;
             loop {
                 let current = &mut *match c {
                     Some(v) => v,
                     None => break
                 };
+
+                println!("FREE LIST block @ {:#x} - {:#x} - {:#x}", current as *mut Block as usize, current.base * PAGE_SIZE, (current.base + current.pages) * PAGE_SIZE);
 
         		if current.pages >= pages { // We have a winner
         			if current.pages == pages { // It fits perfectly
@@ -162,6 +167,8 @@ impl Allocator {
         			current.base += pages;
         			current.pages -= pages;
 
+                    println!("allocate block @ {:#x} - {:#x} - {:#x}", result as *mut Block as usize, (*result).base * PAGE_SIZE, ((*result).base + pages) * PAGE_SIZE);
+
         			return result;
         		}
 
@@ -174,6 +181,8 @@ impl Allocator {
 
     pub fn free(&mut self, block: *mut Block) {
         unsafe {
+            println!("free block @ {:#x} - {:#x} - {:#x}", block as usize, (*block).base * PAGE_SIZE, ((*block).base + (*block).pages) * PAGE_SIZE);
+
             let block = &mut *block;
 
         	if block.kind == Kind::PhysicalView {

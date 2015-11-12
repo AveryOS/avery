@@ -1,5 +1,3 @@
-use cpu;
-use arch;
 use util::FixVec;
 use arch::memory::R_DATA_FLAGS;
 use cpu::CPUVec;

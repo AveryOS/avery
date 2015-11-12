@@ -77,6 +77,7 @@ pub fn newline() {
 
 pub fn putc(c: char) {
 	unsafe {
+		::arch::serial::writeb(c as u8);
 
 		match c {
 			'\n' => newline(),
