@@ -110,6 +110,10 @@ mod serial;
 mod vga;
 mod acpi;
 pub mod apic;
+mod pit;
+mod io_apic;
+
+pub use self::io_apic::IRQ;
 
 pub mod segments;
 pub mod interrupts;
@@ -135,7 +139,9 @@ pub unsafe fn initialize_basic() {
 pub unsafe fn initialize() {
 	cpu::map_local_page_tables(cpu::bsp());
 
-	let mut cpu_info = CPUVec::new();
-	acpi::initialize(&mut cpu_info);
-	apic::initialize();
+	let pit_irq = IRQ::new(0, false, false);
+	let setup = acpi::initialize(pit_irq);
+	apic::initialize(setup.apic_address);
+	io_apic::initialize(setup.ios);
+	pit::initialize(setup.pit_irq);
 }

@@ -1,5 +1,6 @@
 use util::FixVec;
 use arch::memory::R_DATA_FLAGS;
+use arch::{io_apic, IRQ, apic};
 use cpu::CPUVec;
 use std;
 use std::slice;
@@ -13,7 +14,7 @@ pub struct CPUInfo {
 #[derive(Copy, Clone)]
 #[repr(packed)]
 struct RSDP {
-    signature: [u8; 8],
+	signature: [u8; 8],
 	checksum: u8,
 	oem: [u8; 6],
 	revision: u8,
@@ -22,7 +23,7 @@ struct RSDP {
 
 #[repr(packed)]
 struct SDT {
-    signature: [u8; 4],
+	signature: [u8; 4],
 	length: u32,
 	revision: u8,
 	checksum: u8,
@@ -50,7 +51,7 @@ struct MADTEntry {
 
 #[repr(packed)]
 struct ProcessorLocalAPIC {
-    entry: MADTEntry,
+	entry: MADTEntry,
 
 	processor_id: u8,
 	apic_id: u8,
@@ -59,7 +60,7 @@ struct ProcessorLocalAPIC {
 
 #[repr(packed)]
 struct IOAPIC {
-    entry: MADTEntry,
+	entry: MADTEntry,
 	id: u8,
 	reserved: u8,
 	address: u32,
@@ -68,28 +69,38 @@ struct IOAPIC {
 
 #[repr(packed)]
 struct LocalAPICAddressOverride {
-    entry: MADTEntry,
+	entry: MADTEntry,
 	reserved: u16,
 	apic_address: u64,
 }
 
 #[repr(packed)]
 struct InterruptSourceOverride {
-    entry: MADTEntry,
+	entry: MADTEntry,
 	bus: u8,
 	source: u8,
 	global_int: u32,
-    /*
+	/*
 	unsigned int polarity : 2;
 	unsigned int trigger_mode : 2;
 	unsigned int reserved : 12;
 
-    */
-    misc: u16,
+	*/
+	misc: u16,
 }
+
+impl InterruptSourceOverride {
+	fn polarity(&self) -> u16 {
+		self.misc >> 14
+	}
+	fn trigger_mode(&self) -> u16 {
+		(self.misc >> 12) & 3
+	}
+}
+
 #[repr(packed)]
 struct MADT {
-    sdt: SDT,
+	sdt: SDT,
 
 	local_interrupt_controller: u32,
 	flags: u32,
@@ -98,7 +109,7 @@ struct MADT {
 
 #[repr(packed)]
 struct RSDT {
-    sdt: SDT,
+	sdt: SDT,
 	tables: [u32; 0], // Variable length
 }
 
@@ -110,35 +121,35 @@ const BIOS_START: usize = 0xE0000;
 const BIOS_END: usize = 0x100000;
 
 fn checksum(mem: &[u8]) -> u8 {
-    mem.iter().fold(0, |acc, &b| acc + b)
+	mem.iter().fold(0, |acc, &b| acc + b)
 }
 
 unsafe fn assert_valid(table: *const SDT) {
-    let view = slice::from_raw_parts(table as *const u8, (*table).length as usize);
+	let view = slice::from_raw_parts(table as *const u8, (*table).length as usize);
 	assert!(checksum(view) == 0, "Invalid checksum");
 }
 
 unsafe fn search_area(start: Addr, size: usize) -> Option<RSDP> {
-    let mut scoped = PhysicalView::new();
-    let view = scoped.map(start, size, R_DATA_FLAGS);
+	let mut scoped = PhysicalView::new();
+	let view = scoped.map(start, size, R_DATA_FLAGS);
 
-    let mut i = 0;
+	let mut i = 0;
 
-    while i < size {
-        let ptr = &*(&view[i] as *const u8 as *const RSDP);
+	while i < size {
+		let ptr = &*(&view[i] as *const u8 as *const RSDP);
 
-        if ptr.signature == RSDP_SIGNATURE_MAGIC.as_bytes() {
-            let view = &view[i..(i + std::mem::size_of::<RSDP>())];
+		if ptr.signature == RSDP_SIGNATURE_MAGIC.as_bytes() {
+			let view = &view[i..(i + std::mem::size_of::<RSDP>())];
 
-    		if checksum(view) == 0 {
-                return Some(*ptr);
-            }
-        }
+			if checksum(view) == 0 {
+				return Some(*ptr);
+			}
+		}
 
-        i += 16;
-    }
+		i += 16;
+	}
 
-    None
+	None
 }
 
 unsafe fn search() -> RSDP {
@@ -151,7 +162,7 @@ unsafe fn search() -> RSDP {
 
 	if let Some(rsdp) = search_area(align_up(ebda, 16), 0x400) {
 		return rsdp;
-    }
+	}
 
 	panic!("Didn't find the ACPI RSDP structure");
 }
@@ -164,7 +175,14 @@ unsafe fn load_table(view: &mut PhysicalView, address: Addr) -> *const SDT {
 	sdt
 }
 
-unsafe fn parse_madt(madt: *const MADT, vec: &mut CPUVec<CPUInfo>) {
+pub struct Setup {
+	pub cpus: CPUVec<CPUInfo>,
+	pub pit_irq: IRQ,
+	pub ios: io_apic::IOAPICVec<io_apic::IOAPIC>,
+	pub apic_address: Option<Addr>,
+}
+
+unsafe fn parse_madt(madt: *const MADT, setup: &mut Setup) {
 	//APIC::set_registers(madt->local_interrupt_controller);
 
 	let mut entry = offset(madt, 1) as *const MADTEntry;
@@ -177,7 +195,7 @@ unsafe fn parse_madt(madt: *const MADT, vec: &mut CPUVec<CPUInfo>) {
 				let processor = &*(entry as *const ProcessorLocalAPIC);
 
 				if processor.flags & FLAG_ENABLED != 0 {
-					vec.push(CPUInfo {
+					setup.cpus.push(CPUInfo {
 						acpi_id: processor.processor_id as usize,
 						apic_id: processor.apic_id as usize,
 					});
@@ -185,27 +203,24 @@ unsafe fn parse_madt(madt: *const MADT, vec: &mut CPUVec<CPUInfo>) {
 			}
 			KIND_IOAPIC => {
 				let io = &*(entry as *const IOAPIC);
-
-				//IOAPIC::allocate(io.global_int_start, io.id, io.address);
+				setup.ios.push(io_apic::IOAPIC::new(io.global_int_start, io.id, io.address as Addr));
 			}
 			KIND_INTERRUPT_SOURCE_OVERRIDE => {
 				let iso = &*(entry as *const InterruptSourceOverride);
 
-				/*if iso.bus == 0 && iso.source == PIT::irq.index {
-					assert(iso.polarity != 2, "Unknown polarity");
-					assert(iso.trigger_mode != 2, "Unknown trigger mode");
+				if iso.bus == 0 && iso.source as usize == setup.pit_irq.index {
+					assert!(iso.polarity() != 2, "Unknown polarity");
+					assert!(iso.trigger_mode() != 2, "Unknown trigger mode");
 
-					PIT::irq.index = iso.global_int;
-					PIT::irq.active_low = iso.polarity == 3;
-					PIT::irq.edge_triggered = iso.trigger_mode != 3;
-				}*/
+					setup.pit_irq = IRQ::new(iso.global_int as usize, iso.trigger_mode() != 3, iso.polarity() == 3);
+				}
 
-				//console.s("Interrupt source iso - bus: ").u(iso.bus).s(" irq: ").u(iso.source).s(" int: ").u(iso.global_int).endl();
+				println!("Interrupt source override - bus: {} irq: {} int: {}", iso.bus, iso.source, iso.global_int);
 			}
 			KIND_LOCAL_APIC_ADDRESS_OVERRIDE => {
 				let laao = &*(entry as *const LocalAPICAddressOverride);
-
-				//APIC::set_registers(laao.apic_address);
+				println!("Local APIC Address Override - address: {:#x}", laao.apic_address);
+				setup.apic_address = Some(laao.apic_address as Addr);
 			}
 			_ => {}
 		}
@@ -215,7 +230,7 @@ unsafe fn parse_madt(madt: *const MADT, vec: &mut CPUVec<CPUInfo>) {
 
 }
 
-pub unsafe fn initialize(vec: &mut CPUVec<CPUInfo>) {
+pub unsafe fn initialize(pit_irq: IRQ) -> Setup {
 	/*if(has_table)
 	{
 		Memory::ScopedBlock block;
@@ -226,6 +241,13 @@ pub unsafe fn initialize(vec: &mut CPUVec<CPUInfo>) {
 		assert(checksum((uint8_t *)&rsdp, (uint8_t *)(&rsdp + 1)) == 0, "Invalid ACPI RSDP checksum");
 	}
 	else*/
+
+	let mut setup = Setup {
+		cpus: CPUVec::new(),
+		pit_irq: pit_irq,
+		ios: io_apic::IOAPICVec::new(),
+		apic_address: None,
+	};
 
 	let rsdp = search();
 
@@ -245,8 +267,10 @@ pub unsafe fn initialize(vec: &mut CPUVec<CPUInfo>) {
 		println!("Found ACPI Table: {}", std::str::from_utf8(&table.signature).unwrap());
 
 		if table.signature == MADT_SIGNATURE_MAGIC.as_bytes() {
-			parse_madt(table as *const SDT as *const MADT, vec);
+			parse_madt(table as *const SDT as *const MADT, &mut setup);
 		}
 
 	}
+
+	setup
 }

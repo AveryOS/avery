@@ -15,11 +15,9 @@ enum MessageKind {
 
 const TIMER_VECTOR: usize = 33;
 
-#[linkage = "external"]
 #[export_name = "apic_registers"]
 pub static mut REGISTERS: usize = 0;
 
-#[linkage = "external"]
 #[export_name = "apic_calibrate_ticks"]
 pub static mut CALIBRATE_TICKS: u64 = 0;
 
@@ -53,14 +51,14 @@ const PERIODIC_TIMER: u32 = 1 << 17;
 const MT_NMI: u32 = 4 << 8;
 
 unsafe fn get_reg(offset: usize) -> u32 {
-    volatile_load((REGISTERS + offset) as *mut u32)
+	volatile_load((REGISTERS + offset) as *mut u32)
 }
 
 unsafe fn reg(offset: usize, val: u32) {
-    volatile_store((REGISTERS + offset) as *mut u32, val);
+	volatile_store((REGISTERS + offset) as *mut u32, val);
 }
 
-unsafe fn eoi() {
+pub unsafe fn eoi() {
 	reg(REG_EOI, 0);
 }
 
@@ -69,32 +67,18 @@ unsafe fn ipi(target: usize, kind: MessageKind, vector: usize) {
 	reg(REG_ICRL, ((vector as u32) & 0xFF) | (((kind as u32) & 7) << 8));
 }
 
-unsafe fn local_id() -> usize {
-	get_reg(REG_ID) as usize
+pub unsafe fn local_id() -> u8 {
+	get_reg(REG_ID) as u8
 }
 
-static mut has_base: bool = false;
-static mut register_base: Addr = 0;
+pub unsafe fn initialize(register_base: Option<Addr>) {
+	let registers_physical = register_base.unwrap_or_else(|| (((arch::read_msr(BASE_REGISTER) >> 12) & 0xFFFFFFFFFF) << 12));
 
-pub unsafe fn set_registers(registers: Addr) {
-	has_base = true;
-	register_base = registers;
-}
-
-pub unsafe fn initialize() {
-	let registers_physical;
-
-	if has_base {
-		registers_physical = register_base;
-	} else {
-		registers_physical = ((arch::read_msr(BASE_REGISTER) >> 12) & 0xFFFFFFFFFF) << 12;
-    }
+	println!("APIC regs {:#x}", registers_physical);
 
 	REGISTERS = memory::map_physical(PhysicalPage::new(registers_physical), 1, arch::memory::RW_DATA_FLAGS | arch::memory::NO_CACHE_FLAGS).1.ptr();
 
 	initialize_ap();
-
-    println!("hm ..{:?}", CALIBRATE_TICKS);
 }
 
 unsafe fn initialize_ap() {
@@ -118,7 +102,7 @@ fn calibrate_oneshot(Interrupts::Info &, uint8_t, size_t) {
 }
 
 extern {
-    fn apic_calibrate_pit_handler();
+	fn apic_calibrate_pit_handler();
 }
 
 Interrupts::InterruptGate pit_gate;
@@ -137,7 +121,7 @@ fn calibrate_done() {
 
 	for i in 0..CPU::count {
 		console.s("[CPU ").u(i).s("] APIC tick rate: ").u(CPU::cpus[i].apic_tick_rate).endl();
-    }
+	}
 }
 
 fn calibrate_ap()

@@ -1,4 +1,6 @@
 use arch;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering::SeqCst;
 
 unsafe fn setup_pics() {
 	use arch::outb;
@@ -34,7 +36,7 @@ unsafe fn setup_pics() {
 
 #[allow(dead_code)]
 #[repr(packed)]
-struct Info {
+pub struct Info {
 	ds: u16,
 	padding: [u16; 3],
 	registers: arch::GeneralRegisters,
@@ -47,7 +49,7 @@ const HANDLER_COUNT: usize = 256; // Same as in interrupts.s
 
 extern {
 	#[link_name = "interrupt_handlers"]
-	pub static mut HANDLERS: [Handler; HANDLER_COUNT];
+	pub static mut HANDLERS: [AtomicUsize; HANDLER_COUNT];
 
 	#[link_name = "isr_stubs"]
 	static ISR_STUBS: [unsafe extern fn(); HANDLER_COUNT - 1];
@@ -124,6 +126,12 @@ unsafe fn set_gate(index: u8, stub: unsafe extern fn ()) {
 	gate.misc = 0xE | 0b10000000; // present, type = 0xE
 }
 
+pub fn register_handler(index: u8, handler: Handler) {
+	unsafe {
+		HANDLERS[index as usize].store(handler as usize, SeqCst);
+	}
+}
+
 #[repr(packed)]
 pub unsafe fn initialize_idt() {
 	setup_pics();
@@ -135,7 +143,7 @@ pub unsafe fn initialize_idt() {
 	set_gate(0xFF, spurious_irq);
 
 	for handler in HANDLERS.iter_mut() {
-		*handler = default_handler;
+		handler.store(default_handler as usize, SeqCst);
 	}
 
 	let idt_ptr = arch::CPUPointer {

@@ -13,6 +13,7 @@
 extern crate core as __core;
 
 pub use core::ptr;
+pub use core::sync;
 pub use core::any;
 pub use core::str;
 pub use core::cell;
