@@ -1,4 +1,3 @@
-use cpu::CPUVec;
 use util::FixVec;
 
 #[cfg(multiboot)]
@@ -57,12 +56,31 @@ struct GeneralRegisters {
 	rsp: u64,
 }
 
-pub fn halt() -> ! {
-    loop {
-        unsafe {
-            asm! { hlt }
-        }
+pub fn pause() {
+    unsafe { asm! { pause } }
+}
+
+pub fn halt2() {
+    unsafe {
+        asm! { hlt }
     }
+}
+
+pub unsafe fn panic() -> ! {
+	interrupts::disable();
+    loop {
+		halt2();
+    }
+}
+
+unsafe fn run() {
+	//APIC::start_timer();
+
+	interrupts::enable();
+
+	loop {
+		halt2();
+	}
 }
 
 unsafe fn read_msr(reg: u32) -> u64
@@ -144,4 +162,6 @@ pub unsafe fn initialize() {
 	apic::initialize(setup.apic_address);
 	io_apic::initialize(setup.ios);
 	pit::initialize(setup.pit_irq);
+	apic::calibrate();
+	cpu::boot_cpus(setup.cpus);
 }

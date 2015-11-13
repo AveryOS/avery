@@ -1,6 +1,6 @@
 use util::FixVec;
 use arch::memory::R_DATA_FLAGS;
-use arch::{io_apic, IRQ, apic};
+use arch::{io_apic, IRQ};
 use cpu::CPUVec;
 use std;
 use std::slice;

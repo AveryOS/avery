@@ -25,12 +25,9 @@ mod cpu;
 
 mod memory;
 
-#[no_mangle]
-pub extern fn ap_entry() {
-}
-
 fn init(info: &mut params::Info) {
 	unsafe {
+        cpu::initialize_basic();
 		arch::initialize_basic();
 		let result = memory::initial::initialize_physical(info);
 		arch::memory::initialize_initial(&result);

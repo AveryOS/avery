@@ -34,6 +34,14 @@ unsafe fn setup_pics() {
 	outb(slave_data, pic_mask_all);
 }
 
+pub unsafe fn enable() {
+	asm!("sti");
+}
+
+pub unsafe fn disable() {
+	asm!("cli");
+}
+
 #[allow(dead_code)]
 #[repr(packed)]
 pub struct Info {
@@ -77,7 +85,7 @@ rip: {:x}",
 #[allow(dead_code)]
 #[repr(packed)]
 #[derive(Copy, Clone)]
-struct Gate {
+pub struct Gate {
 	target_low: u16,
 	segment_selector: u16,
 
@@ -101,7 +109,7 @@ struct Gate {
 	reserved_1: u32,
 }
 
-const GATE_DEF: Gate = Gate {
+pub const GATE_DEF: Gate = Gate {
 	target_low: 0,
 	segment_selector: 0,
 	ist: 0,
@@ -113,8 +121,12 @@ const GATE_DEF: Gate = Gate {
 
 static mut IDT: [Gate; HANDLER_COUNT] = [GATE_DEF; HANDLER_COUNT];
 
-unsafe fn set_gate(index: u8, stub: unsafe extern fn ()) {
-	let target: usize = transmute(stub);
+pub unsafe fn ref_gate(index: u8) -> &'static mut Gate {
+	&mut IDT[index as usize]
+}
+
+pub unsafe fn set_gate(index: u8, stub: unsafe extern fn ()) {
+	let target = stub as usize;
 
 	let gate = &mut IDT[index as usize];
 

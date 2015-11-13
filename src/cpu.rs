@@ -2,7 +2,6 @@ use arch;
 use memory;
 use util::FixVec;
 
-#[derive(Copy, Clone)]
 pub struct CPU {
 	pub index: usize,
 	pub arch: arch::cpu::CPU,
@@ -13,21 +12,45 @@ pub const LOCAL_PAGE_COUNT: usize = 1;
 
 pub const MAX_CPUS: usize = 32;
 
-const CPU_DEF: CPU = CPU {
-	index: -1,
-	arch: arch::cpu::CPU_DEF,
-	local_pages: memory::PAGE_ZERO,
-};
-
-pub static mut CPUS: [CPU; MAX_CPUS] = [CPU_DEF; MAX_CPUS];
-
 fix_array_struct!(CPUVec, MAX_CPUS);
 
-pub fn current() -> &'static mut CPU {
-	unsafe { &mut CPUS[0] }
+static mut CPUS: Option<CPUVec<CPU>> = None;
+
+const REG_ID: u32 = 0;
+const REG_VERSION: u32 = 1;
+const REG_IRQ_START: u32 = 0x10;
+
+const MASK_BIT: u32 = 1 << 16;
+const TRIGGER_MODE_BIT: u32 = 1 << 15;
+const ACTIVE_LOW_BIT: u32 = 1 << 13;
+
+pub unsafe fn initialize_basic() {
+	CPUS = Some(CPUVec::new());
+	allocate();
 }
 
-pub fn setup(cpu: &mut CPU, index: usize) {
-	cpu.index = index;
-	cpu.local_pages = memory::Page::new(arch::memory::CPU_LOCAL_START + index * arch::PAGE_SIZE * LOCAL_PAGE_COUNT);
+pub fn cpus() -> &'static mut [CPU] {
+	unsafe { CPUS.as_mut().unwrap().iter_mut().into_slice() }
+}
+
+pub unsafe fn allocate() -> &'static mut CPU {
+	let cpus = CPUS.as_mut().unwrap();
+	let count = cpus.len();
+	cpus.push(CPU::new(count));
+
+	return &mut cpus[count];
+}
+
+pub fn current() -> &'static mut CPU {
+	arch::cpu::current()
+}
+
+impl CPU {
+	pub fn new(index: usize) -> CPU {
+		CPU {
+			index: index,
+			arch: arch::cpu::CPU::new(),
+			local_pages: memory::Page::new(arch::memory::CPU_LOCAL_START + index * arch::PAGE_SIZE * LOCAL_PAGE_COUNT),
+		}
+	}
 }

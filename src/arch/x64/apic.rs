@@ -1,8 +1,10 @@
 use arch;
 use memory;
 use memory::{PhysicalPage, Addr};
+use arch::{interrupts, pit};
+use cpu;
 
-enum MessageKind {
+pub enum Message {
 	Fixed,
 	LowestPriority,
 	SMI,
@@ -13,13 +15,10 @@ enum MessageKind {
 	External
 }
 
-const TIMER_VECTOR: usize = 33;
+const TIMER_VECTOR: u32 = 33;
 
 #[export_name = "apic_registers"]
 pub static mut REGISTERS: usize = 0;
-
-#[export_name = "apic_calibrate_ticks"]
-pub static mut CALIBRATE_TICKS: u64 = 0;
 
 const BASE_REGISTER: u32 = 0x1B;
 
@@ -62,7 +61,7 @@ pub unsafe fn eoi() {
 	reg(REG_EOI, 0);
 }
 
-unsafe fn ipi(target: usize, kind: MessageKind, vector: usize) {
+pub unsafe fn ipi(target: usize, kind: Message, vector: usize) {
 	reg(REG_ICRH, (target as u32) << 24);
 	reg(REG_ICRL, ((vector as u32) & 0xFF) | (((kind as u32) & 7) << 8));
 }
@@ -81,7 +80,7 @@ pub unsafe fn initialize(register_base: Option<Addr>) {
 	initialize_ap();
 }
 
-unsafe fn initialize_ap() {
+pub unsafe fn initialize_ap() {
 	reg(REG_DFR, -1);
 	reg(REG_LDR, get_reg(REG_LDR) & 0x00FFFFFF);
 	reg(REG_LVT_TIMER, LVT_MASK);
@@ -96,88 +95,100 @@ unsafe fn initialize_ap() {
 	reg(REG_SIV, 0xFF | SW_ENABLE);
 }
 
-/*
-fn calibrate_oneshot(Interrupts::Info &, uint8_t, size_t) {
-	panic("APIC timer calibration failed. Timer too fast.");
+
+#[export_name = "apic_calibrate_ticks"]
+pub static mut CALIBRATE_TICKS: u64 = 0;
+
+extern fn calibrate_oneshot(_: &interrupts::Info, _: u8, _: usize) {
+	panic!("APIC timer calibration failed. Timer too fast.");
 }
 
 extern {
 	fn apic_calibrate_pit_handler();
 }
 
-Interrupts::InterruptGate pit_gate;
+static mut pit_gate: interrupts::Gate = interrupts::GATE_DEF;
 
-fn calibrate() {
-	Interrupts::get_gate(PIT::vector, pit_gate);
-	Interrupts::set_gate(PIT::vector, &apic_calibrate_pit_handler);
+pub unsafe fn calibrate() {
+	let gate = interrupts::ref_gate(pit::VECTOR);
+	pit_gate = *gate;
+	interrupts::set_gate(pit::VECTOR, apic_calibrate_pit_handler);
 
-	Interrupts::register_handler(timer_vector, calibrate_oneshot);
+	interrupts::register_handler(TIMER_VECTOR as u8, calibrate_oneshot);
 
 	calibrate_ap();
 }
 
-fn calibrate_done() {
-	Interrupts::set_gate(PIT::vector, pit_gate);
+pub unsafe fn calibrate_done() {
+	*interrupts::ref_gate(pit::VECTOR) = pit_gate;
 
-	for i in 0..CPU::count {
-		console.s("[CPU ").u(i).s("] APIC tick rate: ").u(CPU::cpus[i].apic_tick_rate).endl();
+	for cpu in cpu::cpus() {
+		println!("[CPU {}] APIC tick rate: {}", cpu.index, cpu.arch.apic_tick_rate);
 	}
 }
 
-fn calibrate_ap()
-{
-	reg(reg_timer_div) = 2;
-	reg(reg_timer_init) = -1;
-	reg(reg_lvt_timer) = lvt_mask;
+pub unsafe fn calibrate_ap() {
+	reg(REG_TIMER_DIV, 2);
+	reg(REG_TIMER_INIT, -1);
+	reg(REG_LVT_TIMER, LVT_MASK);
 
-	Interrupts::enable();
+	interrupts::enable();
 
-	uint64_t current_tick;
+	let mut current_tick;
 
-	do
+	loop
 	{
-		current_tick = calibrate_ticks;
-	} while(current_tick > current_tick + 2);
+		current_tick = volatile_load(&CALIBRATE_TICKS);
 
-	while(calibrate_ticks < current_tick + 1);
+		if current_tick <= current_tick.wrapping_add(2) {
+			break
+		}
+	}
 
-	reg(reg_lvt_timer) = timer_vector;
+	while volatile_load(&CALIBRATE_TICKS) < current_tick + 1 {}
 
-	while(calibrate_ticks < current_tick + 2);
+	reg(REG_LVT_TIMER, TIMER_VECTOR);
 
-	uint32_t ticks = (uint32_t)-1 - reg(reg_timer_current);
+	while volatile_load(&CALIBRATE_TICKS) < current_tick + 2 {}
 
-	Interrupts::disable();
+	let ticks = !0 - get_reg(REG_TIMER_CURRENT);
 
-	reg(reg_lvt_timer) = lvt_mask;
+	interrupts::disable();
 
-	CPU::current->apic_tick_rate = ticks;
+	reg(REG_LVT_TIMER, LVT_MASK);
+
+	cpu::current().arch.apic_tick_rate = ticks as usize;
 }
 
-volatile bool oneshot_done;
+static mut oneshot_done: bool = false;
 
-fn simple_oneshot_wake(Interrupts::Info &, uint8_t, size_t)
-{
-	oneshot_done = true;
-	eoi();
+extern fn simple_oneshot_wake(_: &interrupts::Info, _: u8, _: usize) {
+	unsafe{
+		volatile_store(&mut oneshot_done, true);
+		oneshot_done = true;
+		eoi();
+	}
 }
 
-fn simple_oneshot(size_t ticks)
-{
-	Interrupts::disable();
+pub fn simple_oneshot(ticks: u32) {
+	unsafe {
+		interrupts::disable();
 
-	Interrupts::register_handler(timer_vector, simple_oneshot_wake);
-	oneshot_done = false;
-	reg(reg_timer_init) = ticks;
-	reg(reg_lvt_timer) = timer_vector;
+		interrupts::register_handler(TIMER_VECTOR as u8, simple_oneshot_wake);
+		volatile_store(&mut oneshot_done, false);
+		reg(REG_TIMER_INIT, ticks);
+		reg(REG_LVT_TIMER, TIMER_VECTOR);
 
-	Interrupts::enable();
+		interrupts::enable();
 
-	while(!oneshot_done)
-		Arch::pause();
+		while !volatile_load(&oneshot_done) {
+			arch::pause();
+		}
+	}
 }
 
-fn tick(Interrupts::Info &info, uint8_t, size_t)
+/*
+extern fn tick(info: &interrupts::Info, _: u8, _: usize) {
 {
 	if(info.was_kernel())
 		Scheduler::schedule();
@@ -212,10 +223,9 @@ fn tick(Interrupts::Info &info, uint8_t, size_t)
 	eoi();
 }
 
-fn start_timer()
-{
-	Interrupts::register_handler(timer_vector, tick);
+fn start_timer() {
+	interrupts::register_handler(TIMER_VECTOR, tick);
 
 	reg(reg_timer_init) = CPU::current->apic_tick_rate;
-	reg(reg_lvt_timer) = timer_vector | periodic_timer;
+	reg(reg_lvt_timer) = TIMER_VECTOR | periodic_timer;
 }*/

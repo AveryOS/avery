@@ -1,9 +1,7 @@
 
 use arch::{apic, outb, interrupts, IRQ};
 
-const VECTOR: u8 = 34;
-
-//IRQ irq(0);
+pub const VECTOR: u8 = 34;
 
 extern fn pit_interrupt(_: &interrupts::Info, _: u8, _: usize) {
     unsafe {

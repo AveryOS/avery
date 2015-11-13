@@ -4,6 +4,7 @@ use std::slice;
 
 pub use arch::Addr;
 pub use self::allocator::Block;
+pub use self::allocator::Kind;
 
 pub struct PhysicalView {
     block: Option<*mut allocator::Block>,

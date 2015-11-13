@@ -48,7 +48,7 @@ extern fn panic_fmt(fmt: Arguments, file: &'static str, line: u32) -> ! {
     println!("\nPanic: {}\nLoc: {}:{}", fmt, file, line);
 
     unsafe {
-        arch::halt();
+        arch::panic();
 
         static mut TRIED_BACKTRACE: bool = false;
 
@@ -60,6 +60,6 @@ extern fn panic_fmt(fmt: Arguments, file: &'static str, line: u32) -> ! {
             print!("Panic during backtrace...");
         }
 
-    	arch::halt();
+    	arch::panic();
     }
 }

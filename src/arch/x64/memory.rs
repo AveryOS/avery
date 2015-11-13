@@ -262,6 +262,10 @@ fn table_entry_from_data(table: &'static Table) -> TableEntry {
 	page_table_entry(Page::new(offset(table)).get_physical(), PRESENT_BIT | WRITE_BIT)
 }
 
+pub unsafe fn get_pml4_physical() -> PhysicalPage {
+    Page::new(offset(&ptl4_static)).get_physical()
+}
+
 pub unsafe fn initialize_initial(st: &memory::initial::State)
 {
 	ptl4_static[511] = table_entry_from_data(&ptl3_static);
@@ -317,7 +321,7 @@ pub unsafe fn initialize_initial(st: &memory::initial::State)
 
     println!("BSP Stack is {:#x} - {:#x}", offset(&stack_start), offset(&stack_end));
 
-	load_pml4(Page::new(offset(&ptl4_static)).get_physical());
+	load_pml4(get_pml4_physical());
 
 	console::set_buffer(FRAMEBUFFER_START);
 }
