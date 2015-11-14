@@ -74,6 +74,18 @@ extern {
 }
 
 unsafe fn setup_ap_bootstrap() -> &'static mut APBootstrapInfo {
+	// Move setup code to low memory
+
+	assert!(offset(&ap_bootstrap_end) - offset(&ap_bootstrap_start) <= arch::PAGE_SIZE, "CPU bootstrap code too large");
+
+	let bootstrap_page = &ap_bootstrap_mapped as *const void as usize;
+
+	arch::memory::map_view(Page::new(bootstrap_page), PhysicalPage::new(bootstrap_page as Addr), 1, arch::memory::WRITE_BIT | arch::memory::PRESENT_BIT);
+
+	::rlibc::memcpy(bootstrap_page as *mut u8, &ap_bootstrap_start as *const void as *const u8, arch::PAGE_SIZE);
+
+	// Write bootstrap info
+
 	ap_bootstrap_info = APBootstrapInfo {
 		pml4: arch::memory::get_pml4_physical().addr() as u32,
 		apic_registers: apic::REGISTERS,
@@ -84,15 +96,6 @@ unsafe fn setup_ap_bootstrap() -> &'static mut APBootstrapInfo {
 		cpus: cpu::cpus().as_mut_ptr(),
 		allow_start: 0,
 	};
-
-	// Move setup code to low memory
-
-	assert!(offset(&ap_bootstrap_end) - offset(&ap_bootstrap_start) <= arch::PAGE_SIZE, "CPU bootstrap code too large");
-
-	let bootstrap_page = &ap_bootstrap_mapped as *const void as usize;
-
-	arch::memory::map_view(Page::new(bootstrap_page), PhysicalPage::new(bootstrap_page as Addr), 1, arch::memory::WRITE_BIT | arch::memory::PRESENT_BIT);
-	::rlibc::memcpy(bootstrap_page as *mut u8, &ap_bootstrap_start as *const void as *const u8, arch::PAGE_SIZE);
 
 	&mut ap_bootstrap_info
 }
@@ -152,7 +155,7 @@ pub unsafe fn boot_cpus(cpus: cpu::CPUVec<acpi::CPUInfo>) {
 
 		let stack_pages = 5;
 
-		let (stack, stack_page) = memory::alloc_block(stack_pages + 1, memory::Kind::Stack);
+		let (_, stack_page) = memory::alloc_block(stack_pages + 1, memory::Kind::Stack);
 
 		cpu.arch.stack = stack_page.ptr();
 		cpu.arch.stack_end = stack_page.ptr() + (stack_pages + 1) * arch::PAGE_SIZE;

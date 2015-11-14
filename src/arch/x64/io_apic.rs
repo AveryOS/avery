@@ -21,7 +21,7 @@ const REG_VERSION: u32 = 1;
 const REG_IRQ_START: u32 = 0x10;
 
 const MASK_BIT: u32 = 1 << 16;
-const TRIGGER_MODE_BIT: u32 = 1 << 15;
+const LEVEL_SENSITIVE_BIT: u32 = 1 << 15;
 const ACTIVE_LOW_BIT: u32 = 1 << 13;
 
 pub unsafe fn initialize(ios: IOAPICVec<IOAPIC>) {
@@ -76,11 +76,13 @@ impl IOAPIC {
 
     	let reg_start = REG_IRQ_START + (irq as u32) * 2;
 
+		// Mask the Interrupt before changing it
     	self.reg(reg_start, self.get_reg(reg_start) | MASK_BIT);
+		
     	self.reg(reg_start + 1, (target as u32) << 24);
         let mut val = vector as u32;
-        if edge_triggered {
-            val |= TRIGGER_MODE_BIT;
+        if !edge_triggered {
+            val |= LEVEL_SENSITIVE_BIT;
         }
         if active_low {
             val |= ACTIVE_LOW_BIT;

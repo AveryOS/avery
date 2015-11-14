@@ -99,6 +99,13 @@ pub unsafe fn initialize_ap() {
 #[export_name = "apic_calibrate_ticks"]
 pub static mut CALIBRATE_TICKS: u64 = 0;
 
+extern fn poof(_: &interrupts::Info, _: u8, _: usize) {
+	unsafe { CALIBRATE_TICKS += 1;
+	eoi();
+	//print!("@{}@", volatile_load(&CALIBRATE_TICKS));
+}
+}
+
 extern fn calibrate_oneshot(_: &interrupts::Info, _: u8, _: usize) {
 	panic!("APIC timer calibration failed. Timer too fast.");
 }
@@ -114,6 +121,7 @@ pub unsafe fn calibrate() {
 	pit_gate = *gate;
 	interrupts::set_gate(pit::VECTOR, apic_calibrate_pit_handler);
 
+	interrupts::register_handler(pit::VECTOR, poof);
 	interrupts::register_handler(TIMER_VECTOR as u8, calibrate_oneshot);
 
 	calibrate_ap();
@@ -132,20 +140,30 @@ pub unsafe fn calibrate_ap() {
 	reg(REG_TIMER_INIT, -1);
 	reg(REG_LVT_TIMER, LVT_MASK);
 
+	println!("calibrate_ap");
+
 	interrupts::enable();
+
+	println!("calibrate_ap int enabled");
 
 	let mut current_tick;
 
+
+	// Make sure the tick count won't overflow soon
 	loop
 	{
 		current_tick = volatile_load(&CALIBRATE_TICKS);
 
-		if current_tick <= current_tick.wrapping_add(2) {
+		if current_tick <= current_tick.wrapping_add(10) {
 			break
 		}
 	}
 
+		println!("calibrate_ap loop 1 {} val {}", current_tick, volatile_load(&CALIBRATE_TICKS));
+
 	while volatile_load(&CALIBRATE_TICKS) < current_tick + 1 {}
+
+		println!("calibrate_ap loop 2");
 
 	reg(REG_LVT_TIMER, TIMER_VECTOR);
 
@@ -154,6 +172,8 @@ pub unsafe fn calibrate_ap() {
 	let ticks = !0 - get_reg(REG_TIMER_CURRENT);
 
 	interrupts::disable();
+
+	println!("calibrate_ap loop 3 {}", ticks);
 
 	reg(REG_LVT_TIMER, LVT_MASK);
 

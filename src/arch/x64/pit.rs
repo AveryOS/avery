@@ -14,7 +14,9 @@ pub unsafe fn initialize(mut irq: IRQ) {
 
 	irq.route(VECTOR, apic::local_id());
 
-	let divisor: u32 = 1193182 / 200;
+	let divisor: u32 = 1193182 / 20;
+
+    println!("PIT divisor {}", divisor);
 
 	outb(0x43, 0x34);
 	outb(0x40, divisor as u8);

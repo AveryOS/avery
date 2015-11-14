@@ -157,7 +157,7 @@ pub unsafe fn initialize_basic() {
 pub unsafe fn initialize() {
 	cpu::map_local_page_tables(cpu::bsp());
 
-	let pit_irq = IRQ::new(0, false, false);
+	let pit_irq = IRQ::new(0, true, false);
 	let setup = acpi::initialize(pit_irq);
 	apic::initialize(setup.apic_address);
 	io_apic::initialize(setup.ios);
