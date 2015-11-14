@@ -167,11 +167,6 @@ pub unsafe fn initialize_idt() {
 	for handler in HANDLERS.iter_mut() {
 		handler.store(default_handler as usize, SeqCst);
 	}
-
-	let idt_ptr = arch::CPUPointer {
-		limit: size_of_val(&IDT) as u16 - 1,
-		base: offset(&IDT)
-	};
-
+	
 	load_idt();
 }

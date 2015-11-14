@@ -1,6 +1,7 @@
 use arch;
 use std::mem;
 use std::slice;
+use spin::Mutex;
 
 pub use arch::Addr;
 pub use self::allocator::Block;
@@ -106,24 +107,24 @@ pub mod allocator;
 pub mod initial;
 pub mod physical;
 
-static mut alloc: Option<allocator::Allocator> = None;
+static ALLOC: Mutex<Option<allocator::Allocator>> = Mutex::new(None);
 
 pub unsafe fn initialize() {
     static mut alloc_first_block: Option<allocator::Block> = None;
-    alloc = Some(allocator::Allocator::new(Page::new(arch::memory::ALLOCATOR_START), Page::new(arch::memory::ALLOCATOR_END), &mut alloc_first_block));
+    *ALLOC.lock() = Some(allocator::Allocator::new(Page::new(arch::memory::ALLOCATOR_START), Page::new(arch::memory::ALLOCATOR_END), &mut alloc_first_block));
 }
 
 pub fn alloc_block(pages: usize, kind: allocator::Kind) -> (*mut allocator::Block, Page) {
     unsafe {
-        let block = alloc.as_mut().unwrap().allocate(kind, pages);
+        let block = ALLOC.lock().as_mut().unwrap().allocate(kind, pages);
         (block, Page::new((*block).base * arch::PAGE_SIZE))
     }
 }
 
 pub unsafe fn free_block(block: *mut allocator::Block) {
-    alloc.as_mut().unwrap().free(block)
+    ALLOC.lock().as_mut().unwrap().free(block)
 }
 
 pub fn virtual_dump() {
-    unsafe { alloc.as_mut().unwrap().dump() }
+    ALLOC.lock().as_mut().unwrap().dump()
 }

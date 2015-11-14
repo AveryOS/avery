@@ -30,14 +30,16 @@ macro_rules! println {
 }
 
 pub fn println_args(args: Arguments) {
-    let _ = LOCK.lock();
+    let lock = LOCK.lock();
     assert!(ScreenWriter.write_fmt(args).is_ok());
     arch::console::putc('\n');
+    drop(lock);
 }
 
 pub fn print_args(args: Arguments) {
-    let _ = LOCK.lock();
+    let lock = LOCK.lock();
 	assert!(ScreenWriter.write_fmt(args).is_ok());
+    drop(lock);
 }
 
 #[lang = "eh_personality"]
@@ -49,6 +51,9 @@ extern fn eh_personality()
 #[allow(unreachable_code)]
 #[lang = "panic_fmt"]
 extern fn panic_fmt(fmt: Arguments, file: &'static str, line: u32) -> ! {
+    unsafe {
+        arch::interrupts::disable();
+    }
 
     println!("\nPanic: {}\nLoc: {}:{}", fmt, file, line);
 

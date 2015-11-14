@@ -202,7 +202,7 @@ pub unsafe fn boot_cpus(cpus: cpu::CPUVec<acpi::CPUInfo>) {
 	}
 
 	// interrupts are enabled by apic::simple_oneshot
-	//interrupts::enable();
+	interrupts::enable();
 
 	info.allow_start = 1;
 
@@ -227,7 +227,12 @@ pub unsafe extern fn ap_entry(cpu: &'static mut cpu::CPU) {
 
 	processor_setup();
 
+	println!("Hello from {}", cpu.index);
+
 	map_local_page_tables(cpu);
+
+			arch::run();
+
 /*
 	apic::initialize_ap();
 

@@ -5,6 +5,7 @@ use core::ops::{Drop, Deref, DerefMut};
 use core::fmt;
 use core::option::Option::{self, None, Some};
 use core::default::Default;
+use arch;
 
 /// This type provides MUTual EXclusion based on spinning.
 ///
@@ -123,6 +124,7 @@ impl<T> Mutex<T>
     {
         while self.lock.compare_and_swap(false, true, Ordering::SeqCst) != false
         {
+            arch::pause();
             // Do nothing
         }
     }

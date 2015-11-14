@@ -131,7 +131,7 @@ fn entry_present(entry: TableEntry) -> bool {
 	entry.0 & PRESENT_BIT != 0
 }
 
-pub fn ensure_page_entry<'s>(ops: &'s mut Ops, pointer: Page) -> &'s mut TableEntry {
+pub fn ensure_page_entry<'s>(_: &'s mut Ops, pointer: Page) -> &'s mut TableEntry {
     unsafe {
     	let (ptl4_index, ptl3_index, ptl2_index, ptl1_index) = decode_address(pointer);
 
@@ -193,9 +193,7 @@ fn physical_page_from_table_entry(entry: TableEntry) -> PhysicalPage {
 }
 
 pub fn get_physical_page(virtual_address: Page) -> PhysicalPage {
-	unsafe {
-		physical_page_from_table_entry(*get_page_entry(&mut *LOCK.lock(), virtual_address))
-	}
+	physical_page_from_table_entry(*get_page_entry(&mut *LOCK.lock(), virtual_address))
 }
 
 extern {
@@ -233,7 +231,7 @@ fn decode_address(pointer: Page) -> (usize, usize, usize, usize) {
 	(ptl4_index, ptl3_index, ptl2_index, ptl1_index)
 }
 
-fn get_page_entry<'s>(ops: &'s mut Ops, pointer: Page) -> &'s mut TableEntry {
+fn get_page_entry<'s>(_: &'s mut Ops, pointer: Page) -> &'s mut TableEntry {
 	let (ptl4_index, ptl3_index, ptl2_index, ptl1_index) = decode_address(pointer);
 
 	unsafe { &mut *((MAPPED_PML1TS +

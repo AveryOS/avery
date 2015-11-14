@@ -183,6 +183,12 @@ task :build_boot do
 	build_kernel.call
 end
 
+task :vmware do
+	Dir.chdir('emu/') do
+		run *%w{qemu\qemu-img convert -O vmdk grubdisk.img avery.vmdk}
+	end
+end
+
 task :qemu => :build do
 	Dir.chdir('emu/') do
 		puts "Running QEMU..."
@@ -211,7 +217,7 @@ task :bochs4 => :build do
 
 	Dir.chdir('emu/') do
 		puts "Running Bochs..."
-		run 'bochs-p4-smp-2.6.8-win32\bochs-p4-smp', '-q', '-f', 'avery4.bxrc'
+		run 'bochs4\bochs', '-q', '-f', 'avery4.bxrc'
 	end
 end
 

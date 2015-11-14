@@ -31,7 +31,7 @@ impl Hole {
 	}
 }
 
-pub static mut HOLES: Mutex<&'static mut [Hole]> = Mutex::new(&mut []);
+pub static mut HOLES: Mutex<&'static mut [Hole]> = Mutex::new(&mut []); // COMPILER BUG; should be static; ask eddyb
 
 pub fn free_page(page: PhysicalPage) {
 	let page = page.addr();
