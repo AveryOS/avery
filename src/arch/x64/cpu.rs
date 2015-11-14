@@ -229,14 +229,18 @@ pub unsafe extern fn ap_entry(cpu: &'static mut cpu::CPU) {
 
 	println!("Hello from {}", cpu.index);
 
-	map_local_page_tables(cpu);
-
-			arch::run();
-
-/*
 	apic::initialize_ap();
 
-		println!("Hi from  CPU {}, ", apic::local_id());
+	apic::calibrate_ap();
+	
+	println!("Hi from  CPU {}, ", apic::local_id());
+
+				arch::run();
+	map_local_page_tables(cpu);
+
+
+/*
+
 
 
 	apic::calibrate_ap();
