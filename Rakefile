@@ -186,8 +186,8 @@ end
 task :qemu => :build do
 	Dir.chdir('emu/') do
 		puts "Running QEMU..."
-		FileUtils.rm("serial.txt")
-		run QEMU, *%w{-L qemu\Bios -hda grubdisk.img -serial file:serial.txt -d int,cpu_reset -no-reboot -s -smp 4}
+		FileUtils.rm("serial.txt") # -d ,cpu_reset
+		run QEMU, *%w{-L qemu\Bios -hda grubdisk.img -serial file:serial.txt -d int -D int.log -no-reboot -s -smp 4}
 	end
 end
 
@@ -204,6 +204,14 @@ task :bochsdbg => :build do
 	Dir.chdir('emu/') do
 		puts "Running Bochs..."
 		run 'bochs\bochsdbg', '-q', '-f', 'avery.bxrc'
+	end
+end
+
+task :bochs4 => :build do
+
+	Dir.chdir('emu/') do
+		puts "Running Bochs..."
+		run 'bochs-p4-smp-2.6.8-win32\bochs-p4-smp', '-q', '-f', 'avery4.bxrc'
 	end
 end
 

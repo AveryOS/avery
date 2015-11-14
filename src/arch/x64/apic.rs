@@ -50,10 +50,12 @@ const PERIODIC_TIMER: u32 = 1 << 17;
 const MT_NMI: u32 = 4 << 8;
 
 unsafe fn get_reg(offset: usize) -> u32 {
+	assert!(REGISTERS != 0);
 	volatile_load((REGISTERS + offset) as *mut u32)
 }
 
 unsafe fn reg(offset: usize, val: u32) {
+	assert!(REGISTERS != 0);
 	volatile_store((REGISTERS + offset) as *mut u32, val);
 }
 
@@ -67,7 +69,7 @@ pub unsafe fn ipi(target: usize, kind: Message, vector: usize) {
 }
 
 pub unsafe fn local_id() -> u8 {
-	get_reg(REG_ID) as u8
+	(get_reg(REG_ID) >> 24) as u8
 }
 
 pub unsafe fn initialize(register_base: Option<Addr>) {
@@ -99,13 +101,6 @@ pub unsafe fn initialize_ap() {
 #[export_name = "apic_calibrate_ticks"]
 pub static mut CALIBRATE_TICKS: u64 = 0;
 
-extern fn poof(_: &interrupts::Info, _: u8, _: usize) {
-	unsafe { CALIBRATE_TICKS += 1;
-	eoi();
-	//print!("@{}@", volatile_load(&CALIBRATE_TICKS));
-}
-}
-
 extern fn calibrate_oneshot(_: &interrupts::Info, _: u8, _: usize) {
 	panic!("APIC timer calibration failed. Timer too fast.");
 }
@@ -121,7 +116,6 @@ pub unsafe fn calibrate() {
 	pit_gate = *gate;
 	interrupts::set_gate(pit::VECTOR, apic_calibrate_pit_handler);
 
-	interrupts::register_handler(pit::VECTOR, poof);
 	interrupts::register_handler(TIMER_VECTOR as u8, calibrate_oneshot);
 
 	calibrate_ap();
@@ -173,7 +167,7 @@ pub unsafe fn calibrate_ap() {
 
 	interrupts::disable();
 
-	println!("calibrate_ap loop 3 {}", ticks);
+	println!("Tick rate {}t/s", ticks / 20);
 
 	reg(REG_LVT_TIMER, LVT_MASK);
 

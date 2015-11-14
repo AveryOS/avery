@@ -77,9 +77,9 @@ extern fn default_handler(info: &Info, index: u8, error_code: usize)
 	    }
 	}
 
-    panic!("Unhandled interrupt: {}\n\nerrnr: {:x}   rsi: {:x}  rsp: {:x}  cr2: {:x}
+    panic!("Unhandled interrupt: {}\n\nerrnr: {:x}   cpu: {} rsi: {:x}  rsp: {:x}  cr2: {:x}
 rip: {:x}",
-    	index, error_code, info.registers.rsi, info.registers.rsp, cr2, info.registers.rip);
+    	index, error_code, arch::cpu::current_slow().index, info.registers.rsi, info.registers.rsp, cr2, info.registers.rip);
 }
 
 #[allow(dead_code)]
@@ -144,7 +144,17 @@ pub fn register_handler(index: u8, handler: Handler) {
 	}
 }
 
-#[repr(packed)]
+pub unsafe fn load_idt() {
+	let idt_ptr = arch::CPUPointer {
+		limit: size_of_val(&IDT) as u16 - 1,
+		base: offset(&IDT)
+	};
+
+    asm! {
+        lidt {&idt_ptr => %*m};
+    }
+}
+
 pub unsafe fn initialize_idt() {
 	setup_pics();
 
@@ -163,8 +173,5 @@ pub unsafe fn initialize_idt() {
 		base: offset(&IDT)
 	};
 
-    asm! {
-        lidt {&idt_ptr => %*m};
-    }
-
+	load_idt();
 }

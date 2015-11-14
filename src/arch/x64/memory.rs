@@ -5,6 +5,7 @@ use cpu;
 use util::FixVec;
 use memory;
 use memory::{Page, PhysicalPage, Addr, physical};
+use spin::Mutex;
 
 pub use arch::{PAGE_SIZE, PHYS_PAGE_SIZE};
 
@@ -50,6 +51,10 @@ pub const MAPPED_PML3TS: usize = KERNEL_LOCATION + PTL1_SIZE * 511;
 
 const NULL_ENTRY: TableEntry = TableEntry(0);
 
+pub struct Ops;
+pub static LOCK: Mutex<Ops> = Mutex::new(Ops);
+
+
 #[derive(Copy, Clone)]
 #[repr(packed)]
 pub struct TableEntry(Addr);
@@ -57,10 +62,11 @@ pub struct TableEntry(Addr);
 type Table = [TableEntry; TABLE_ENTRIES];
 
 pub fn map_view(address: Page, mut target: PhysicalPage, pages: usize, flags: Addr) {
+    let ops = &mut *LOCK.lock();
     for i in 0..pages {
         let page = Page::new(address.ptr() + i * PAGE_SIZE);
         unsafe {
-        	set_page_entry(page, page_table_entry(target, flags));
+        	set_page_entry(ops, page, page_table_entry(target, flags));
 
             //println!("MAP VIEW @ {:#x} to {:#x}", page.ptr(), target.addr());
 
@@ -70,10 +76,11 @@ pub fn map_view(address: Page, mut target: PhysicalPage, pages: usize, flags: Ad
 }
 
 pub fn unmap_view(address: Page, pages: usize) {
+    let ops = &mut *LOCK.lock();
     for i in 0..pages {
         let page = Page::new(address.ptr() + i * PAGE_SIZE);
 
-		let page_entry = get_page_entry(page);
+		let page_entry = get_page_entry(ops, page);
 
         unsafe {
     		if entry_present(*page_entry) {
@@ -88,22 +95,24 @@ pub fn unmap_view(address: Page, pages: usize) {
 }
 
 pub fn map(address: Page, pages: usize, flags: Addr) {
+    let ops = &mut *LOCK.lock();
     for i in 0..pages {
         let page = Page::new(address.ptr() + i * PAGE_SIZE);
         unsafe {
             let alloc = physical::allocate_page();
             //println!("MAP PAGE @ {:#x} to {:#x}", page.ptr(), alloc.addr());
 
-        	set_page_entry(page, page_table_entry(alloc, flags));
+        	set_page_entry(ops, page, page_table_entry(alloc, flags));
         }
     }
 }
 
 pub fn unmap(address: Page, pages: usize) {
+    let ops = &mut *LOCK.lock();
     for i in 0..pages {
         let page = Page::new(address.ptr() + i * PAGE_SIZE);
 
-		let page_entry = get_page_entry(page);
+		let page_entry = get_page_entry(ops, page);
 
         unsafe {
     		if entry_present(*page_entry) {
@@ -122,7 +131,7 @@ fn entry_present(entry: TableEntry) -> bool {
 	entry.0 & PRESENT_BIT != 0
 }
 
-pub fn ensure_page_entry(pointer: Page) -> *mut TableEntry {
+pub fn ensure_page_entry<'s>(ops: &'s mut Ops, pointer: Page) -> &'s mut TableEntry {
     unsafe {
     	let (ptl4_index, ptl3_index, ptl2_index, ptl1_index) = decode_address(pointer);
 
@@ -138,12 +147,12 @@ pub fn ensure_page_entry(pointer: Page) -> *mut TableEntry {
 
     	ensure_table_entry(ptl2, ptl2_index, ptl1);
 
-    	return &mut ptl1[ptl1_index] as  *mut TableEntry;
+    	&mut ptl1[ptl1_index]
     }
 }
 
-unsafe fn set_page_entry(address: Page, entry: TableEntry) {
-	*ensure_page_entry(address) = entry;
+unsafe fn set_page_entry<'s>(ops: &'s mut Ops, address: Page, entry: TableEntry) {
+	*ensure_page_entry(ops, address) = entry;
 
     asm! {
         [use memory]
@@ -185,7 +194,7 @@ fn physical_page_from_table_entry(entry: TableEntry) -> PhysicalPage {
 
 pub fn get_physical_page(virtual_address: Page) -> PhysicalPage {
 	unsafe {
-		physical_page_from_table_entry(*get_page_entry(virtual_address))
+		physical_page_from_table_entry(*get_page_entry(&mut *LOCK.lock(), virtual_address))
 	}
 }
 
@@ -224,14 +233,14 @@ fn decode_address(pointer: Page) -> (usize, usize, usize, usize) {
 	(ptl4_index, ptl3_index, ptl2_index, ptl1_index)
 }
 
-fn get_page_entry(pointer: Page) -> *mut TableEntry {
+fn get_page_entry<'s>(ops: &'s mut Ops, pointer: Page) -> &'s mut TableEntry {
 	let (ptl4_index, ptl3_index, ptl2_index, ptl1_index) = decode_address(pointer);
 
-	(MAPPED_PML1TS +
+	unsafe { &mut *((MAPPED_PML1TS +
 		ptl4_index * PTL2_SIZE +
 		ptl3_index * PTL1_SIZE +
 		ptl2_index * PAGE_SIZE +
-		ptl1_index * PTR_BYTES) as *mut TableEntry
+		ptl1_index * PTR_BYTES) as *mut TableEntry) }
 }
 
 fn page_table_entry(page: PhysicalPage, flags: Addr) -> TableEntry {
@@ -317,7 +326,7 @@ pub unsafe fn initialize_initial(st: &memory::initial::State)
 	}
 
     // Unmap the stack guard page
-    *get_page_entry(Page::new(offset(&stack_start))) = NULL_ENTRY;
+    *get_page_entry(&mut *LOCK.lock(), Page::new(offset(&stack_start))) = NULL_ENTRY;
 
     println!("BSP Stack is {:#x} - {:#x}", offset(&stack_start), offset(&stack_end));
 

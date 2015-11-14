@@ -1,6 +1,9 @@
 use std::fmt::{Write, Arguments, Error};
+use spin::Mutex;
 
 pub use arch;
+
+static LOCK: Mutex<()> = Mutex::new(());
 
 struct ScreenWriter;
 
@@ -27,11 +30,13 @@ macro_rules! println {
 }
 
 pub fn println_args(args: Arguments) {
+    let _ = LOCK.lock();
     assert!(ScreenWriter.write_fmt(args).is_ok());
     arch::console::putc('\n');
 }
 
 pub fn print_args(args: Arguments) {
+    let _ = LOCK.lock();
 	assert!(ScreenWriter.write_fmt(args).is_ok());
 }
 

@@ -60,7 +60,7 @@ pub fn pause() {
     unsafe { asm! { pause } }
 }
 
-pub fn halt2() {
+pub fn halt() {
     unsafe {
         asm! { hlt }
     }
@@ -69,7 +69,7 @@ pub fn halt2() {
 pub unsafe fn panic() -> ! {
 	interrupts::disable();
     loop {
-		halt2();
+		halt();
     }
 }
 
@@ -79,7 +79,7 @@ unsafe fn run() {
 	interrupts::enable();
 
 	loop {
-		halt2();
+		halt();
 	}
 }
 

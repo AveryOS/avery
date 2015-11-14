@@ -74,8 +74,11 @@ found_cpu:
 	mov rsp, [rbx + rdx]
 	mov rdi, rbx
 
-	movabs rax, ap_entry
-	jmp rax
+	jmp ap_entry
+
+	#movabs rax, ap_entry binutils doesn't like this
+	#jmp rax
+
 
 gdt:
 .quad 0

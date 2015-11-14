@@ -34,8 +34,27 @@ pub unsafe fn setup_gs(cpu: *const cpu::CPU) {
 	arch::write_msr(arch::GS_BASE, cpu as u64);
 }
 
+pub fn current_slow() -> &'static mut cpu::CPU {
+	unsafe {
+		if apic::REGISTERS == 0  {
+			println!("CURRENT ASSUMED AS BSP");
+			return bsp()
+		}
+
+		let id = apic::local_id();
+
+		for cpu in cpu::cpus() {
+			if cpu.arch.apic_id == id as usize {
+				return cpu
+			}
+		}
+
+		panic!("Unable to find current CPU");
+	}
+}
+
 pub fn current() -> &'static mut cpu::CPU {
-	unsafe { bsp() } // NEEDS FIXING
+	current_slow()
 }
 
 pub unsafe fn bsp() -> &'static mut cpu::CPU {
@@ -45,7 +64,7 @@ pub unsafe fn bsp() -> &'static mut cpu::CPU {
 pub fn map_local_page_tables(cpu: &mut cpu::CPU) {
 	for page in 0..cpu::LOCAL_PAGE_COUNT {
 		let page = memory::Page::new(cpu.local_pages.ptr() + page * arch::PAGE_SIZE);
-		arch::memory::ensure_page_entry(page);
+		arch::memory::ensure_page_entry(&mut *arch::memory::LOCK.lock(), page);
 	}
 }
 
@@ -182,12 +201,13 @@ pub unsafe fn boot_cpus(cpus: cpu::CPUVec<acpi::CPUInfo>) {
 		println!("Waiting for the CPUs to start...");
 	}
 
-	interrupts::enable();
+	// interrupts are enabled by apic::simple_oneshot
+	//interrupts::enable();
 
 	info.allow_start = 1;
 
 	while !cpus_started() {
-		arch::pause();
+		arch::halt();
 	}
 
 	processor_setup();
@@ -201,18 +221,21 @@ pub unsafe fn boot_cpus(cpus: cpu::CPUVec<acpi::CPUInfo>) {
 #[no_mangle]
 pub unsafe extern fn ap_entry(cpu: &'static mut cpu::CPU) {
 	segments::initialize_gdt();
-
 	setup_gs(cpu);
 
-	interrupts::initialize_idt();
+	interrupts::load_idt();
 
 	processor_setup();
 
 	map_local_page_tables(cpu);
-
+/*
 	apic::initialize_ap();
-	apic::calibrate_ap();
 
+		println!("Hi from  CPU {}, ", apic::local_id());
+
+
+	apic::calibrate_ap();
+*/
 	cpu.arch.started = true;
 
 	arch::run();

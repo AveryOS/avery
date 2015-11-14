@@ -2,6 +2,7 @@ use arch;
 use memory;
 use memory::{Addr, PhysicalPage};
 use std::slice;
+use spin::Mutex;
 
 pub const BITS_PER_UNIT: usize = PTR_BYTES;
 pub const BYTE_MAP_SIZE: Addr = BITS_PER_UNIT as Addr * arch::PHYS_PAGE_SIZE;
@@ -30,12 +31,12 @@ impl Hole {
 	}
 }
 
-pub static mut HOLES: &'static mut [Hole] = &mut [];
+pub static mut HOLES: Mutex<&'static mut [Hole]> = Mutex::new(&mut []);
 
 pub fn free_page(page: PhysicalPage) {
 	let page = page.addr();
 
-	for hole in unsafe { HOLES.iter_mut() } {
+	for hole in unsafe { HOLES.lock().iter_mut() } {
 		if page >= hole.base && page < hole.end	{
 			let base = hole.base;
 			hole.clear(((page - base) / arch::PHYS_PAGE_SIZE) as usize);
@@ -49,7 +50,7 @@ pub fn free_page(page: PhysicalPage) {
 pub fn allocate_dirty_page() -> PhysicalPage {
 	use std::intrinsics::cttz;
 
-	for (hole_idx, hole) in unsafe { HOLES.iter_mut().enumerate() } {
+	for (hole_idx, hole) in unsafe { HOLES.lock().iter_mut().enumerate() } {
 		for unit in hole.bitmap.iter_mut() {
 			if *unit == !0 {
 				continue;
@@ -83,12 +84,14 @@ pub unsafe fn initialize(st: &memory::initial::State) {
 	let mut pos = memory::offset_mut(HOLES_ADDR, st.holes) as *mut usize;
 	let mut hole_index = 0;
 
-	HOLES = slice::from_raw_parts_mut(HOLES_ADDR, st.holes);
+	let mut holes = HOLES.lock();
+
+	*holes = slice::from_raw_parts_mut(HOLES_ADDR, st.holes);
 
 	while _entry != null_mut() {
 		let entry = &mut *_entry;
 
-		let hole = &mut HOLES[hole_index];
+		let hole = &mut holes[hole_index];
 
 		if _entry == st.entry {
 			overhead_hole = Some(hole_index);
@@ -129,7 +132,7 @@ pub unsafe fn initialize(st: &memory::initial::State) {
 	// Mark overhead as used
 
 	let used = div_up(overhead, arch::PAGE_SIZE);
-	let overhead_hole =  &mut HOLES[overhead_hole.unwrap()];
+	let overhead_hole =  &mut holes[overhead_hole.unwrap()];
 
 	for page in 0..used {
 		overhead_hole.set(page);
