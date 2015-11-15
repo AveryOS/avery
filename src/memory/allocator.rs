@@ -29,13 +29,13 @@ pub struct Block {
 }
 
 pub struct Allocator {
-    // List of blocks not representing any memory
+	// List of blocks not representing any memory
 	free_block_list: LinkedList<Block>,
 
-    // List of blocks representing free memory
-    free_list: LinkedList<Block>,
+	// List of blocks representing free memory
+	free_list: LinkedList<Block>,
 
-    // List of blocks representing free and used memory sorted by virtual address
+	// List of blocks representing free and used memory sorted by virtual address
 	linear_list: LinkedList<Block>,
 
 	current_block: *mut Block,
@@ -43,8 +43,8 @@ pub struct Allocator {
 }
 
 impl Allocator {
-    pub fn new(start: Page, end: Page, first_block: &'static mut Option<Block>) -> Allocator {
-        use std::ptr::null_mut;
+	pub fn new(start: Page, end: Page, first_block: &'static mut Option<Block>) -> Allocator {
+		use std::ptr::null_mut;
 
 		*first_block = Some(Block {
 			base: start.ptr() / PAGE_SIZE,
@@ -56,55 +56,55 @@ impl Allocator {
 			list_next: None,
 		});
 
-        //println!("    NEW ALLOCATOR @ {:#x} - {:#x}",  start.ptr(), end.ptr());
+		//println!("    NEW ALLOCATOR @ {:#x} - {:#x}",  start.ptr(), end.ptr());
 
-        let mut alloc = Allocator {
-        	free_block_list: LinkedList::new(offset_of!(Block, list_prev), offset_of!(Block, list_next)),
-            free_list: LinkedList::new(offset_of!(Block, list_prev), offset_of!(Block, list_next)),
-        	linear_list: LinkedList::new(offset_of!(Block, linear_prev), offset_of!(Block, linear_next)),
+		let mut alloc = Allocator {
+			free_block_list: LinkedList::new(offset_of!(Block, list_prev), offset_of!(Block, list_next)),
+			free_list: LinkedList::new(offset_of!(Block, list_prev), offset_of!(Block, list_next)),
+			linear_list: LinkedList::new(offset_of!(Block, linear_prev), offset_of!(Block, linear_next)),
 
-        	current_block: null_mut(),
-        	end_block: null_mut(),
-        };
+			current_block: null_mut(),
+			end_block: null_mut(),
+		};
 
-        unsafe {
+		unsafe {
 			let first = first_block.as_mut().unwrap() as *mut Block;
-        	alloc.free_list.append(first);
-        	alloc.linear_list.append(first);
-        }
+			alloc.free_list.append(first);
+			alloc.linear_list.append(first);
+		}
 
-        alloc
-    }
+		alloc
+	}
 
 	pub fn dump(&self) {
 		unsafe {
-	        println!("  Free list");
+			println!("  Free list");
 
-	        let mut c = self.free_list.first;
-	        loop {
-	            let current = &mut *match c {
-	                Some(v) => v,
-	                None => break
-	            };
+			let mut c = self.free_list.first;
+			loop {
+				let current = &mut *match c {
+					Some(v) => v,
+					None => break
+				};
 
-	            println!("    FREE LIST block @ {:#x} - {:#x} - {:#x}", current as *mut Block as usize, current.base * PAGE_SIZE, (current.base + current.pages) * PAGE_SIZE);
+				println!("    FREE LIST block @ {:#x} - {:#x} - {:#x}", current as *mut Block as usize, current.base * PAGE_SIZE, (current.base + current.pages) * PAGE_SIZE);
 
-	    		c = current.list_next;
-	    	}
+				c = current.list_next;
+			}
 
 			println!("  Linear list");
 
-	        let mut c = self.linear_list.first;
-	        loop {
-	            let current = &mut *match c {
-	                Some(v) => v,
-	                None => break
-	            };
+			let mut c = self.linear_list.first;
+			loop {
+				let current = &mut *match c {
+					Some(v) => v,
+					None => break
+				};
 
-	            println!("    LINEAR block @ {:#x} - {:#x} - {:#x} {:?}", current as *mut Block as usize, current.base * PAGE_SIZE, (current.base + current.pages) * PAGE_SIZE, current.kind);
+				println!("    LINEAR block @ {:#x} - {:#x} - {:#x} {:?}", current as *mut Block as usize, current.base * PAGE_SIZE, (current.base + current.pages) * PAGE_SIZE, current.kind);
 
-	    		c = current.linear_next;
-	    	}
+				c = current.linear_next;
+			}
 
 			println!("   FREELIST first {:?}", self.free_list.first);
 			println!("   FREELIST last {:?}", self.free_list.last);
@@ -113,169 +113,169 @@ impl Allocator {
 		}
 	}
 
-    unsafe fn allocate_block(&mut self) -> *mut Block {
-        // Check if any free block is available
+	unsafe fn allocate_block(&mut self) -> *mut Block {
+		// Check if any free block is available
 
-        if let Some(block) = self.free_block_list.first {
-            self.free_block_list.remove(block);
-            return block;
-        }
+		if let Some(block) = self.free_block_list.first {
+			self.free_block_list.remove(block);
+			return block;
+		}
 
-        // Do we have an available block in our block array?
+		// Do we have an available block in our block array?
 
-        if offset_mut(self.current_block, 1) < self.end_block {
-            let result = self.current_block;
-            self.current_block = offset_mut(self.current_block, 1);
-            return result;
-        }
+		if offset_mut(self.current_block, 1) < self.end_block {
+			let result = self.current_block;
+			self.current_block = offset_mut(self.current_block, 1);
+			return result;
+		}
 
-        // Steal a page from the first free block and use it for a new block array
+		// Steal a page from the first free block and use it for a new block array
 
-        let free = &mut *self.free_list.first.unwrap_or_else(|| panic!("Out of virtual memory"));
+		let free = &mut *self.free_list.first.unwrap_or_else(|| panic!("Out of virtual memory"));
 
-        assert!(free.pages != 0, "Empty block found");
+		assert!(free.pages != 0, "Empty block found");
 
-        free.pages -= 1;
+		free.pages -= 1;
 
-        let overhead = (free.base * PAGE_SIZE) as usize;
-        free.base += 1;
+		let overhead = (free.base * PAGE_SIZE) as usize;
+		free.base += 1;
 
-        // Mark this page as used
+		// Mark this page as used
 
-        let overhead_block = &mut *(overhead as *mut Block);
+		let overhead_block = &mut *(overhead as *mut Block);
 
-        self.current_block = offset_mut(overhead_block, 1);
-        self.end_block = (free.base * PAGE_SIZE) as usize as *mut Block;
+		self.current_block = offset_mut(overhead_block, 1);
+		self.end_block = (free.base * PAGE_SIZE) as usize as *mut Block;
 
-        assert!(self.current_block < self.end_block, "Overflow");
+		assert!(self.current_block < self.end_block, "Overflow");
 
-        memory::map(Page::new(overhead), 1, memory::RW_DATA_FLAGS);
+		memory::map(Page::new(overhead), 1, memory::RW_DATA_FLAGS);
 
-        overhead_block.kind = Kind::Overhead;
-        overhead_block.base = overhead / PAGE_SIZE;
-        overhead_block.pages = 1;
+		overhead_block.kind = Kind::Overhead;
+		overhead_block.base = overhead / PAGE_SIZE;
+		overhead_block.pages = 1;
 
-        self.linear_list.insert_before(overhead_block, free);
+		self.linear_list.insert_before(overhead_block, free);
 
-        if free.pages == 0 {
-            // The block we stole a page from is empty so we can reuse it
-            self.linear_list.remove(free);
-            self.free_list.remove(free);
-            return free;
-        }
+		if free.pages == 0 {
+			// The block we stole a page from is empty so we can reuse it
+			self.linear_list.remove(free);
+			self.free_list.remove(free);
+			return free;
+		}
 
-        let result = self.current_block;
-        self.current_block = offset_mut(self.current_block, 1);
+		let result = self.current_block;
+		self.current_block = offset_mut(self.current_block, 1);
 
-        return result;
-    }
+		return result;
+	}
 
-    pub fn allocate(&mut self, kind: Kind, pages: usize) -> *mut Block {
-    	assert!(pages > 0, "Can't allocate zero pages");
+	pub fn allocate(&mut self, kind: Kind, pages: usize) -> *mut Block {
+		assert!(pages > 0, "Can't allocate zero pages");
 
-        unsafe {
-        	let result = &mut *self.allocate_block(); // Allocate a result block first since it can modify free regions
+		unsafe {
+			let result = &mut *self.allocate_block(); // Allocate a result block first since it can modify free regions
 /*
 			println!("allocate_block @@ @ {:#x}", result as *mut Block as usize);
 
 			self.dump();
 */
-            let mut c = self.free_list.first;
-            loop {
-                let current = &mut *match c {
-                    Some(v) => v,
-                    None => break
-                };
+			let mut c = self.free_list.first;
+			loop {
+				let current = &mut *match c {
+					Some(v) => v,
+					None => break
+				};
 
-        		if current.pages >= pages { // We have a winner
-        			if current.pages == pages { // It fits perfectly
-        				self.free_block_list.append(result);
-        				self.free_list.remove(current);
+				if current.pages >= pages { // We have a winner
+					if current.pages == pages { // It fits perfectly
+						self.free_block_list.append(result);
+						self.free_list.remove(current);
 
-        				current.kind = kind;
+						current.kind = kind;
 
-        				return current;
-        			}
+						return current;
+					}
 
-        			self.linear_list.insert_before(result, current);
+					self.linear_list.insert_before(result, current);
 
-        			result.kind = kind;
-        			result.base = current.base;
-        			result.pages = pages;
-        			current.base += pages;
-        			current.pages -= pages;
+					result.kind = kind;
+					result.base = current.base;
+					result.pages = pages;
+					current.base += pages;
+					current.pages -= pages;
 
-                    //println!("ALLOCATE block @ {:#x} - {:#x} - {:#x}", result as *mut Block as usize, (*result).base * PAGE_SIZE, ((*result).base + pages) * PAGE_SIZE);
+					//println!("ALLOCATE block @ {:#x} - {:#x} - {:#x}", result as *mut Block as usize, (*result).base * PAGE_SIZE, ((*result).base + pages) * PAGE_SIZE);
 
 					//self.dump();
 
-        			return result;
-        		}
+					return result;
+				}
 
-        		c = current.list_next;
-        	}
+				c = current.list_next;
+			}
 
-        	panic!("Out of virtual memory");
-        }
-    }
+			panic!("Out of virtual memory");
+		}
+	}
 
-    pub fn free(&mut self, block: *mut Block) {
-        unsafe {
-            //println!("free block @ {:#x} - {:#x} - {:#x}", block as usize, (*block).base * PAGE_SIZE, ((*block).base + (*block).pages) * PAGE_SIZE);
+	pub fn free(&mut self, block: *mut Block) {
+		unsafe {
+			//println!("free block @ {:#x} - {:#x} - {:#x}", block as usize, (*block).base * PAGE_SIZE, ((*block).base + (*block).pages) * PAGE_SIZE);
 
-            let block = &mut *block;
+			let block = &mut *block;
 
-        	if block.kind == Kind::PhysicalView {
-        		memory::unmap_view(Page::new(block.base * PAGE_SIZE), block.pages);
-        	} else {
-        		memory::unmap(Page::new(block.base * PAGE_SIZE), block.pages);
-            }
+			if block.kind == Kind::PhysicalView {
+				memory::unmap_view(Page::new(block.base * PAGE_SIZE), block.pages);
+			} else {
+				memory::unmap(Page::new(block.base * PAGE_SIZE), block.pages);
+			}
 
-        	let prev = block.linear_prev;
-        	let next = block.linear_next;
-        	let mut current = &mut *(block as *mut Block);
+			let prev = block.linear_prev;
+			let next = block.linear_next;
+			let mut current = &mut *(block as *mut Block);
 
-        	// Merge with a block below
+			// Merge with a block below
 
-        	if let Some(prev) = prev {
-                let prev = &mut *prev;
-                if prev.kind == Kind::Free {
-            		assert!(prev.base + prev.pages == current.base);
+			if let Some(prev) = prev {
+				let prev = &mut *prev;
+				if prev.kind == Kind::Free {
+					assert!(prev.base + prev.pages == current.base);
 
-            		prev.pages += current.pages;
+					prev.pages += current.pages;
 
-            		self.free_block_list.append(current);
-            		self.linear_list.remove(current);
+					self.free_block_list.append(current);
+					self.linear_list.remove(current);
 
-            		current = prev;
-                }
-        	}
+					current = prev;
+				}
+			}
 
-        	// Merge with a block above
+			// Merge with a block above
 
-        	if let Some(next) = next {
-                let next = &mut *next;
-                if next.kind == Kind::Free {
-            		assert!(current.base + current.pages == next.base);
+			if let Some(next) = next {
+				let next = &mut *next;
+				if next.kind == Kind::Free {
+					assert!(current.base + current.pages == next.base);
 
-            		next.base -= current.pages;
-            		next.pages += current.pages;
+					next.base -= current.pages;
+					next.pages += current.pages;
 
-            		if Some(current as *mut Block) == prev {
-            			self.free_list.remove(current);
-                    }
+					if Some(current as *mut Block) == prev {
+						self.free_list.remove(current);
+					}
 
-            		self.free_block_list.append(current);
-            		self.linear_list.remove(current);
+					self.free_block_list.append(current);
+					self.linear_list.remove(current);
 
-            		current = next;
-                }
-        	}
+					current = next;
+				}
+			}
 
-        	if current as *mut Block == block {
-        		current.kind = Kind::Free;
-        		self.free_list.append(current);
-        	}
-        }
-    }
+			if current as *mut Block == block {
+				current.kind = Kind::Free;
+				self.free_list.append(current);
+			}
+		}
+	}
 }

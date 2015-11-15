@@ -192,7 +192,9 @@ end
 task :qemu => :build do
 	Dir.chdir('emu/') do
 		puts "Running QEMU..."
-		FileUtils.rm("serial.txt") # -d ,cpu_reset
+		FileUtils.rm("serial.txt") if File.exists?("serial.txt")
+		FileUtils.rm("int.log") if File.exists?("int.log")
+		 # -d ,cpu_reset
 		run QEMU, *%w{-L qemu\Bios -hda grubdisk.img -serial file:serial.txt -d int -D int.log -no-reboot -s -smp 4}
 	end
 end
@@ -200,7 +202,8 @@ end
 task :qemu_efi => :build_boot do
 	Dir.chdir('emu/') do
 		puts "Running QEMU..."
-		FileUtils.rm("serial.txt")
+		FileUtils.rm("serial.txt") if File.exists?("serial.txt")
+		FileUtils.rm("int.log") if File.exists?("int.log")
 		run QEMU, *%w{-L . -bios OVMF.fd -hda fat:hda -serial file:serial.txt -d int,cpu_reset -no-reboot -s -smp 4}
 	end
 end
@@ -217,7 +220,7 @@ task :bochs4 => :build do
 
 	Dir.chdir('emu/') do
 		puts "Running Bochs..."
-		run 'bochs4\bochs', '-q', '-f', 'avery4.bxrc'
+		run 'bochs4\bochs', '-q', '-f', 'avery4.bxrc' # bochs4\bochs -q -f avery4.bxrc
 	end
 end
 

@@ -1,7 +1,8 @@
 use std::fmt::{Write, Arguments, Error};
 use spin::Mutex;
-
-pub use arch;
+use arch;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering::SeqCst;
 
 static LOCK: Mutex<()> = Mutex::new(());
 
@@ -48,16 +49,28 @@ extern fn eh_personality()
     panic!("Exceptions not supported");
 }
 
+pub static PANICKING: AtomicBool = AtomicBool::new(false);
+
 #[allow(unreachable_code)]
 #[lang = "panic_fmt"]
 extern fn panic_fmt(fmt: Arguments, file: &'static str, line: u32) -> ! {
+
     unsafe {
         arch::interrupts::disable();
-    }
 
-    println!("\nPanic: {}\nLoc: {}:{}", fmt, file, line);
+        // Some other thing panicked before us
+        if PANICKING.swap(true, SeqCst) {
+            arch::panic();
+        }
 
-    unsafe {
+        arch::cpu::freeze_other_cores();
+
+        // We should have exclusive access to the console now
+
+        LOCK.force_unlock();
+
+        println!("\nPanic: {}\nLoc: {}:{}", fmt, file, line);
+
         arch::panic();
 
         static mut TRIED_BACKTRACE: bool = false;

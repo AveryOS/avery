@@ -3,6 +3,7 @@ use memory;
 use memory::{PhysicalPage, Addr};
 use arch::{interrupts, pit};
 use cpu;
+use std;
 
 pub enum Message {
 	Fixed,
@@ -63,13 +64,15 @@ pub unsafe fn eoi() {
 	reg(REG_EOI, 0);
 }
 
-pub unsafe fn ipi(target: usize, kind: Message, vector: usize) {
+pub unsafe fn ipi(target: u8, kind: Message, vector: usize) {
 	reg(REG_ICRH, (target as u32) << 24);
 	reg(REG_ICRL, ((vector as u32) & 0xFF) | (((kind as u32) & 7) << 8));
 }
 
-pub unsafe fn local_id() -> u8 {
-	(get_reg(REG_ID) >> 24) as u8
+pub fn local_id() -> u8 {
+	unsafe {
+		(get_reg(REG_ID) >> 24) as u8
+	}
 }
 
 pub unsafe fn initialize(register_base: Option<Addr>) {
@@ -123,6 +126,9 @@ pub unsafe fn calibrate() {
 
 pub unsafe fn calibrate_done() {
 	*interrupts::ref_gate(pit::VECTOR) = pit_gate;
+
+	// cpu.arch.apic_tick_rate needs syncronization
+	std::sync::atomic::fence(std::sync::atomic::Ordering::SeqCst);
 
 	for cpu in cpu::cpus() {
 		println!("[CPU {}] APIC tick rate: {}", cpu.index, cpu.arch.apic_tick_rate);

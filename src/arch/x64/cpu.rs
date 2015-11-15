@@ -5,15 +5,19 @@ use memory;
 use memory::{Page, PhysicalPage, Addr};
 use cpu;
 use std;
+use std::sync::atomic::{AtomicUsize, AtomicBool};
+use std::sync::atomic::Ordering::SeqCst;
 
 pub struct CPU {
 	pub tss: segments::TaskState,
 	pub stack: usize,
 	pub stack_end: usize,
-	pub apic_id: usize,
-	pub acpi_id: usize,
+	pub apic_id: u8,
+	pub acpi_id: u8,
 	pub apic_tick_rate: usize,
-	started: bool,
+	started: AtomicBool,
+	pub frozen: AtomicBool,
+	pub has_idt: AtomicBool,
 }
 
 impl CPU {
@@ -25,8 +29,38 @@ impl CPU {
 			apic_id: 0,
 			acpi_id: 0,
 			apic_tick_rate: 0,
-			started: false,
+			started: AtomicBool::new(false),
+			frozen: AtomicBool::new(false),
+			has_idt: AtomicBool::new(false),
 		}
+	}
+}
+
+fn cpus_frozen() -> bool {
+	for cpu in cpu::cpus() {
+		if cpu.arch.apic_id == apic::local_id() {
+			continue;
+		}
+
+		if !cpu.arch.frozen.load(SeqCst) {
+			return false;
+		}
+	}
+
+	true
+}
+
+pub unsafe fn freeze_other_cores() {
+	for cpu in cpu::cpus() {
+		if cpu.arch.apic_id == apic::local_id() || !cpu.arch.has_idt.load(SeqCst) {
+			continue;
+		}
+
+		apic::ipi(cpu.arch.apic_id, apic::Message::NMI, 0);
+	}
+
+	while !cpus_frozen() {
+		arch::pause();
 	}
 }
 
@@ -44,7 +78,7 @@ pub fn current_slow() -> &'static mut cpu::CPU {
 		let id = apic::local_id();
 
 		for cpu in cpu::cpus() {
-			if cpu.arch.apic_id == id as usize {
+			if cpu.arch.apic_id == id {
 				return cpu
 			}
 		}
@@ -62,9 +96,12 @@ pub unsafe fn bsp() -> &'static mut cpu::CPU {
 }
 
 pub fn map_local_page_tables(cpu: &mut cpu::CPU) {
+	println!("map_local_page_tables {:#x}", cpu as *mut cpu::CPU as usize);
 	for page in 0..cpu::LOCAL_PAGE_COUNT {
-		let page = memory::Page::new(cpu.local_pages.ptr() + page * arch::PAGE_SIZE);
-		arch::memory::ensure_page_entry(&mut *arch::memory::LOCK.lock(), page);
+		//let page = memory::Page::new(cpu.local_pages.ptr() + page * arch::PAGE_SIZE);
+		//println!("map_local_page_tables {:#x}, ", page.ptr());
+		println!("count {:#x}, ", page);
+		//arch::memory::ensure_page_entry(&mut *arch::memory::LOCK.lock(), page);
 	}
 }
 
@@ -75,7 +112,7 @@ pub unsafe fn initialize_basic() {
 #[repr(packed)]
 struct APBootstrapInfo {
 	pml4: u32,
-	allow_start: u32,
+	allow_start: AtomicUsize,
 	apic_registers: usize,
 	cpu_count: usize,
 	cpu_size: usize,
@@ -113,7 +150,7 @@ unsafe fn setup_ap_bootstrap() -> &'static mut APBootstrapInfo {
 		cpu_apic_offset: offset_of!(cpu::CPU, arch) + offset_of!(CPU, apic_id),
 		cpu_stack_offset: offset_of!(cpu::CPU, arch) + offset_of!(CPU, stack_end),
 		cpus: cpu::cpus().as_mut_ptr(),
-		allow_start: 0,
+		allow_start: AtomicUsize::new(0),
 	};
 
 	&mut ap_bootstrap_info
@@ -133,7 +170,7 @@ unsafe fn send_startup() {
 
 fn cpus_started() -> bool {
 	for cpu in cpu::cpus() {
-		if unsafe { !volatile_load(&cpu.arch.started) } {
+		if !cpu.arch.started.load(SeqCst) {
 			return false;
 		}
 	}
@@ -148,7 +185,7 @@ unsafe fn processor_setup() {
 pub unsafe fn boot_cpus(cpus: cpu::CPUVec<acpi::CPUInfo>) {
 	let info = setup_ap_bootstrap();
 
-	bsp().arch.apic_id = apic::local_id() as usize;
+	bsp().arch.apic_id = apic::local_id();
 
 	let mut found_bsp = false;
 
@@ -165,7 +202,7 @@ pub unsafe fn boot_cpus(cpus: cpu::CPUVec<acpi::CPUInfo>) {
 
 	assert!(found_bsp, "Didn't find the bootstrap processor in ACPI tables");
 
-	bsp().arch.started = true;
+	bsp().arch.started.store(true, SeqCst);
 
 	// Wake up other CPUs
 
@@ -179,18 +216,21 @@ pub unsafe fn boot_cpus(cpus: cpu::CPUVec<acpi::CPUInfo>) {
 		cpu.arch.stack = stack_page.ptr();
 		cpu.arch.stack_end = stack_page.ptr() + (stack_pages + 1) * arch::PAGE_SIZE;
 
+		println!("CPU {} stack {:x} - {:x}", cpu.index, cpu.arch.stack, cpu.arch.stack_end);
+
 		arch::memory::map(Page::new(stack_page.ptr() + arch::PAGE_SIZE), stack_pages, arch::memory::RW_DATA_FLAGS);
 
 		if cpu.index == 0 {
 			continue
 		}
 
-		cpu.arch.started = false;
-
 		println!("Starting CPU with apic_id id: {}, acpi id: {}", cpu.arch.apic_id, cpu.arch.acpi_id);
 
 		apic::ipi(cpu.arch.apic_id, apic::Message::Init, 0);
 	}
+
+	// Sync the CPU structs and bootstrap info for the new CPUs
+	std::sync::atomic::fence(SeqCst);
 
 	if cpu::cpus().len() > 1 {
 		apic::simple_oneshot(1300000);
@@ -204,7 +244,7 @@ pub unsafe fn boot_cpus(cpus: cpu::CPUVec<acpi::CPUInfo>) {
 	// interrupts are enabled by apic::simple_oneshot
 	interrupts::enable();
 
-	info.allow_start = 1;
+	info.allow_start.store(1, SeqCst);
 
 	while !cpus_started() {
 		arch::halt();
@@ -225,17 +265,31 @@ pub unsafe extern fn ap_entry(cpu: &'static mut cpu::CPU) {
 
 	interrupts::load_idt();
 
+	// There was a panic during bootup
+	if ::console::PANICKING.load(SeqCst) {
+		cpu.arch.frozen.store(true, SeqCst);
+		arch::panic();
+	}
+
 	processor_setup();
 
+							cpu.arch.started.store(true, SeqCst);
+								arch::run();
 	println!("Hello from {}", cpu.index);
+
+	for page in 0..cpu::LOCAL_PAGE_COUNT {
+		//let page = memory::Page::new(cpu.local_pages.ptr() + page * arch::PAGE_SIZE);
+		//println!("map_local_page_tables {:#x}, ", page.ptr());
+		println!("count {} {:#x}, ", cpu.index, page);
+		//arch::memory::ensure_page_entry(&mut *arch::memory::LOCK.lock(), page);
+	}
 
 	apic::initialize_ap();
 
 	apic::calibrate_ap();
-	
+
 	println!("Hi from  CPU {}, ", apic::local_id());
 
-				arch::run();
 	map_local_page_tables(cpu);
 
 
@@ -245,7 +299,7 @@ pub unsafe extern fn ap_entry(cpu: &'static mut cpu::CPU) {
 
 	apic::calibrate_ap();
 */
-	cpu.arch.started = true;
+	cpu.arch.started.store(true, SeqCst);
 
 	arch::run();
 }

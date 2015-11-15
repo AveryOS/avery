@@ -13,7 +13,7 @@ reset_cs:
 	lidt [idt]
 
 spin:
-	cmp dword ptr [allow_start], 0
+	cmp dword ptr [allow_start], 0 # should be `qword ptr` binutils bugs
 	jne enter_long_mode
 	pause
 	jmp spin
@@ -64,7 +64,7 @@ long_mode:
 	mov rbx, [cpus]
 
 find_cpu:
-	cmp [rbx + rdx], eax
+	cmp [rbx + rdx], al
 	je found_cpu
 	add rbx, [cpu_size]
 	jmp find_cpu
@@ -98,7 +98,7 @@ ap_bootstrap_info:
 pml4:
 .long 0
 allow_start:
-.long 0
+.quad 0
 apic_regs:
 .quad 0
 cpu_count:

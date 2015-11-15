@@ -7,8 +7,8 @@ use std::slice;
 use memory::{Addr, PhysicalView, offset};
 
 pub struct CPUInfo {
-	pub acpi_id: usize,
-	pub apic_id: usize,
+	pub acpi_id: u8,
+	pub apic_id: u8,
 }
 
 #[derive(Copy, Clone)]
@@ -196,8 +196,8 @@ unsafe fn parse_madt(madt: *const MADT, setup: &mut Setup) {
 
 				if processor.flags & FLAG_ENABLED != 0 {
 					setup.cpus.push(CPUInfo {
-						acpi_id: processor.processor_id as usize,
-						apic_id: processor.apic_id as usize,
+						acpi_id: processor.processor_id,
+						apic_id: processor.apic_id,
 					});
 				}
 			}

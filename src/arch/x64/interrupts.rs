@@ -65,7 +65,14 @@ extern {
 	fn spurious_irq();
 }
 
-extern fn default_handler(info: &Info, index: u8, error_code: usize)
+extern fn nmi_handler(_: &Info, _: u8, _: usize) {
+	arch::cpu::current_slow().arch.frozen.store(true, SeqCst);
+	unsafe {
+		arch::panic();
+	}
+}
+
+extern fn page_fault_handler(info: &Info, _: u8, error_code: usize)
 {
 	let cr2: u64;
 
@@ -77,9 +84,33 @@ extern fn default_handler(info: &Info, index: u8, error_code: usize)
 	    }
 	}
 
-    panic!("Unhandled interrupt: {}\n\nerrnr: {:x}   cpu: {} rsi: {:x}  rsp: {:x}  cr2: {:x}
+	;
+
+	let access = if (error_code & (1 << 4)) != 0 {
+		"executing"
+	} else if (error_code & (1 << 1)) == 0 {
+		"reading"
+	} else {
+		"writing"
+	};
+
+	let reason = if (error_code & (1 << 0)) == 0 {
+		"Page not present"
+	} else if (error_code & (1 << 3)) != 0 {
+		"Reserved bit set"
+	} else {
+		"Unknown"
+	};
+
+    panic!("Page fault {} {:#x} ({})\n\nerrnr: {:#x} cpu: {} rsi: {:x}  rsp: {:x} rip: {:x}",
+    	access, cr2, reason, error_code, arch::cpu::current_slow().index, info.registers.rsi, info.registers.rsp, info.registers.rip);
+}
+
+extern fn default_handler(info: &Info, index: u8, error_code: usize)
+{
+    panic!("Unhandled interrupt: {} ({:#x})\n\nerrnr: {:#x}   cpu: {} rsi: {:x}  rsp: {:x}
 rip: {:x}",
-    	index, error_code, arch::cpu::current_slow().index, info.registers.rsi, info.registers.rsp, cr2, info.registers.rip);
+    	index, index, error_code, arch::cpu::current_slow().index, info.registers.rsi, info.registers.rsp, info.registers.rip);
 }
 
 #[allow(dead_code)]
@@ -153,6 +184,8 @@ pub unsafe fn load_idt() {
     asm! {
         lidt {&idt_ptr => %*m};
     }
+
+	arch::cpu::current_slow().arch.has_idt.store(true, SeqCst);
 }
 
 pub unsafe fn initialize_idt() {
@@ -167,6 +200,9 @@ pub unsafe fn initialize_idt() {
 	for handler in HANDLERS.iter_mut() {
 		handler.store(default_handler as usize, SeqCst);
 	}
-	
+
+	register_handler(0x2, nmi_handler);
+	register_handler(0xe, page_fault_handler);
+
 	load_idt();
 }

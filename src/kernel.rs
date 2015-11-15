@@ -1,6 +1,6 @@
 #![allow(improper_ctypes, dead_code)]
 #![feature(core, core_char_ext, lang_items,
-           plugin, asm, negate_unsigned, core_slice_ext,
+		   plugin, asm, negate_unsigned, core_slice_ext,
 		   core_str_ext, core_intrinsics, linkage,
 		   const_fn)]
 #![plugin(assembly)]
@@ -29,7 +29,7 @@ mod memory;
 
 fn init(info: &mut params::Info) {
 	unsafe {
-        cpu::initialize_basic();
+		cpu::initialize_basic();
 		arch::initialize_basic();
 		let result = memory::initial::initialize_physical(info);
 		arch::memory::initialize_initial(&result);

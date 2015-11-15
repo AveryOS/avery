@@ -156,7 +156,7 @@ impl<T> Mutex<T>
 
     /// Tries to lock the mutex. If it is already locked, it will return None. Otherwise it returns
     /// a guard within Some.
-    fn try_lock(&self) -> Option<MutexGuard<T>>
+    pub fn try_lock(&self) -> Option<MutexGuard<T>>
     {
         if self.lock.compare_and_swap(false, true, Ordering::SeqCst) == false
         {
@@ -171,6 +171,10 @@ impl<T> Mutex<T>
         {
             None
         }
+    }
+
+    pub unsafe fn force_unlock(&self) {
+        self.lock.store(false, Ordering::SeqCst);
     }
 }
 
