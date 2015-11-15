@@ -4,7 +4,7 @@ use memory::{Addr, PhysicalPage};
 use std::slice;
 use spin::Mutex;
 
-pub const BITS_PER_UNIT: usize = PTR_BYTES;
+pub const BITS_PER_UNIT: usize = PTR_BYTES * 8;
 pub const BYTE_MAP_SIZE: Addr = BITS_PER_UNIT as Addr * arch::PHYS_PAGE_SIZE;
 
 pub struct Hole {
@@ -15,19 +15,26 @@ pub struct Hole {
 }
 
 impl Hole {
-	fn clear(&mut self, i: usize) {
+	fn addr(&self, i: usize) -> (usize, usize) {
+		assert!(i < self.pages);
+
 		let bit = 1 << (i & (BITS_PER_UNIT - 1));
-		self.bitmap[i / BITS_PER_UNIT] &= !bit;
+		(bit, i / BITS_PER_UNIT)
+	}
+
+	fn clear(&mut self, i: usize) {
+		let (bit, idx) = self.addr(i);
+		self.bitmap[idx] &= !bit;
 	}
 
 	fn set(&mut self, i: usize) {
-		let bit = 1 << (i & (BITS_PER_UNIT - 1));
-		self.bitmap[i / BITS_PER_UNIT] |= bit;
+		let (bit, idx) = self.addr(i);
+		self.bitmap[idx] |= bit;
 	}
 
 	fn get(&self, i: usize) -> bool {
-		let bit = 1 << (i & (BITS_PER_UNIT - 1));
-		self.bitmap[i / BITS_PER_UNIT] & bit != 0
+		let (bit, idx) = self.addr(i);
+		self.bitmap[idx] & bit != 0
 	}
 }
 
@@ -50,8 +57,8 @@ pub fn free_page(page: PhysicalPage) {
 pub fn allocate_dirty_page() -> PhysicalPage {
 	use std::intrinsics::cttz;
 
-	for (hole_idx, hole) in unsafe { HOLES.lock().iter_mut().enumerate() } {
-		for unit in hole.bitmap.iter_mut() {
+	for hole in unsafe { HOLES.lock().iter_mut() } {
+		for (unit_idx, unit) in hole.bitmap.iter_mut().enumerate() {
 			if *unit == !0 {
 				continue;
 			}
@@ -59,7 +66,11 @@ pub fn allocate_dirty_page() -> PhysicalPage {
 
 			*unit |= 1 << bit_idx;
 
-			return PhysicalPage::new(hole.base + (hole_idx * BITS_PER_UNIT + bit_idx) as Addr * arch::PHYS_PAGE_SIZE);
+			let page = hole.base + (unit_idx * BITS_PER_UNIT + bit_idx) as Addr * arch::PHYS_PAGE_SIZE;
+
+			assert!(page < hole.end);
+
+			return PhysicalPage::new(page);
 		}
 	}
 
@@ -111,6 +122,10 @@ pub unsafe fn initialize(st: &memory::initial::State) {
 			*unit = 0;
 		}
 
+		let real_end_s = hole.base + ((units - 1) * BITS_PER_UNIT) as Addr * arch::PHYS_PAGE_SIZE;
+		let real_end = hole.base + (units * BITS_PER_UNIT) as Addr * arch::PHYS_PAGE_SIZE;
+
+
 		// Set non-existent pages at the end of the word as allocated
 
 		hole.bitmap[units - 1] = !0; // Set all pages at the end as allocated
@@ -118,6 +133,8 @@ pub unsafe fn initialize(st: &memory::initial::State) {
 		for p in ((units - 1) * BITS_PER_UNIT)..hole.pages {
 			hole.clear(p);
 		}
+
+		println!("HOLE {:#x} - {:#x} ({:#x} - {:#x}) last_unit({}):{:#x}", hole.base, hole.end, real_end_s, real_end, units - 1, hole.bitmap[units - 1]);
 
 		pos = memory::offset_mut(pos, units);
 

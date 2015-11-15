@@ -1,4 +1,5 @@
 use util::FixVec;
+use std;
 
 #[cfg(multiboot)]
 pub mod multiboot;
@@ -18,8 +19,8 @@ pub mod console {
 #[allow(dead_code)]
 #[repr(packed)]
 struct CPUPointer {
-    limit: u16,
-    base: usize
+	limit: u16,
+	base: usize
 }
 
 const RFLAGS_BIT_INTERRUPT: usize = 1usize << 9;
@@ -57,20 +58,21 @@ struct GeneralRegisters {
 }
 
 pub fn pause() {
-    unsafe { asm! { pause } }
+	unsafe { asm! { pause } }
 }
 
 pub fn halt() {
-    unsafe {
-        asm! { hlt }
-    }
+	unsafe {
+		asm! { hlt }
+	}
 }
 
-pub unsafe fn panic() -> ! {
+pub unsafe fn freeze() -> ! {
 	interrupts::disable();
-    loop {
+	cpu::current_slow().arch.frozen.store(true, std::sync::atomic::Ordering::SeqCst);
+	loop {
 		halt();
-    }
+	}
 }
 
 unsafe fn run() {
@@ -139,14 +141,14 @@ pub mod cpu;
 pub mod memory;
 
 pub unsafe fn initialize_basic() {
-    asm! {
-        [use rax]
+	asm! {
+		[use rax]
 
 		// turn on write protect
-        mov rax, cr0;
-        or rax, {1usize << 16 => %i};
-        mov cr0, rax;
-    }
+		mov rax, cr0;
+		or rax, {1usize << 16 => %i};
+		mov cr0, rax;
+	}
 
 	segments::initialize_gdt();
 	cpu::initialize_basic();

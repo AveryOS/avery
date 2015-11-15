@@ -69,7 +69,7 @@ impl<'a> ReadInt for &'a str {
 pub fn get_symbol_info_for_addr(addr: usize) -> Option<(&'static str, usize, &'static str, usize, usize)> {
 	let bound = dwarf::parse_line_units(&dwarf::get_dwarf_info(), addr).unwrap();
 
-	let sym = dwarf::parse_info_units(&dwarf::get_dwarf_info(), addr as u64).unwrap().unwrap_or("<unknown>");
+	let sym = "unknown";// dwarf::parse_info_units(&dwarf::get_dwarf_info(), addr as u64).unwrap().unwrap_or("<unknown>");
 
 	//let (sym, start_addr) = get_symbol_for_addr(addr).unwrap_or(("unknown", 0));
 

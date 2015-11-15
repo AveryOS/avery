@@ -15,12 +15,20 @@ pub trait FixVec<T> {
 	}
 
 	fn iter<'a>(&'a self) -> std::slice::Iter<'a, T> {
-		self.raw_data()[0..self.len()].iter()
+		self.as_slice().iter()
 	}
 
 	fn iter_mut<'a>(&'a mut self) -> std::slice::IterMut<'a, T> {
+		self.into_slice().iter_mut()
+	}
+
+	fn as_slice<'a>(&'a self) -> &'a [T] {
+		&self.raw_data()[0..self.len()]
+	}
+
+	fn into_slice<'a>(&'a mut self) -> &'a mut [T] {
 		let len = self.len();
-		self.mut_raw_data()[0..len].iter_mut()
+		&mut self.mut_raw_data()[0..len]
 	}
 
 	fn new() -> Self;

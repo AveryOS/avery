@@ -187,9 +187,7 @@ unsafe fn load_pml4(pml4t: PhysicalPage) {
 }
 
 fn physical_page_from_table_entry(entry: TableEntry) -> PhysicalPage {
-	let TableEntry(entry) = entry;
-
-	PhysicalPage::new(entry & !(PAGE_FLAGS))
+	PhysicalPage::new(entry.0 & !(PAGE_FLAGS))
 }
 
 pub fn get_physical_page(virtual_address: Page) -> PhysicalPage {
@@ -241,7 +239,21 @@ fn get_page_entry<'s>(_: &'s mut Ops, pointer: Page) -> &'s mut TableEntry {
 		ptl1_index * PTR_BYTES) as *mut TableEntry) }
 }
 
+static mut KERNEL_MAPPED: bool = false;
+
 fn page_table_entry(page: PhysicalPage, flags: Addr) -> TableEntry {
+	extern {
+		static low_end: void;
+		static kernel_start: void;
+		static kernel_end: void;
+	}
+
+    if unsafe { KERNEL_MAPPED } &&
+            page.addr() >= offset(&low_end) as Addr &&
+            page.addr() < (offset(&kernel_end) - offset(&kernel_start) + offset(&low_end)) as Addr {
+        panic!("Mapping kernel physical memory! {:#x}", page.addr());
+    }
+
 	TableEntry(page.addr() | flags)
 }
 
@@ -313,10 +325,12 @@ pub unsafe fn initialize_initial(st: &memory::initial::State)
 
 		let virtual_offset = hole.virtual_base - KERNEL_LOCATION;
 
-		println!("Segment {:?} {:#x} - {:#x} ", hole.kind, hole.virtual_base, hole.virtual_base + (hole.end - hole.base) as usize);
+		println!("Segment {:?} {:#x} - {:#x} @ {:#x} - {:#x}", hole.kind, hole.virtual_base, hole.virtual_base + (hole.end - hole.base) as usize, hole.base, hole.end);
 
 		map_page_table(&mut ptl1_kernel, virtual_offset, virtual_offset + (hole.end - hole.base) as usize, hole.base, flags);
 	}
+
+    KERNEL_MAPPED = true;
 
 	extern {
 		static stack_start: void;

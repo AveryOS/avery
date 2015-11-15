@@ -66,10 +66,7 @@ extern {
 }
 
 extern fn nmi_handler(_: &Info, _: u8, _: usize) {
-	arch::cpu::current_slow().arch.frozen.store(true, SeqCst);
-	unsafe {
-		arch::panic();
-	}
+	panic!("Non-maskable interrupt");
 }
 
 extern fn page_fault_handler(info: &Info, _: u8, error_code: usize)
@@ -156,7 +153,7 @@ pub unsafe fn ref_gate(index: u8) -> &'static mut Gate {
 	&mut IDT[index as usize]
 }
 
-pub unsafe fn set_gate(index: u8, stub: unsafe extern fn ()) {
+pub unsafe fn set_gate(index: u8, stub: unsafe extern fn (), ist: u8) {
 	let target = stub as usize;
 
 	let gate = &mut IDT[index as usize];
@@ -165,6 +162,7 @@ pub unsafe fn set_gate(index: u8, stub: unsafe extern fn ()) {
 	gate.target_medium = (target >> 16) as u16;
 	gate.target_high = (target >> 32) as u32;
 	gate.segment_selector = arch::segments::CODE_SEGMENT;
+	gate.ist = ist;
 
 	gate.misc = 0xE | 0b10000000; // present, type = 0xE
 }
@@ -188,14 +186,22 @@ pub unsafe fn load_idt() {
 	arch::cpu::current_slow().arch.has_idt.store(true, SeqCst);
 }
 
+pub unsafe fn setup_fatal_handlers() {
+	disable();
+
+	set_gate(0x2, ISR_STUBS[0x2], 1);
+	set_gate(0x8, ISR_STUBS[0x8], 2);
+	set_gate(0xe, ISR_STUBS[0xe], 3);
+}
+
 pub unsafe fn initialize_idt() {
 	setup_pics();
 
 	for i in 0u8..0xFF {
-		set_gate(i, ISR_STUBS[i as usize]);
+		set_gate(i, ISR_STUBS[i as usize], 0);
 	}
 
-	set_gate(0xFF, spurious_irq);
+	set_gate(0xFF, spurious_irq, 0);
 
 	for handler in HANDLERS.iter_mut() {
 		handler.store(default_handler as usize, SeqCst);

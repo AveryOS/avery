@@ -187,6 +187,8 @@ pub unsafe fn initialize_physical(info: &mut params::Info) -> State {
 	while _entry != null_mut() {
 		let entry = &mut *_entry;
 
+		println!("Free physical memory {:#x} - {:#x}", entry.base, entry.end);
+
 		memory_in_pages += (entry.end - entry.base) / arch::PHYS_PAGE_SIZE;
 		st.overhead += size_of::<physical::Hole>() + size_of::<usize>() * div_up(entry.end - entry.base, physical::BYTE_MAP_SIZE) as usize;
 

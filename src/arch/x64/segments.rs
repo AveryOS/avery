@@ -14,7 +14,7 @@ pub struct TaskState {
 	reserved_0: u32,
 	rsps: [u64; 3],
 	reserved_1: u64,
-	ists: [u64; 7],
+	pub ists: [u64; 7],
 	reserved_2: u16,
 	reserved_3: u16,
 	io_bitmap_offse: u16,
@@ -118,9 +118,11 @@ pub unsafe fn initialize_gdt() {
 }
 
 pub unsafe fn setup_tss() {
-	cpu::current().arch.tss.rsps[0] = cpu::current().arch.stack_end as u64;
+	let cpu = arch::cpu::current_slow();
 
-	set_task_segment(&cpu::current().arch.tss);
+	cpu.arch.tss.rsps[0] = cpu.arch.stack.end as u64;
+
+	set_task_segment(&cpu.arch.tss);
 
 	asm! {
 		[offset_of!(GDT, tsds) + size_of::<TaskStateDescriptor>() * cpu::current().index => %ax]

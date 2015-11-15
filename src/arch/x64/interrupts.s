@@ -24,11 +24,11 @@ isr_handler:
 
 	mov ax, 0x10
 	mov ds, ax
-	
+
 	mov rdi, rsp
 	lea rcx, interrupt_handlers
 	call [rcx + 8 * rsi]
-	
+
 	pop rax
 	mov ds, ax
 
@@ -59,7 +59,7 @@ isr_stubs:
 
 % 255.times do |n|
 isr_#{n}:
-	% if [8, 10, 11, 12, 13, 14, 17].include?(n)
+	% if [8, 10, 11, 12, 13, 14, 17, 30].include?(n)
 		xchg [rsp], rdx
 	% else
 		push rdx

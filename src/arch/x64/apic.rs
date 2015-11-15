@@ -117,7 +117,7 @@ static mut pit_gate: interrupts::Gate = interrupts::GATE_DEF;
 pub unsafe fn calibrate() {
 	let gate = interrupts::ref_gate(pit::VECTOR);
 	pit_gate = *gate;
-	interrupts::set_gate(pit::VECTOR, apic_calibrate_pit_handler);
+	interrupts::set_gate(pit::VECTOR, apic_calibrate_pit_handler, 0);
 
 	interrupts::register_handler(TIMER_VECTOR as u8, calibrate_oneshot);
 
@@ -131,7 +131,7 @@ pub unsafe fn calibrate_done() {
 	std::sync::atomic::fence(std::sync::atomic::Ordering::SeqCst);
 
 	for cpu in cpu::cpus() {
-		println!("[CPU {}] APIC tick rate: {}", cpu.index, cpu.arch.apic_tick_rate);
+		println!("[CPU {}] APIC tick rate: {} t/s", cpu.index, cpu.arch.apic_tick_rate / 20);
 	}
 }
 
@@ -140,14 +140,9 @@ pub unsafe fn calibrate_ap() {
 	reg(REG_TIMER_INIT, -1);
 	reg(REG_LVT_TIMER, LVT_MASK);
 
-	println!("calibrate_ap");
-
 	interrupts::enable();
 
-	println!("calibrate_ap int enabled");
-
 	let mut current_tick;
-
 
 	// Make sure the tick count won't overflow soon
 	loop
@@ -159,11 +154,7 @@ pub unsafe fn calibrate_ap() {
 		}
 	}
 
-		println!("calibrate_ap loop 1 {} val {}", current_tick, volatile_load(&CALIBRATE_TICKS));
-
 	while volatile_load(&CALIBRATE_TICKS) < current_tick + 1 {}
-
-		println!("calibrate_ap loop 2");
 
 	reg(REG_LVT_TIMER, TIMER_VECTOR);
 
@@ -172,8 +163,6 @@ pub unsafe fn calibrate_ap() {
 	let ticks = !0 - get_reg(REG_TIMER_CURRENT);
 
 	interrupts::disable();
-
-	println!("Tick rate {}t/s", ticks / 20);
 
 	reg(REG_LVT_TIMER, LVT_MASK);
 
