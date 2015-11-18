@@ -16,5 +16,6 @@
 	"linker-is-gnu": true,
 	"pre-link-args": [],
 	"post-link-args": [],
+	"archive-format": "gnu",
 	"eliminate-frame-pointer": false
 }

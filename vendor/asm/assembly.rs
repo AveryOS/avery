@@ -147,7 +147,7 @@ fn parse_c_arrow(p: &mut Parser, data: &mut Data) -> PResult<usize> {
         false
     };
 
-    let e = p.parse_expr_panic();
+    let e = try!(p.parse_expr());
 
     let kind = if rw {
         BindingKind::InputAndOutput(e)
@@ -184,7 +184,7 @@ fn parse_operand(p: &mut Parser, data: &mut Data) -> PResult<usize> {
             let kind = if rw {
                 BindingKind::InputAndOutput(exp)
             } else if try!(p.eat(&token::FatArrow)) {
-                BindingKind::InputThenOutput(exp, p.parse_expr_panic())
+                BindingKind::InputThenOutput(exp, try!(p.parse_expr()))
             }  else {
                 BindingKind::Input(exp)
             };
@@ -200,7 +200,7 @@ fn parse_binding(p: &mut Parser, data: &mut Data) -> PResult<usize> {
         let c = try!(parse_c(p));
 
         let kind = if try!(p.eat(&token::FatArrow)) {
-            BindingKind::Output(p.parse_expr_panic())
+            BindingKind::Output(try!(p.parse_expr()))
         } else {
             BindingKind::Bare
         };

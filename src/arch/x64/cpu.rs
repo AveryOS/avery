@@ -278,11 +278,15 @@ pub unsafe fn boot_cpus(cpus: cpu::CPUVec<acpi::CPUInfo>) {
 
 		println!("Waiting for the CPUs to start...");
 	}
-
 	// interrupts are enabled by apic::simple_oneshot
-	interrupts::enable();
 
 	info.allow_start.store(1, SeqCst);
+
+
+	// interrupts are disable by apic::calibrate_ap
+	//apic::calibrate_ap();
+
+	interrupts::enable();
 
 	while !cpus_started() {
 		arch::halt();

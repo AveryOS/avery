@@ -15,5 +15,6 @@
 	"disable-redzone": true,
 	"linker-is-gnu": true,
 	"pre-link-args": [],
-	"post-link-args": []
+	"post-link-args": [],
+	"archive-format": "gnu"
 }

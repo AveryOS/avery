@@ -17,11 +17,20 @@ def run(*cmd)
 	raise "Command #{cmd.join(" ")} failed with error code #{$?}" if $? != 0
 end
 
-if Gem.win_platform?
-	ENV['PATH'] += ";#{PREFIX}"
-else
-	ENV['PATH'] += ":#{PREFIX}"
+WIN_BINS = Gem.win_platform? || RbConfig::CONFIG['host_os'] == 'msys'
+
+EXE_POST = WIN_BINS ? ".exe" :	""
+
+def append_path(path)
+	if Gem.win_platform?
+		ENV['PATH'] = "#{path.gsub('/', '\\')};#{ENV['PATH']}"
+	else
+		ENV['PATH'] = "#{path}:#{ENV['PATH']}"
+	end
 end
+
+append_path(PREFIX)
+#append_path(File.expand_path('../vendor/rust/install/bin', __FILE__))
 
 QEMU = "#{'qemu/' if Gem.win_platform?}qemu-system-x86_64"
 AR = 'x86_64-elf-ar'
@@ -42,8 +51,8 @@ def assemble(build, source, objects)
 
 	objects << object_file
 end
-
-RUSTFLAGS = ['-C', "ar=#{File.join(PREFIX, AR)}", '--sysroot', File.expand_path('../build/sysroot', __FILE__)] +
+#'-C',"ar=#{File.join(PREFIX, AR)}",
+RUSTFLAGS = ['--sysroot', File.expand_path('../build/sysroot', __FILE__)] +
 	%w{-C opt-level=1 -C debuginfo=1 -Z no-landing-pads}
 
 def rust_base(build, prefix, flags)
@@ -51,7 +60,7 @@ def rust_base(build, prefix, flags)
 
 	mkdirs(crates)
 
-	run 'rustc', *RUSTFLAGS, *flags, 'vendor/rust/src/libcore/lib.rs', '--out-dir', crates
+	run 'rustc', *RUSTFLAGS, *flags, 'vendor/rust/rust/src/libcore/lib.rs', '--out-dir', crates
 	run 'rustc', '-L', File.join(prefix, "crates"), *RUSTFLAGS, *flags, '--crate-type', 'rlib', '--crate-name', 'rlibc', 'vendor/rlibc/src/lib.rs', '--out-dir', crates
 end
 
@@ -232,60 +241,59 @@ task :bochs => :build do
 	end
 end
 
-task :vendor do
-	download = proc do |url, name|
-	end
+CORES = 3
 
-	build = proc do |url, name, ver, ext = "bz2", &proc|
-		src = "#{name}-#{ver}"
+build = proc do |url, name, ver, ext = "bz2", &proc|
+	src = "#{name}-#{ver}"
 
-		mkdirs(name)
-		Dir.chdir(name) do
-			mkdirs("install")
-			prefix = File.realpath("install");
+	mkdirs(name)
+	Dir.chdir(name) do
+		mkdirs("install")
+		prefix = File.realpath("install");
 
-			unless File.exists?("built")
-				tar = "#{src}.tar.#{ext}"
-				unless File.exists?(tar)
-					run 'curl', '-O', "#{url}#{tar}"
-				end
-
-				run 'rm', '-rf', src
-
-				uncompress = case ext
-					when "bz2"
-						"j"
-					when "xz"
-						"J"
-					when "gz"
-						"z"
-				end
-
-				run 'tar', "#{uncompress}xf", tar
-
-				run 'rm', '-rf', "build"
-				mkdirs("build")
-				Dir.chdir("build") do
-					proc.call(File.join("..", src), prefix)
-					run "make", "-j4"
-					run "make", "install"
-				end
-				run 'rm', '-rf', "build"
-				#run 'rm', '-rf', src
-				run 'touch', "built"
+		unless File.exists?("built")
+			tar = "#{src}.tar.#{ext}"
+			unless File.exists?(tar)
+				run 'curl', '-O', "#{url}#{tar}"
 			end
 
-			run 'cp', '-rf', 'install', ".."
+			run 'rm', '-rf', src
+
+			uncompress = case ext
+				when "bz2"
+					"j"
+				when "xz"
+					"J"
+				when "gz"
+					"z"
+			end
+
+			run 'tar', "#{uncompress}xf", tar
+
+			run 'rm', '-rf', "build"
+			mkdirs("build")
+			Dir.chdir("build") do
+				proc.call(File.join("..", src), prefix)
+				run "make", "-j#{CORES}"
+				run "make", "install"
+			end
+			run 'rm', '-rf', "build"
+			run 'touch', "built"
+		end
+
+		run 'cp', '-rf', 'install', ".."
+		if File.exists?('/usr/bin/msys-2.0.dll')
+			mkdirs("install/bin")
+			run 'cp', '/usr/bin/msys-2.0.dll', "install/bin/msys-2.0.dll"
 		end
 	end
+end
 
+task :vendor_unix do
 	Dir.chdir('vendor/') do
-		run 'rm', '-rf', "install" unless Gem.win_platform?
-		mkdirs("install")
-
 		build.("ftp://ftp.gnu.org/gnu/binutils/", "binutils", "2.25") do |src, prefix|
 			run File.join(src, 'configure'), "--prefix=#{prefix}", *%w{--target=x86_64-elf --with-sysroot --disable-nls --disable-werror}
-		end unless Gem.win_platform?
+		end # binutils is buggy with mingw-w64
 
 		build.("ftp://ftp.gnu.org/gnu/libiconv/", "libiconv", "1.14", "gz") do |src, prefix|
 			run File.join(src, 'configure'), "--prefix=#{prefix}"
@@ -294,19 +302,84 @@ task :vendor do
 		build.("ftp://ftp.gnu.org/gnu/mtools/", "mtools", "4.0.18") do |src, prefix|
 			#run 'cp', '-rf', "../../libiconv/install", ".."
 			Dir.chdir(src) do
+				run 'cp', '/usr/share/libtool/build-aux/config.guess', 'config.guess'
+				run 'cp', '/usr/share/libtool/build-aux/config.sub', 'config.subs'
 				run 'patch', '-i', "../../mtools-fix.diff"
 				run 'patch', '-i', "../../mtools-fix2.diff"
 			end
 			run File.join(src, 'configure'), "--prefix=#{prefix}", "LIBS=-liconv"
-		end unless Gem.win_platform?
+		end# mtools doesn't build with mingw-w64
+	end
+end
+
+task :vendor do
+	git = proc do |name, url, &proc|
+		mkdirs(name)
+		Dir.chdir(name) do
+			unless File.exists?(name)
+				run "git", "clone" , url, name
+			end
+
+			mkdirs("install")
+			prefix = File.realpath("install");
+
+			#run 'rm', '-rf', "build"
+
+			mkdirs("build")
+
+			unless File.exists?("configured")
+				Dir.chdir("build") do
+					proc.call(File.join("..", name), prefix)
+				end
+				run 'touch', "configured"
+			end
+
+			unless File.exists?("built")
+				Dir.chdir("build") do
+					run "make", "-j#{CORES}"
+					run "make", "install"
+				end
+				run 'touch', "built"
+			end
+		end
+	end
+
+	Dir.chdir('vendor/') do
+		run 'rm', '-rf', "install"
+		mkdirs("install")
+
+		git.("rust", "https://github.com/rust-lang/rust.git") do |src, prefix|
+			run File.join(src, 'configure'), "--prefix=#{prefix}", "--disable-docs", "--disable-jemalloc"
+		end
 
 		build.("ftp://ftp.gnu.org/gnu/grub/", "grub", "2.00", "xz") do |src, prefix|
 			run 'cp', '-rf', "../../binutils/install", ".."
 			run File.join(src, 'configure'), "--prefix=#{prefix}", '--target=x86_64-elf', '--disable-nls'
 		end if nil
 
-		unless Dir.exists?("rust")
-			run "git", "clone" , "https://github.com/rust-lang/rust.git"
+		git.("avery-binutils", "https://github.com/Zoxc/avery-binutils.git") do |src, prefix|
+			run File.join(src, 'configure'), "--prefix=#{prefix}", *%w{--target=x86_64-pc-avery --with-sysroot --disable-nls --disable-werror --disable-gdb --disable-sim --disable-readline --disable-libdecnumber}
+		end
+
+		git.("avery-llvm", "https://github.com/Zoxc/llvm-sfi.git") do |src, prefix|
+			Dir.chdir(File.join(src, 'tools')) do
+					unless Dir.exists?("clang")
+						run "git", "clone" , "http://llvm.org/git/clang.git"
+					end
+			end
+			run "cmake", src, *%w{-G MSYS\ Makefiles -DBUILD_SHARED_LIBS=On -DLLVM_TARGETS_TO_BUILD=X86 -DCMAKE_BUILD_TYPE=RelWithDebInfo}, "-DCMAKE_INSTALL_PREFIX=#{prefix}"
+		end
+
+		append_path(File.realpath("avery-llvm/install/bin"))
+		append_path(File.realpath("avery-llvm/install/lib")) # LLVM places DLLs in /lib ...
+		append_path(File.realpath("avery-binutils/install/bin"))
+
+		git.("avery-newlib", "https://github.com/Zoxc/avery-newlib.git") do |src, prefix|
+			run File.join(src, 'configure'), "--prefix=#{prefix}", "--target=x86_64-pc-avery", 'CC_FOR_TARGET=clang -ffreestanding --target=x86_64-pc-avery -ccc-gcc-name x86_64-pc-avery-gcc'
+		end
+
+		git.("avery-rust", "https://github.com/rust-lang/rust.git") do |src, prefix|
+			run File.join(src, 'configure'), "--prefix=#{prefix}", "--target=x86_64-pc-avery", "--llvm-root=#{File.join(src, "../../avery-llvm/build")}", "--disable-docs", "--disable-jemalloc"
 		end
 
 		unless Dir.exists?("rlibc")

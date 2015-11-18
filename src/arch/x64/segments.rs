@@ -43,12 +43,12 @@ struct TaskStateDescriptor {
 #[allow(dead_code)]
 #[derive(Copy, Clone)]
 struct Descriptor {
-    limit_low: u16,
-    base_low: u16,
-    base_middle: u8,
-    access: u8,
-    granularity: u8,
-    base_high: u8
+	limit_low: u16,
+	base_low: u16,
+	base_middle: u8,
+	access: u8,
+	granularity: u8,
+	base_high: u8
 }
 
 const DESCRIPTOR_DEF: Descriptor = Descriptor {
@@ -110,9 +110,9 @@ pub unsafe fn initialize_gdt() {
 		base: offset(&GDT)
 	};
 
-    asm! {
-        lgdt {&gdt_ptr => %*m};
-    }
+	asm! {
+		lgdt {&gdt_ptr => %*m};
+	}
 
 	load_segments(DATA_SEGMENT as usize, CODE_SEGMENT as usize);
 }
