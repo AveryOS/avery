@@ -79,7 +79,6 @@ build_kernel = proc do
 	kernel_binary = build.output "#{type}/kernel.elf"
 	kernel_object = build.output "#{type}/kernel.o"
 	kernel_bc = build.output "#{type}/kernel.ll"
-	kernel_assembly_bootstrap = build.output "#{type}/bootstrap.s"
 
 	sources = build.package('src/**/*')
 
