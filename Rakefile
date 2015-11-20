@@ -15,7 +15,9 @@ def run(*cmd)
 	raise "Command #{cmd.join(" ")} failed with error code #{$?}" if $? != 0
 end
 
-ON_WINDOWS = Gem.win_platform? || RbConfig::CONFIG['host_os'] == 'msys'
+raise "Install and use MSYS2 Ruby" if ENV['MSYSTEM'] && Gem.win_platform?
+
+ON_WINDOWS = Gem.win_platform? || ENV['MSYSTEM']
 
 EXE_POST = ON_WINDOWS ? ".exe" :	""
 
@@ -334,7 +336,7 @@ build_from_git = proc do |name, url, &proc|
 end
 
 task :deps_unix do
-	raise "Cannot build UNIX dependencies with MinGW" if ENV['MSYSTEM'].start_with?('MINGW')
+	raise "Cannot build UNIX dependencies with MinGW" if ENV['MSYSTEM'] && ENV['MSYSTEM'].start_with?('MINGW')
 
 	Dir.chdir('vendor/') do
 		build_from_url.("ftp://ftp.gnu.org/gnu/binutils/", "binutils", "2.25") do |src, prefix|
