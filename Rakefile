@@ -356,7 +356,6 @@ task :deps_unix do
 					run 'cp', '/usr/share/libtool/build-aux/config.sub', 'config.sub'
 				end
 				run 'patch', '-i', "../../mtools-fix.diff"
-				run 'patch', '-i', "../../mtools-fix2.diff"
 			end
 			run File.join(src, 'configure'), "--prefix=#{prefix}"#, "LIBS=-liconv"
 		end# mtools doesn't build with mingw-w64
