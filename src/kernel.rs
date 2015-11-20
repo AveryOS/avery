@@ -40,7 +40,3 @@ fn init(info: &mut params::Info) {
 
 	panic!("Bored");
 }
-
-fn kernel() {
-	panic!("Bored");
-}
