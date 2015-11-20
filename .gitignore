@@ -1,8 +1,11 @@
 /emu
 /build
-/bin
 /vendor/rlibc
 /vendor/rust
 /vendor/binutils
 /vendor/mtools
 /vendor/install
+/vendor/avery-llvm
+/vendor/avery-binutils
+/vendor/avery-rust
+/vendor/avery-newlib
