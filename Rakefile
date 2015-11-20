@@ -357,7 +357,9 @@ task :deps_unix do
 				end
 				run 'patch', '-i', "../../mtools-fix.diff"
 			end
-			run File.join(src, 'configure'), "--prefix=#{prefix}"#, "LIBS=-liconv"
+			opts = []
+			opts += ["LIBS=-liconv"] if Gem::Platform::local.os == 'darwin'
+			run File.join(src, 'configure'), "--prefix=#{prefix}", *opts
 		end# mtools doesn't build with mingw-w64
 
 		build_from_git.("avery-binutils", "https://github.com/Zoxc/avery-binutils.git") do |src, prefix|
