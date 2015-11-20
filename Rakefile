@@ -58,7 +58,7 @@ RUSTFLAGS = ['-C',"ar=x86_64-elf-ar", '--sysroot', File.expand_path('../build/sy
 def build_libcore(build, crate_prefix, flags)
 	crates = build.output(File.join(crate_prefix, "crates"))
 	mkdirs(crates)
-	run 'rustc', *RUSTFLAGS, *flags, 'vendor/rust/rust/src/libcore/lib.rs', '--out-dir', crates
+	run 'rustc', *RUSTFLAGS, *flags, 'vendor/rust/src/libcore/lib.rs', '--out-dir', crates
 
 	# libcore needs rlibc
 	run 'rustc', '-L', crates, *RUSTFLAGS, *flags, '--crate-type', 'rlib', '--crate-name', 'rlibc', 'vendor/rlibc/src/lib.rs', '--out-dir', crates
