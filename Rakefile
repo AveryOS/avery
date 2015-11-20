@@ -350,8 +350,11 @@ task :deps_unix do
 		build_from_url.("ftp://ftp.gnu.org/gnu/mtools/", "mtools", "4.0.18") do |src, prefix|
 			#run 'cp', '-rf', "../../libiconv/install", ".."
 			Dir.chdir(src) do
-				run 'cp', '/usr/share/libtool/build-aux/config.guess', 'config.guess'
-				run 'cp', '/usr/share/libtool/build-aux/config.sub', 'config.sub'
+				# mtools can't detect MSYS2, fix this
+				if ENV['MSYSTEM']
+					run 'cp', '/usr/share/libtool/build-aux/config.guess', 'config.guess'
+					run 'cp', '/usr/share/libtool/build-aux/config.sub', 'config.sub'
+				end
 				run 'patch', '-i', "../../mtools-fix.diff"
 				run 'patch', '-i', "../../mtools-fix2.diff"
 			end
