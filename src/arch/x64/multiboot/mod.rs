@@ -8,7 +8,6 @@ mod multiboot;
 #[no_mangle]
 pub extern "C" fn boot_entry(info: &multiboot::Info) {
 	init(info);
-	::kernel();
 }
 
 #[inline(never)]

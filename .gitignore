@@ -1,4 +1,4 @@
-/emu
+/emu/grubimage.img
 /build
 /vendor/rlibc
 /vendor/rust

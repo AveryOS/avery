@@ -371,7 +371,7 @@ task :deps_srcs do
 	mkdirs('emu')
 	Dir.chdir('emu/') do
 		unless File.exists?('grubdisk.img')
-			run 'curl', '-O', unknown_URL
+			run 'curl', '-O', 'https://raw.githubusercontent.com/Zoxc/avery-binaries/master/disk.tar.xz'
 			run 'tar', "Jxf", 'disk.tar.xz'
 			FileUtils.rm('disk.tar.xz')
 		end
