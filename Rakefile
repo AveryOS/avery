@@ -369,6 +369,7 @@ task :deps_unix do
 end
 
 task :deps_srcs do
+	mkdirs('emu')
 	Dir.chdir('emu/') do
 		unless File.exists?('grubdisk.img')
 			run 'curl', '-O', unknown_URL
