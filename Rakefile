@@ -154,7 +154,7 @@ build_kernel = proc do
 	end
 end
 
-task :deps_base do
+task :deps do
 	build = Build.new('build', 'info.yml')
 	build.run do
 		mkdirs("build/phase")
@@ -368,7 +368,7 @@ task :deps_unix do
 	end
 end
 
-task :deps => :deps_base do
+task :deps_srcs do
 	Dir.chdir('emu/') do
 		unless File.exists?('grubdisk.img')
 			run 'curl', '-O', unknown_URL
@@ -415,7 +415,15 @@ task :deps_user do
 	end
 end
 
-task :match_rustc do
+task :setup do
+	Rake::Task["deps_unix"].invoke
+	Rake::Task["match_rustc"].invoke
+	Rake::Task["deps"].invoke
+	Rake::Task["build"].invoke
+	puts "Setup has been run"
+end
+
+task :match_rustc => :deps_srcs do
 	rustc_ver = /\((.*?) /.match(`rustc --version`)[1]
 
 	Dir.chdir('vendor/') do
