@@ -1,0 +1,10 @@
+[package]
+name = "verifier"
+version = "0.1.0"
+authors = ["John Kåre Alsaker <john.kare.alsaker@gmail.com>"]
+
+[dependencies]
+byteorder = "0.4.2"
+
+[dependencies.elfloader]
+path = "rust-elfloader"
