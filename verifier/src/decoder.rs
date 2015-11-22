@@ -100,10 +100,10 @@ pub fn decode(data: &[u8], offset: usize) {
 
 		str.push_str(&i.desc);
 
-		println!("L:{}\n{:#08x}: U:{}", str, start, ud_str);
+		println!("{}", str);
 
 		if ud_str != str {
-			panic!("udis86 output didn't match");
+			panic!("udis86 output didn't match {}", ud_str);
 		}
 
 		if ud_len != c.offset - start {

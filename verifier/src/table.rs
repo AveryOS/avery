@@ -31,7 +31,7 @@ enum ModRM {
 
 enum OpOption {
 	Rm,
-	Ax,
+	FixReg(usize),
 	Imm,
 	Reg,
 	Branch,
@@ -111,7 +111,6 @@ pub fn parse(cursor: &mut Cursor, rex: Option<u8>) -> Option<Instruction> {
 		let mut modrm_s = modrm_s.borrow_mut();
 		if !modrm_s.is_some() {
 			let modrm = c().next() as usize;
-
 			let mode = modrm >> 6;
 			let reg = ((modrm >> 3) & 7) | ext_bit(rex as usize, 2, 3);
 			let rm = modrm & 7 | ext_bit(rex as usize, 0, 3);
@@ -165,19 +164,19 @@ pub fn parse(cursor: &mut Cursor, rex: Option<u8>) -> Option<Instruction> {
 			32 => {
 				let mut v = c().next() as u32;
 				v |= (c().next() as u32) << 8;
-				v |= (c().next() as u32) << 8;
-				v |= (c().next() as u32) << 8;
+				v |= (c().next() as u32) << 16;
+				v |= (c().next() as u32) << 24;
 				v as i32 as i64
 			}
 			64 => {
 				let mut v = c().next() as u64;
 				v |= (c().next() as u64) << 8;
-				v |= (c().next() as u64) << 8;
-				v |= (c().next() as u64) << 8;
-				v |= (c().next() as u64) << 8;
-				v |= (c().next() as u64) << 8;
-				v |= (c().next() as u64) << 8;
-				v |= (c().next() as u64) << 8;
+				v |= (c().next() as u64) << 16;
+				v |= (c().next() as u64) << 24;
+				v |= (c().next() as u64) << 32;
+				v |= (c().next() as u64) << 40;
+				v |= (c().next() as u64) << 48;
+				v |= (c().next() as u64) << 56;
 				v as i64
 			}
 			_ => panic!(),
@@ -196,8 +195,8 @@ pub fn parse(cursor: &mut Cursor, rex: Option<u8>) -> Option<Instruction> {
 					i.borrow_mut().terminating = true;
 					true
 				}
-				Ax => {
-					operands.borrow_mut().push(reg_name(0).to_string());
+				FixReg(reg) => {
+					operands.borrow_mut().push(reg_name(reg).to_string());
 					true
 				}
 				Imm => {
@@ -219,11 +218,8 @@ pub fn parse(cursor: &mut Cursor, rex: Option<u8>) -> Option<Instruction> {
 					true
 				}
 				RmOpcode(opcode_ext) => {
-					let o = c().offset;
 					let (indir, reg) = modrm();
 					if reg & 7 != opcode_ext {
-						c().offset = o;
-						*modrm_s.borrow_mut() = None;
 						false
 					} else {
 						operands.borrow_mut().push(print_modrm(indir));
@@ -242,11 +238,16 @@ pub fn parse(cursor: &mut Cursor, rex: Option<u8>) -> Option<Instruction> {
 
 	macro_rules! op {
 		($code:expr, $name:expr, $opts:expr) => ({
+			let o = c().offset;
+
 			if cr().data[cr().offset..].starts_with(&$code) {
 				c().offset += $code.len();
 				if opts(&$opts) {
 					i.borrow_mut().desc = format!("{}{}{}", $name, if operands.borrow().is_empty() { "" } else { " " }, operands.borrow().join(", "));
 					return Some(i.borrow().clone());
+				} else {
+					c().offset = o;
+					*modrm_s.borrow_mut() = None;
 				}
 			}
 		})
@@ -263,13 +264,13 @@ pub fn parse(cursor: &mut Cursor, rex: Option<u8>) -> Option<Instruction> {
 										"and", "sub", "xor", "cmp"].iter().enumerate() {
 		for (format_num, format) in [[Rm, Reg],
 											 [Reg, Rm],
-											 [Ax, Imm]].iter().enumerate() {
+											 [FixReg(0), Imm]].iter().enumerate() {
 			let opcode = cat_bits(&[arith_opcode, format_num, 0], &[5, 2, 1]);
 			pair!(opcode, instr, *format)
 		}
 
 		pair!(0x80, instr, [RmOpcode(arith_opcode), Imm]);
-		op!([0x83], instr, [OpSize(8), Rm, Imm]);
+		op!([0x83], instr, [RmOpcode(arith_opcode), OpSize(8), Imm]);
 	}
 
 	for (jmp_opcode, instr) in ["jc", "jnb", "jz", "jnz", "jbe", "jnbe", "js", "jns", "jp", "jnp", "jl", "jnl", "jle", "jnle"].iter().enumerate() {
@@ -277,9 +278,14 @@ pub fn parse(cursor: &mut Cursor, rex: Option<u8>) -> Option<Instruction> {
 		op!([0x0F, 0x82 + jmp_opcode as u8], instr, [OpSize(32), Branch]); // 16/32 opsize
 	}
 
-	op!([0xeb], "jmp", [OpSize(8), Branch]);
-	op!([0xe9], "jmp", [OpSize(32), Branch]); // 16/32 opsize
+	op!([0xeb], "jmp", [OpSize(8), Term, Branch]);
+	op!([0xe9], "jmp", [OpSize(32), Term, Branch]); // 16/32 opsize
 	op!([0xff], "jmp", [OpSize(64), Term, RmOpcode(4)]);
+
+	for reg in 0..8 {
+		op!([0x50 + reg], "push", [OpSize(64), FixReg(reg as usize)]);
+		op!([0x58 + reg], "pop", [OpSize(64), FixReg(reg as usize)]);
+	}
 
 	pair!(0x88, "mov", [Rm, Reg]);
 	pair!(0x8a, "mov", [Reg, Rm]);
