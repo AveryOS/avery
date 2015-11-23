@@ -46,23 +46,24 @@ fn ud(c: &mut Cursor) -> (String, usize) {
 						 .arg("-64")
 						 .arg("-o")
 						 .arg(format!("{:x}", c.offset))
+						 .arg("-noff")
+						 .arg("-nohex")
 						 .stdin(Stdio::piped())
 						 .stdout(Stdio::piped())
 						 .spawn().unwrap();
 	ud.stdin.as_mut().unwrap().write(&c.data[c.offset..(c.offset + 16)]).unwrap();
 	let dis = ud.wait_with_output().unwrap().stdout;
 	let str = String::from_utf8_lossy(&dis);
-	let l = &str.lines().next().unwrap()[16..].trim();
+	let l = &str.lines().next().unwrap();
 	let mut ws = l.split_whitespace();
-	//ws.next().unwrap();
-	let bs = ws.next().unwrap();
-	(l.to_string(), bs.len() / 2)
+	let len = ws.next().unwrap();
+	(l[len.len()..].trim().to_string(), len.parse().unwrap())
 }
 
 fn inst(c: &mut Cursor) -> (table::Instruction, usize, String) {
 	let (ud_str, ud_len) = ud(c);
 	let mut s = String::new();
-	prefixes(c);
+	let pres = prefixes(c);
 	let rex = c.peek();
 	let rex = match rex {
 		0x40...0x4F => {
@@ -72,7 +73,7 @@ fn inst(c: &mut Cursor) -> (table::Instruction, usize, String) {
 		}
 		_ => None
 	};
-	match table::parse(c, rex) {
+	match table::parse(c, rex, &pres) {
 		Some(t) => (t, ud_len, ud_str),
 		None => panic!("unknown opcode {:x} (ud: {})", c.next(), ud_str),
 	}
@@ -98,11 +99,13 @@ pub fn decode(data: &[u8], offset: usize) {
 			let (i, ud_len, ud_str) = inst(&mut c);
 			let mut str = String::new();
 
-			for b in c.data[start..c.offset].iter() {
+			let byte_print_len = cmp::min(8, c.offset - start);
+
+			for b in c.data[start..(start + byte_print_len)].iter() {
 				str.push_str(&format!("{:02x}", b));
 			}
 
-			for _ in 0..(8 - cmp::min(8, c.offset - start)) {
+			for _ in 0..(8 - byte_print_len) {
 				str.push_str("  ");
 			}
 			str.push_str(" ");
@@ -111,7 +114,7 @@ pub fn decode(data: &[u8], offset: usize) {
 
 			println!("{}", str);
 
-			if ud_str != str {
+			if ud_str != i.desc {
 				panic!("udis86 output didn't match {}", ud_str);
 			}
 
@@ -123,7 +126,7 @@ pub fn decode(data: &[u8], offset: usize) {
 				let op = i.ops.first().unwrap().clone();
 				let off = match op.0 {
 					table::Operand::Imm(off) => {
-						Some(off as u64)
+						Some(off.0 as u64)
 					}
 					_ => None,
 				};
