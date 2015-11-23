@@ -79,9 +79,9 @@ fn inst(c: &mut Cursor) -> (table::Instruction, usize, String) {
 	}
 }
 
-pub fn decode(data: &[u8], offset: usize) {
+pub fn decode(data: &[u8], start: usize, size: usize) {
 	let mut targets = Vec::new();
-	targets.push(offset);
+	targets.push(start);
 
 	let mut i = 0;
 
@@ -132,8 +132,12 @@ pub fn decode(data: &[u8], offset: usize) {
 				};
 				if let Some(off) = off {
 					let off = off as usize;
-					if let Err(i) = targets.binary_search(&off) {
-						targets.insert(i, off);
+					if off >= start && off < start + size {
+						if let Err(i) = targets.binary_search(&off) {
+							targets.insert(i, off);
+						}
+					} else {
+						//println!("Jump outside of symbol {:#x}", off);
 					}
 				}
 			}

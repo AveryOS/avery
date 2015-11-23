@@ -20,8 +20,11 @@ pub struct Instruction {
 	pub branch: bool,
 }
 
+#[derive(Clone)]
 struct IndirectAccess {
-	base_reg: usize,
+	base: Option<usize>,
+	index: Option<usize>,
+	scale: usize,
 	offset: i64,
 }
 
@@ -37,7 +40,7 @@ use self::Size::*;
 #[derive(Clone)]
 pub enum Operand {
 	Direct(usize),
-	Indirect(String, i64),
+	Indirect(IndirectAccess),
 	Imm((i64, Size)),
 }
 
@@ -149,23 +152,31 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8]) -> Option
 
 		match op.0 {
 			Operand::Direct(reg) => format!("{}", reg_name(reg, op.1)),
-			Operand::Indirect(name, offset) => {
+			Operand::Indirect(indir) => {
 				let ptr = operand_ptr(known_size || sr().no_mem, op.1);
-				if offset != 0 {
-					format!("{}[{}{}]", ptr, name, sign_hex(offset, true))
+
+				let scale = if indir.scale == 1 {
+					"".to_string()
+				} else {
+					format!("{}*", indir.scale)
+				};
+
+				let name = match &(indir.base, indir.index) {
+					&(Some(base), Some(index)) => format!("{}+{}{}", REGS64[base], scale, REGS64[index]),
+					&(None, Some(index)) => format!("{}{}", scale, REGS64[index]),
+					&(Some(base), None) => format!("{}", REGS64[base]),
+					&(None, None) => return format!("{}[{:#x}]", ptr, indir.offset),
+				};
+
+				if indir.offset != 0 {
+					format!("{}[{}{}]", ptr, name, sign_hex(indir.offset, true))
 				} else {
 					format!("{}[{}]", ptr, name)
 				}
 			}
 			Operand::Imm((im, size)) => match size {
 				//S32 => format!("{:#x}", im as i32),
-				_ => {
-					if (im as u64) & 0xffffffff00000000 == 0xffffffff00000000 {
-						format!("{:#x}", im as i32)
-					} else {
-						format!("{:#x}", im)
-					}
-				},
+				_ => format!("{:#x}", im),
 			}
 		}
 	};
@@ -208,13 +219,41 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8]) -> Option
 			let reg = ((modrm >> 3) & 7) | ext_bit(rex as usize, 2, 3);
 			let rm = modrm & 7 | ext_bit(rex as usize, 0, 3);
 
-			let name = if rm & 7 == 4 { // SIB BYTE
-				"sib"
+			let mut name = if mode != 3 && rm & 7 == 4 {
+				// Parse SIB byte
+
+				let sib = s().cursor.next() as usize;
+				let base = sib & 7 | ext_bit(rex as usize, 0, 3);
+				let index = ((sib >> 3) & 7) | ext_bit(rex as usize, 1, 3);
+				let scale = sib >> 6;
+
+				let reg_index = if index == 5 {
+					None
+				} else {
+					Some(index)
+				};
+				let mut reg_base = if mode == 0 && base & 7 == 5 {
+					None
+				} else {
+					Some(base)
+				};
+
+				IndirectAccess {
+					base: reg_base,
+					index: reg_index,
+					scale: 1 << scale,
+					offset: 0,
+				}
 			} else {
 				if mode == 0 && rm & 7 == 5 { // RIP relative
-					"rip"
+					panic!("RIP relative");
 				} else {
-					REGS64[rm]
+					IndirectAccess {
+						base: Some(rm),
+						index: None,
+						scale: 0,
+						offset: 0,
+					}
 				}
 			};
 
@@ -228,7 +267,8 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8]) -> Option
 			let indir = if mode == 3 {
 				Operand::Direct(rm)
 			} else {
-				Operand::Indirect(name.to_string(), off)
+				name.offset = off;
+				Operand::Indirect(name)
 			};
 
 			s().modrm_cache = Some((indir, reg));
