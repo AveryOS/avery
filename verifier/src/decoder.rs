@@ -1,4 +1,5 @@
 use table;
+use std::cmp;
 
 #[derive(Copy, Clone)]
 pub struct Cursor<'s> {
@@ -78,40 +79,67 @@ fn inst(c: &mut Cursor) -> (table::Instruction, usize, String) {
 }
 
 pub fn decode(data: &[u8], offset: usize) {
-	let mut c = Cursor {
-		data: &data[offset..],
-		offset: 0,
-	};
+	let mut targets = Vec::new();
+	targets.push(offset);
 
-	while offset < data.len() {
-		let start = c.offset;
-		print!("{:#08x}: ", start);
-		let (i, ud_len, ud_str) = inst(&mut c);
-		let mut str = String::new();
+	let mut i = 0;
 
-		for b in c.data[start..c.offset].iter() {
-			str.push_str(&format!("{:02x}", b));
+	while i < targets.len() {
+		let mut c = Cursor {
+			data: data,
+			offset: targets[i],
+		};
+
+		println!("disasm:");
+
+		loop {
+			let start = c.offset;
+			print!("{:#08x}: ", start);
+			let (i, ud_len, ud_str) = inst(&mut c);
+			let mut str = String::new();
+
+			for b in c.data[start..c.offset].iter() {
+				str.push_str(&format!("{:02x}", b));
+			}
+
+			for _ in 0..(8 - cmp::min(8, c.offset - start)) {
+				str.push_str("  ");
+			}
+			str.push_str(" ");
+
+			str.push_str(&i.desc);
+
+			println!("{}", str);
+
+			if ud_str != str {
+				panic!("udis86 output didn't match {}", ud_str);
+			}
+
+			if ud_len != c.offset - start {
+				panic!("Instruction was of length {}, while udis86 was length {}", c.offset - start, ud_len);
+			}
+
+			if i.branch {
+				let op = i.ops.first().unwrap().clone();
+				let off = match op.0 {
+					table::Operand::Imm(off) => {
+						Some(off as u64)
+					}
+					_ => None,
+				};
+				if let Some(off) = off {
+					let off = off as usize;
+					if let Err(i) = targets.binary_search(&off) {
+						targets.insert(i, off);
+					}
+				}
+			}
+
+			if i.terminating {
+				break
+			}
 		}
 
-		for _ in 0..(8 - (c.offset - start)) {
-			str.push_str("  ");
-		}
-		str.push_str(" ");
-
-		str.push_str(&i.desc);
-
-		println!("{}", str);
-
-		if ud_str != str {
-			panic!("udis86 output didn't match {}", ud_str);
-		}
-
-		if ud_len != c.offset - start {
-			panic!("Instruction was of length {}, while udis86 was length {}", c.offset - start, ud_len);
-		}
-
-		if i.terminating {
-			break
-		}
+		i += 1;
 	}
 }

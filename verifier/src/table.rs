@@ -16,6 +16,8 @@ fn ext_bit(b: usize, i: usize, t: usize) -> usize {
 pub struct Instruction {
 	pub desc: String,
 	pub terminating: bool,
+	pub ops: Vec<(Operand, Size)>,
+	pub branch: bool,
 }
 
 struct IndirectAccess {
@@ -23,20 +25,34 @@ struct IndirectAccess {
 	offset: i64,
 }
 
+#[derive(Eq, PartialEq, Copy, Clone)]
+pub enum Size {
+	S8,
+	S16,
+	S32,
+	S64,
+}
+use self::Size::*;
+
 #[derive(Clone)]
-enum ModRM {
+pub enum Operand {
 	Direct(usize),
 	Indirect(String, i64),
+	Imm(i64),
 }
 
+#[derive(Clone)]
 enum OpOption {
 	Rm,
 	FixReg(usize),
+	FixRegRex(usize),
 	Imm,
 	Reg,
+	Disp,
 	Branch,
 	RmOpcode(usize),
-	OpSize(usize),
+	OpSize(Size),
+	ImmSize(Size),
 	Term,
 }
 
@@ -50,67 +66,127 @@ fn cat_bits(vals: &[usize], sizes: &[usize]) -> u8 {
 	r as u8
 }
 
-pub fn parse(cursor: &mut Cursor, rex: Option<u8>) -> Option<Instruction> {
+fn sign_hex(i: i64, plus: bool) -> String {
+	if i < 0 {
+		format!("-{:#x}", -i)
+	} else {
+		format!("{}{:#x}", if plus { "+" } else { "" }, i)
+	}
+}
+
+#[derive(Clone)]
+struct State<'s> {
+	cursor: Cursor<'s>,
+	operand_size: Size,
+	operands: Vec<(Operand, Size)>,
+	imm_size: Size,
+	terminating: bool,
+	modrm_cache: Option<(Operand, usize)>,
+	branch: bool,
+}
+
+const REGS64: &'static [&'static str] = &["rax", "rcx", "rdx", "rbx", "rsp", "rbp", "rsi", "rdi",
+	  "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"];
+const REGS32: &'static [&'static str] = &["eax", "ecx", "edx", "ebx", "esp", "ebp", "esi", "edi",
+		  "r8d", "r9d", "r10d", "r11d", "r12d", "r13d", "r14d", "r15d"];
+const REGS16: &'static [&'static str] = &["ax", "cx", "dx", "bx", "sp", "bp", "si", "di",
+		  "r8w", "r9w", "r10w", "r11w", "r12w", "r13w", "r14w", "r15w"];
+const REGS8 : &'static [&'static str] = &["al", "cl", "dl", "bl", "spl", "bpl", "sil", "dil",
+				  "r8b", "r9b", "r10b", "r11b", "r12b", "r13b", "r14b", "r15b"];
+
+fn operand_ptr(size_known: bool, op_size: Size) -> &'static str {
+	if size_known {
+		return "";
+	};
+	match op_size {
+		S64 => "qword ",
+		S32 => "dword ",
+		S16 => "word ",
+		S8 => "byte ",
+	}
+}
+
+fn reg_name(r: usize, op_size: Size) -> &'static str  {
+	match op_size {
+		S64 => REGS64[r],
+		S32 => REGS32[r],
+		S16 => REGS16[r],
+		S8 => REGS8[r],
+	}
+}
+
+pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>) -> Option<Instruction> {
 	let rex = rex.unwrap_or(0);
-	let operands: RefCell<Vec<String>> = RefCell::new(Vec::new());
-	let regs64 = &["rax", "rcx", "rdx", "rbx", "rsp", "rbp", "rsi", "rdi",
-		  "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"];
-	let regs32 = ["eax", "ecx", "edx", "ebx", "esp", "ebp", "esi", "edi",
-			  "r8d", "r9d", "r10d", "r11d", "r12d", "r13d", "r14d", "r15d"];
-	let regs16 = ["ax", "cx", "dx", "bx", "sp", "bp", "si", "di",
-			  "r8w", "r9w", "r10w", "r11w", "r12w", "r13w", "r14w", "r15w"];
-	let regs8 = ["al", "cl", "dl", "bl", "spl", "bpl", "sil", "dil",
-					  "r8b", "r9b", "r10b", "r11b", "r12b", "r13b", "r14b", "r15b"];
 	let rex_w = ext_bit(rex as usize, 3, 0) != 0;
-	let i = RefCell::new(Instruction {
-		desc: "".to_string(),
+	let rex_b = ext_bit(rex as usize, 0, 0) != 0;
+
+	let state = RefCell::new(State {
+		cursor: in_cursor.clone(),
 		terminating: false,
+		operands: Vec::new(),
+		operand_size: if rex_w { S64 } else { S32 },
+		imm_size: S32,
+		modrm_cache: None,
+		branch: false,
 	});
-	let operand_size = RefCell::new(if rex_w { 64 } else { 32 });
-	let cursor = RefCell::new(cursor);
 
-	let cr = || cursor.borrow();
-	let c = || cursor.borrow_mut();
+	let sr = || state.borrow();
+	let s = || state.borrow_mut();
 
-	let op_ptr = || {
-		match *operand_size.borrow() {
-			64 => "",
-			32 => "dword ",
-			16 => "word ",
-			8 => "byte ",
-			_ => panic!(),
-		}
-	};
+	let print_op = |i: usize| {
+		let op = sr().operands[i].clone();
+		let known_size = sr().operands.iter().any(|&(ref o, s)| match o {
+			&Operand::Direct(..) => s == op.1,
+			_ => false,
+		});
 
-	let reg_name = |r: usize| {
-		match *operand_size.borrow() {
-			64 => regs64[r],
-			32 => regs32[r],
-			16 => regs16[r],
-			8 => regs8[r],
-			_ => panic!(),
-		}
-	};
-
-	let modrm_s = RefCell::new(None);
-
-	let print_modrm = |rm: ModRM| {
-		match rm {
-			ModRM::Direct(reg) => format!("{}", reg_name(reg)),
-			ModRM::Indirect(name, offset) => {
+		match op.0 {
+			Operand::Direct(reg) => format!("{}", reg_name(reg, op.1)),
+			Operand::Indirect(name, offset) => {
 				if offset != 0 {
-					format!("{}[{}+{:#x}]", op_ptr(), name, offset)
+					format!("{}[{}{}]", operand_ptr(known_size, op.1), name, sign_hex(offset, true))
 				} else {
-					format!("{}[{}]", op_ptr(), name)
+					format!("{}[{}]", operand_ptr(known_size, op.1), name)
 				}
+			}
+			Operand::Imm(im) => sign_hex(im, false),
+		}
+	};
+
+	let read_imm = |size: Size| {
+		match size {
+			S8 => {
+				s().cursor.next() as i8 as i64
+			}
+			S16 => {
+				let mut v = s().cursor.next() as u32;
+				v |= (s().cursor.next() as u32) << 8;
+				v as i32 as i64
+			}
+			S32 => {
+				let mut v = s().cursor.next() as u32;
+				v |= (s().cursor.next() as u32) << 8;
+				v |= (s().cursor.next() as u32) << 16;
+				v |= (s().cursor.next() as u32) << 24;
+				v as i32 as i64
+			}
+			S64 => {
+				let mut v = s().cursor.next() as u64;
+				v |= (s().cursor.next() as u64) << 8;
+				v |= (s().cursor.next() as u64) << 16;
+				v |= (s().cursor.next() as u64) << 24;
+				v |= (s().cursor.next() as u64) << 32;
+				v |= (s().cursor.next() as u64) << 40;
+				v |= (s().cursor.next() as u64) << 48;
+				v |= (s().cursor.next() as u64) << 56;
+				v as i64
 			}
 		}
 	};
 
 	let modrm = || {
-		let mut modrm_s = modrm_s.borrow_mut();
-		if !modrm_s.is_some() {
-			let modrm = c().next() as usize;
+		if !sr().modrm_cache.is_some() {
+			let modrm = s().cursor.next() as usize;
 			let mode = modrm >> 6;
 			let reg = ((modrm >> 3) & 7) | ext_bit(rex as usize, 2, 3);
 			let rm = modrm & 7 | ext_bit(rex as usize, 0, 3);
@@ -118,103 +194,84 @@ pub fn parse(cursor: &mut Cursor, rex: Option<u8>) -> Option<Instruction> {
 			let name = if rm & 7 == 4 { // SIB BYTE
 				"sib"
 			} else {
-				if rm & 7 == 5 { // RIP relative
+				if mode == 0 && rm & 7 == 5 { // RIP relative
 					"rip"
 				} else {
-					regs64[rm]
+					REGS64[rm]
 				}
 			};
 
 			let off = match mode {
 				0 | 3 => 0,
-				1 => {
-					c().next() as i8 as i64
-				}
-				2 => {
-					let mut v = c().next() as u32;
-					v |= (c().next() as u32) << 8;
-					v |= (c().next() as u32) << 8;
-					v |= (c().next() as u32) << 8;
-					v as i32 as i64
-				}
+				1 => read_imm(S8),
+				2 => read_imm(S32),
 				_ => panic!(),
 			};
 
 			let indir = if mode == 3 {
-				ModRM::Direct(rm)
+				Operand::Direct(rm)
 			} else {
-				ModRM::Indirect(name.to_string(), off)
+				Operand::Indirect(name.to_string(), off)
 			};
 
-			*modrm_s = Some((indir, reg));
+			s().modrm_cache = Some((indir, reg));
 		}
-		modrm_s.as_ref().unwrap().clone()
-	};
-
-	let read_imm = || {
-		match *operand_size.borrow() {
-			8 => {
-				c().next() as i8 as i64
-			}
-			16 => {
-				let mut v = c().next() as u32;
-				v |= (c().next() as u32) << 8;
-				v as i32 as i64
-			}
-			32 => {
-				let mut v = c().next() as u32;
-				v |= (c().next() as u32) << 8;
-				v |= (c().next() as u32) << 16;
-				v |= (c().next() as u32) << 24;
-				v as i32 as i64
-			}
-			64 => {
-				let mut v = c().next() as u64;
-				v |= (c().next() as u64) << 8;
-				v |= (c().next() as u64) << 16;
-				v |= (c().next() as u64) << 24;
-				v |= (c().next() as u64) << 32;
-				v |= (c().next() as u64) << 40;
-				v |= (c().next() as u64) << 48;
-				v |= (c().next() as u64) << 56;
-				v as i64
-			}
-			_ => panic!(),
-		}
+		sr().modrm_cache.as_ref().unwrap().clone()
 	};
 
 	let opts = |opts: &[OpOption]| {
 		let mut allowed = true;
 		for opt in opts.iter() {
+			let opsize = sr().operand_size;
 			let l_allowed = match *opt {
-				OpSize(s) => {
-					*operand_size.borrow_mut() = s;
+				ImmSize(size) => {
+					s().imm_size = size;
+					true
+				}
+				OpSize(size) => {
+					s().operand_size = size;
 					true
 				}
 				Term => {
-					i.borrow_mut().terminating = true;
+					s().terminating = true;
+					true
+				}
+				FixRegRex(mut reg) => {
+					if rex_b {
+						reg += 8;
+					}
+					s().operands.push((Operand::Direct(reg), opsize));
 					true
 				}
 				FixReg(reg) => {
-					operands.borrow_mut().push(reg_name(reg).to_string());
+					s().operands.push((Operand::Direct(reg), opsize));
 					true
 				}
 				Imm => {
-					operands.borrow_mut().push(format!("{:#x}", read_imm()));
+					let imm_size = sr().imm_size;
+					let imm = read_imm(imm_size);
+					s().operands.push((Operand::Imm(imm), opsize));
 					true
 				}
 				Branch => {
-					operands.borrow_mut().push(format!("{:#x}", read_imm() + c().offset as u64 as i64));
+					s().branch = true;
+					true
+				}
+				Disp => {
+					let imm_size = sr().imm_size;
+					let off = read_imm(imm_size) + s().cursor.offset as u64 as i64;
+					s().branch = true;
+					s().operands.push((Operand::Imm(off), opsize));
 					true
 				}
 				Rm => {
 					let (indir, _) = modrm();
-					operands.borrow_mut().push(print_modrm(indir));
+					s().operands.push((indir, opsize));
 					true
 				}
 				Reg => {
 					let (_, reg) = modrm();
-					operands.borrow_mut().push(format!("{}", reg_name(reg)));
+					s().operands.push((Operand::Direct(reg), opsize));
 					true
 				}
 				RmOpcode(opcode_ext) => {
@@ -222,7 +279,7 @@ pub fn parse(cursor: &mut Cursor, rex: Option<u8>) -> Option<Instruction> {
 					if reg & 7 != opcode_ext {
 						false
 					} else {
-						operands.borrow_mut().push(print_modrm(indir));
+						s().operands.push((indir, opsize));
 						true
 					}
 				}
@@ -238,16 +295,20 @@ pub fn parse(cursor: &mut Cursor, rex: Option<u8>) -> Option<Instruction> {
 
 	macro_rules! op {
 		($code:expr, $name:expr, $opts:expr) => ({
-			let o = c().offset;
-
-			if cr().data[cr().offset..].starts_with(&$code) {
-				c().offset += $code.len();
+			let state = sr().clone();
+			if sr().cursor.data[sr().cursor.offset..].starts_with(&$code) {
+				s().cursor.offset += $code.len();
 				if opts(&$opts) {
-					i.borrow_mut().desc = format!("{}{}{}", $name, if operands.borrow().is_empty() { "" } else { " " }, operands.borrow().join(", "));
-					return Some(i.borrow().clone());
+					*in_cursor = sr().cursor.clone();
+					let ops = sr().operands.iter().enumerate().map(|(i, _)| print_op(i)).collect::<Vec<String>>().join(", ");
+					return Some(Instruction {
+						desc: format!("{}{}{}", $name, if sr().operands.is_empty() { "" } else { " " }, ops),
+						ops: sr().operands.clone(),
+						branch: sr().branch,
+						terminating: sr().terminating,
+					});
 				} else {
-					c().offset = o;
-					*modrm_s.borrow_mut() = None;
+					*s() = state;
 				}
 			}
 		})
@@ -255,7 +316,10 @@ pub fn parse(cursor: &mut Cursor, rex: Option<u8>) -> Option<Instruction> {
 
 	macro_rules! pair {
 		($code:expr, $name:expr, $opts:expr) => ({
-			op!([$code], $name, $opts);
+			let mut o = Vec::new();
+			o.push(ImmSize(S8));
+			o.extend($opts.iter().cloned());
+			op!([$code], $name, *o);
 			op!([$code + 1], $name, $opts);
 		})
 	}
@@ -270,30 +334,38 @@ pub fn parse(cursor: &mut Cursor, rex: Option<u8>) -> Option<Instruction> {
 		}
 
 		pair!(0x80, instr, [RmOpcode(arith_opcode), Imm]);
-		op!([0x83], instr, [RmOpcode(arith_opcode), OpSize(8), Imm]);
+		op!([0x83], instr, [RmOpcode(arith_opcode), ImmSize(S8), Imm]);
 	}
 
 	for (jmp_opcode, instr) in ["jc", "jnb", "jz", "jnz", "jbe", "jnbe", "js", "jns", "jp", "jnp", "jl", "jnl", "jle", "jnle"].iter().enumerate() {
-		op!([0x72 + jmp_opcode as u8], instr, [OpSize(8), Branch]);
-		op!([0x0F, 0x82 + jmp_opcode as u8], instr, [OpSize(32), Branch]); // 16/32 opsize
+		op!([0x72 + jmp_opcode as u8], instr, [ImmSize(S8), Disp]);
+		op!([0x0F, 0x82 + jmp_opcode as u8], instr, [OpSize(S32), Disp]); // 16/32 opsize
 	}
 
-	op!([0xeb], "jmp", [OpSize(8), Term, Branch]);
-	op!([0xe9], "jmp", [OpSize(32), Term, Branch]); // 16/32 opsize
-	op!([0xff], "jmp", [OpSize(64), Term, RmOpcode(4)]);
+	op!([0xeb], "jmp", [OpSize(S8), Term, Disp]);
+	op!([0xe9], "jmp", [OpSize(S32), Term, Disp]); // 16/32 opsize
+	op!([0xff], "jmp", [OpSize(S64), RmOpcode(4), Term, Branch]);
+
+	op!([0xe8], "call", [OpSize(S32), Disp]); // 16/32 opsize
+	op!([0xff], "call", [OpSize(S64), RmOpcode(2), Branch]);
 
 	for reg in 0..8 {
-		op!([0x50 + reg], "push", [OpSize(64), FixReg(reg as usize)]);
-		op!([0x58 + reg], "pop", [OpSize(64), FixReg(reg as usize)]);
+		op!([0x50 + reg], "push", [OpSize(S64), FixRegRex(reg as usize)]);
+		op!([0x58 + reg], "pop", [OpSize(S64), FixRegRex(reg as usize)]);
 	}
 
 	pair!(0x88, "mov", [Rm, Reg]);
 	pair!(0x8a, "mov", [Reg, Rm]);
+	pair!(0xc6, "mov", [RmOpcode(0), Imm]);
+	pair!(0xa0, "mov", [FixReg(0), Imm]);
+	pair!(0xa2, "mov", [Imm, FixReg(0)]);
 
-	pair!(0xc3, "ret", [Term]);
+	op!([0x8d], "lea", [Reg, Rm]);
+
+	op!([0xc3], "ret", [Term]);
 
 
-	op!([0x0f, 0xb6], "movzx", [Reg, OpSize(8), Rm]);
+	op!([0x0f, 0xb6], "movzx", [Reg, OpSize(S8), Rm]);
 /*
 	for reg in 0..8 {
 		op!(0xb0 + reg, "mov", rm);
