@@ -8,3 +8,7 @@ byteorder = "0.4.2"
 
 [dependencies.elfloader]
 path = "rust-elfloader"
+
+[dev-dependencies]
+quickcheck = "0.2"
+quickcheck_macros = "0.2"

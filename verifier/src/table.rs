@@ -44,7 +44,7 @@ pub enum Operand {
 	Imm((i64, Size)),
 }
 
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 enum OpOption {
 	Rm,
 	FixImm(i64),
@@ -93,13 +93,14 @@ struct State<'s> {
 }
 
 const REGS64: &'static [&'static str] = &["rax", "rcx", "rdx", "rbx", "rsp", "rbp", "rsi", "rdi",
-	  "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"];
+	  "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15", "rip"]; // RIP APPENDED
 const REGS32: &'static [&'static str] = &["eax", "ecx", "edx", "ebx", "esp", "ebp", "esi", "edi",
 		  "r8d", "r9d", "r10d", "r11d", "r12d", "r13d", "r14d", "r15d"];
 const REGS16: &'static [&'static str] = &["ax", "cx", "dx", "bx", "sp", "bp", "si", "di",
 		  "r8w", "r9w", "r10w", "r11w", "r12w", "r13w", "r14w", "r15w"];
 const REGS8 : &'static [&'static str] = &["al", "cl", "dl", "bl", "spl", "bpl", "sil", "dil",
 				  "r8b", "r9b", "r10b", "r11b", "r12b", "r13b", "r14b", "r15b"];
+const REGS8_NOREX : &'static [&'static str] = &["al", "cl", "dl", "bl", "ah", "ch", "dh", "bh"];
 
 fn operand_ptr(size_known: bool, op_size: Size) -> &'static str {
 	if size_known {
@@ -113,12 +114,12 @@ fn operand_ptr(size_known: bool, op_size: Size) -> &'static str {
 	}
 }
 
-fn reg_name(r: usize, op_size: Size) -> &'static str  {
+fn reg_name(r: usize, op_size: Size, rex: bool) -> &'static str  {
 	match op_size {
 		S64 => REGS64[r],
 		S32 => REGS32[r],
 		S16 => REGS16[r],
-		S8 => REGS8[r],
+		S8 => if rex { REGS8[r] } else { REGS8_NOREX[r] },
 	}
 }
 
@@ -151,21 +152,21 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8]) -> Option
 		});
 
 		match op.0 {
-			Operand::Direct(reg) => format!("{}", reg_name(reg, op.1)),
+			Operand::Direct(reg) => format!("{}", reg_name(reg, op.1, rex != 0)),
 			Operand::Indirect(indir) => {
 				let ptr = operand_ptr(known_size || sr().no_mem, op.1);
 
 				let scale = if indir.scale == 1 {
 					"".to_string()
 				} else {
-					format!("{}*", indir.scale)
+					format!("*{}", indir.scale)
 				};
 
 				let name = match &(indir.base, indir.index) {
-					&(Some(base), Some(index)) => format!("{}+{}{}", REGS64[base], scale, REGS64[index]),
-					&(None, Some(index)) => format!("{}{}", scale, REGS64[index]),
+					&(Some(base), Some(index)) => format!("{}+{}{}", REGS64[base], REGS64[index], scale),
+					&(None, Some(index)) => format!("{}{}", REGS64[index], scale),
 					&(Some(base), None) => format!("{}", REGS64[base]),
-					&(None, None) => return format!("{}[{:#x}]", ptr, indir.offset),
+					&(None, None) => return format!("{}[{:#x}]", ptr, indir.offset as i32),
 				};
 
 				if indir.offset != 0 {
@@ -174,9 +175,11 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8]) -> Option
 					format!("{}[{}]", ptr, name)
 				}
 			}
-			Operand::Imm((im, size)) => match size {
-				//S32 => format!("{:#x}", im as i32),
-				_ => format!("{:#x}", im),
+			Operand::Imm((im, size)) => match op.1 {
+				S8 => format!("{:#x}", im as i8),
+				S16 => format!("{:#x}", im as i16),
+				S32 => format!("{:#x}", im as i32),
+				S64 => format!("{:#x}", im),
 			}
 		}
 	};
@@ -219,6 +222,8 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8]) -> Option
 			let reg = ((modrm >> 3) & 7) | ext_bit(rex as usize, 2, 3);
 			let rm = modrm & 7 | ext_bit(rex as usize, 0, 3);
 
+			//println!("mode:{} reg:{} rm: {}", mode ,reg ,rm);
+
 			let mut name = if mode != 3 && rm & 7 == 4 {
 				// Parse SIB byte
 
@@ -227,26 +232,33 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8]) -> Option
 				let index = ((sib >> 3) & 7) | ext_bit(rex as usize, 1, 3);
 				let scale = sib >> 6;
 
-				let reg_index = if index == 5 {
+				let reg_index = if index == 4 {
 					None
 				} else {
 					Some(index)
 				};
-				let mut reg_base = if mode == 0 && base & 7 == 5 {
-					None
+				let (reg_base, off) = if mode == 0 && base & 7 == 5 {
+					(None, read_imm(S32))
 				} else {
-					Some(base)
+					(Some(base), 0)
 				};
 
 				IndirectAccess {
 					base: reg_base,
 					index: reg_index,
 					scale: 1 << scale,
-					offset: 0,
+					offset: off,
 				}
 			} else {
 				if mode == 0 && rm & 7 == 5 { // RIP relative
-					panic!("RIP relative");
+					let off = read_imm(S32);
+
+					IndirectAccess {
+						base: Some(16), // RIP
+						index: None,
+						scale: 0,
+						offset: off,
+					}
 				} else {
 					IndirectAccess {
 						base: Some(rm),
@@ -258,7 +270,7 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8]) -> Option
 			};
 
 			let off = match mode {
-				0 | 3 => 0,
+				0 | 3 => name.offset,
 				1 => read_imm(S8),
 				2 => read_imm(S32),
 				_ => panic!(),
@@ -387,17 +399,17 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8]) -> Option
 		($code:expr, $name:expr, $opts:expr) => ({
 			let mut o = Vec::new();
 			o.push(OpSize(S8));
+			o.push(ImmSize(S8));
 			o.extend($opts.iter().cloned());
 			op!([$code], $name, *o);
 			op!([$code + 1], $name, $opts);
 		})
 	}
 
-	for (arith_opcode, instr) in ["add", "or", "adc", "sbb",
-										"and", "sub", "xor", "cmp"].iter().enumerate() {
-		for (format_num, format) in [[Rm, Reg],
-											 [Reg, Rm],
-											 [FixReg(0), Imm]].iter().enumerate() {
+	let wide_op = OpSize(if operand_size_override { S16 } else { S64 });
+
+	for (arith_opcode, instr) in ["add", "or", "adc", "sbb", "and", "sub", "xor", "cmp"].iter().enumerate() {
+		for (format_num, format) in [[Rm, Reg].as_ref(), [Reg, Rm].as_ref(), [FixReg(0), Imm].as_ref()].iter().enumerate() {
 			let opcode = cat_bits(&[arith_opcode, format_num, 0], &[5, 2, 1]);
 			pair!(opcode, instr, *format)
 		}
@@ -406,35 +418,47 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8]) -> Option
 		op!([0x83], instr, [RmOpcode(arith_opcode), ImmSize(S8), Imm]);
 	}
 
+	pair!(0xfe, "inc", [RmOpcode(0)]);
+	pair!(0xfe, "dec", [RmOpcode(1)]);
+
 	for &(instr, opcode) in &[("rol", 0), ("ror", 1), ("rcl", 2), ("rcr", 3), ("shl", 4), ("shr", 5), ("sar", 7)] {
 		pair!(0xc0, instr, [RmOpcode(opcode), ImmSize(S8), Imm]);
 		pair!(0xd0, instr, [RmOpcode(opcode), FixImm(1)]);
-		pair!(0xd2, instr, [RmOpcode(opcode), FixReg(1)]);
+		pair!(0xd2, instr, [RmOpcode(opcode), OpSize(S8), FixReg(1)]);
 	}
 
-	for (jmp_opcode, instr) in ["jc", "jnb", "jz", "jnz", "jbe", "jnbe", "js", "jns", "jp", "jnp", "jl", "jnl", "jle", "jnle"].iter().enumerate() {
-		op!([0x72 + jmp_opcode as u8], instr, [ImmSize(S8), Disp]);
-		op!([0x0F, 0x82 + jmp_opcode as u8], instr, [OpSize(S32), Disp]); // 16/32 opsize
+	let cond_codes = ["o", "no", "b", "ae", "z", "nz", "be", "a", "s", "ns", "p", "np", "l", "ge", "le", "g"];
+
+	for (cond_num, cond_name) in cond_codes.iter().enumerate() {
+		op!([0x70 + cond_num as u8], &format!("j{}", cond_name), [ImmSize(S8), Disp]);
+		op!([0x0f, 0x80 + cond_num as u8], &format!("j{}", cond_name), [ImmSize(S32), Disp]); // 16/32 immsize
+		op!([0x0f, 0x40 + cond_num as u8], &format!("cmov{}", cond_name), [Reg, Rm]);
+		op!([0x0f, 0x90 + cond_num as u8], &format!("set{}", cond_name), [OpSize(S8),RmOpcode(0)]);
 	}
 
 	pair!(0xf6, "test", [RmOpcode(0), Imm]);
 	for &(instr, opcode) in &[("not", 2), ("neg", 3), ("mul", 4), ("imul", 5), ("div", 6), ("idiv", 7)] {
-		pair!(0xf6, instr, [RmOpcode(opcode), Imm]);
+		pair!(0xf6, instr, [RmOpcode(opcode)]);
 	}
+
+	op!([0x0f, 0xaf], "imul", [Reg, Rm]);
 
 	op!([0x0f, 0x1f], "nop", [RmOpcode(0), NoMem]);
 
-	op!([0xeb], "jmp", [OpSize(S8), Term, Disp]);
-	op!([0xe9], "jmp", [OpSize(S32), Term, Disp]); // 16/32 opsize
-	op!([0xff], "jmp", [OpSize(S64), RmOpcode(4), Term, Branch]);
+	op!([0xeb], "jmp", [ImmSize(S8), Term, Disp]);
+	op!([0xe9], "jmp", [Term, Disp]); // 16/32 opsize
+	op!([0xff], "jmp", [wide_op, RmOpcode(4), Term, Branch]);
 
-	op!([0xe8], "call", [OpSize(S32), Disp]); // 16/32 opsize
-	op!([0xff], "call", [OpSize(S64), RmOpcode(2), Branch]);
+	op!([0xe8], "call", [ImmSize(S32), Disp]); // 16/32 opsize
+	op!([0xff], "call", [wide_op, RmOpcode(2), Branch]);
 
 	for reg in 0..8 {
-		op!([0x50 + reg], "push", [OpSize(S64), FixRegRex(reg as usize)]);
-		op!([0x58 + reg], "pop", [OpSize(S64), FixRegRex(reg as usize)]);
+		op!([0x50 + reg], "push", [wide_op, FixRegRex(reg as usize)]);
+		op!([0x58 + reg], "pop", [wide_op, FixRegRex(reg as usize)]);
 	}
+
+	pair!(0x84, "test", [Rm, Reg]);
+	pair!(0x86, "xchg", [Rm, Reg]);
 
 	pair!(0x88, "mov", [Rm, Reg]);
 	pair!(0x8a, "mov", [Reg, Rm]);
@@ -447,11 +471,23 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8]) -> Option
 		op!([0xb8 + reg], "mov", [FixRegRex(reg as usize), ImmSizeOp, Imm]);
 	}
 
+	op!([0x69], "imul", [Reg, Rm, Imm]);
+	op!([0x6b], "imul", [Reg, Rm, ImmSize(S8), Imm]);
+
+	for reg in 0..8 {
+		if reg == 0 {
+			op!([0x90 ], "nop", [])
+		} else {
+			op!([0x90 + reg as u8], "xchg", [FixRegRex(reg), FixReg(0)])
+		}
+	}
+
 	op!([0x8d], "lea", [Reg, Rm, NoMem]);
 
 	op!([0xc3], "ret", [Term]);
 
 	op!([0x0f, 0xb6], "movzx", [Reg, OpSize(S8), Rm]);
+	op!([0x0f, 0xb7], "movzx", [Reg, OpSize(S16), Rm]);
 
 	None
 }

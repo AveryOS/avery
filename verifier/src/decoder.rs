@@ -60,7 +60,7 @@ fn ud(c: &mut Cursor) -> (String, usize) {
 	(l[len.len()..].trim().to_string(), len.parse().unwrap())
 }
 
-fn inst(c: &mut Cursor) -> (table::Instruction, usize, String) {
+pub fn inst(c: &mut Cursor) -> (Option<table::Instruction>, usize, String) {
 	let (ud_str, ud_len) = ud(c);
 	let mut s = String::new();
 	let pres = prefixes(c);
@@ -73,13 +73,10 @@ fn inst(c: &mut Cursor) -> (table::Instruction, usize, String) {
 		}
 		_ => None
 	};
-	match table::parse(c, rex, &pres) {
-		Some(t) => (t, ud_len, ud_str),
-		None => panic!("unknown opcode {:x} (ud: {})", c.next(), ud_str),
-	}
+	(table::parse(c, rex, &pres), ud_len, ud_str)
 }
 
-pub fn decode(data: &[u8], start: usize, size: usize) {
+pub fn decode(data: &[u8], start: usize, size: usize, disp_off: u64) {
 	let mut targets = Vec::new();
 	targets.push(start);
 
@@ -95,11 +92,11 @@ pub fn decode(data: &[u8], start: usize, size: usize) {
 
 		loop {
 			let start = c.offset;
-			print!("{:#08x}: ", start);
+			print!("{:#08x}: ", start as u64 + disp_off);
 			let (i, ud_len, ud_str) = inst(&mut c);
 			let mut str = String::new();
 
-			let byte_print_len = cmp::min(8, c.offset - start);
+			let byte_print_len = cmp::min(8, ud_len);
 
 			for b in c.data[start..(start + byte_print_len)].iter() {
 				str.push_str(&format!("{:02x}", b));
@@ -110,12 +107,14 @@ pub fn decode(data: &[u8], start: usize, size: usize) {
 			}
 			str.push_str(" ");
 
-			str.push_str(&i.desc);
+			print!("{}", str);
 
-			println!("{}", str);
+			let i = i.unwrap_or_else(|| panic!("unknown opcode {:x} (ud: {})", c.next(), ud_str));
+
+			println!("{}", i.desc);
 
 			if ud_str != i.desc {
-				panic!("udis86 output didn't match {}", ud_str);
+				panic!("udis86 output didn't match |{}|", ud_str);
 			}
 
 			if ud_len != c.offset - start {
@@ -148,5 +147,62 @@ pub fn decode(data: &[u8], start: usize, size: usize) {
 		}
 
 		i += 1;
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use decoder::*;
+
+	#[quickcheck]
+	fn decode_q(mut xs: Vec<u8>) -> bool {
+		while xs.len() < 16 {
+			xs.push(0);
+		}
+		decode_test(&xs);
+		true
+	}
+
+	fn decode_test(xs: &[u8]) {
+		let mut c = Cursor {
+			data: &xs[..],
+			offset: 0,
+		};
+		let (i, ud_len, ud_str) = inst(&mut c);
+
+		if let Some(i) = i {
+			let mut str = String::new();
+			for b in xs[0..ud_len].iter() {
+				str.push_str(&format!("{:02x}", b));
+			}
+			println!("testing {:?} = {}", &xs[..], i.desc);
+			if ud_str != i.desc {
+				panic!("On: {}; |{}|; udis86 output didn't match |{}|", str, i.desc, ud_str);
+			}
+			if ud_len != c.offset {
+				panic!("On: {}; Instruction was of length {}, while udis86 was length {}", str, c.offset, ud_len);
+			}
+		}
+	}
+
+	#[test]
+	fn decode_all() {
+		let mut xs = Vec::new();
+		while xs.len() < 16 {
+			xs.push(0);
+		}
+		while *xs.last().unwrap() != 255 {
+			decode_test(&xs);
+
+			for j in 0..xs.len() {
+				if xs[j] == 255 {
+					xs[j] = 0;
+				} else {
+					xs[j] += 1;
+					break;
+				}
+			}
+		}
+		decode_test(&xs);
 	}
 }

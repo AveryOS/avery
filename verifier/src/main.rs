@@ -1,6 +1,12 @@
 #![feature(core)]
 #![feature(trace_macros)]
 #![feature(log_syntax)]
+#![feature(plugin)]
+#![cfg_attr(test, feature(plugin, custom_attribute))]
+#![cfg_attr(test, plugin(quickcheck_macros))]
+
+#[cfg(test)]
+extern crate quickcheck;
 
 extern crate elfloader;
 extern crate byteorder;
@@ -57,7 +63,7 @@ fn main() {
 			match sym.section_index.section() {
 				Some(s) => {
 					if sections[s] {
-				 		Some((bin.section_data(&bin.section_headers()[s]), sym.value as usize))
+				 		Some((bin.section_data(&bin.section_headers()[s]), sym.value as usize, 0))
 					} else {
 						None
 					}
@@ -67,12 +73,12 @@ fn main() {
 
 		} else {
 			let p = bin.program_headers().iter().find(|p| p.vaddr <= sym.value && sym.value + sym.size < p.vaddr + p.filesz && p.flags.executable());
-			p.map(|p| (bin.program_data(p), (sym.value - p.vaddr) as usize))
+			p.map(|p| (bin.program_data(p), (sym.value - p.vaddr) as usize, p.vaddr))
 		};
 
-		if let Some((data, offset)) = dump {
+		if let Some((data, offset, disp_off)) = dump {
 			println!("dumping symbol {} {:x} {}", name, offset, sym);
-			decoder::decode(data, offset, sym.size as usize);
+			decoder::decode(data, offset, sym.size as usize, disp_off);
 		}
 	});
 }
