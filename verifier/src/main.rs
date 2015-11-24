@@ -2,11 +2,11 @@
 #![feature(trace_macros)]
 #![feature(log_syntax)]
 #![feature(plugin)]
-#![cfg_attr(test, feature(plugin, custom_attribute))]
-#![cfg_attr(test, plugin(quickcheck_macros))]
+//#![cfg_attr(test, feature(plugin, custom_attribute))]
+//#![cfg_attr(test, plugin(quickcheck_macros))]
 
-#[cfg(test)]
-extern crate quickcheck;
+//#[cfg(test)]
+//extern crate quickcheck;
 
 extern crate elfloader;
 extern crate byteorder;

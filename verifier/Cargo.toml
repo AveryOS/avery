@@ -12,3 +12,11 @@ path = "rust-elfloader"
 [dev-dependencies]
 quickcheck = "0.2"
 quickcheck_macros = "0.2"
+
+[[bin]]
+name = "dump"
+path = "src/main.rs"
+
+[[bin]]
+name = "compare"
+path = "src/all.rs"
