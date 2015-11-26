@@ -26,6 +26,7 @@ struct IndirectAccess {
 	index: Option<usize>,
 	scale: usize,
 	offset: i64,
+	offset_wide: bool,
 }
 
 #[derive(Eq, PartialEq, Copy, Clone)]
@@ -262,7 +263,13 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 					&(Some(base), Some(index)) => format!("{}+{}{}", REGS64[base], REGS64[index], scale),
 					&(None, Some(index)) => format!("{}{}", REGS64[index], scale),
 					&(Some(base), None) => format!("{}", REGS64[base]),
-					&(None, None) => return format!("{}[{}{:#x}]", ptr, segment, indir.offset as i32),
+					&(None, None) => {
+						return if indir.offset_wide {
+							format!("{}[{}{:#x}]", ptr, segment, indir.offset)
+						} else {
+							format!("{}[{}{:#x}]", ptr, segment, indir.offset as i32)
+						}
+					},
 				};
 
 				if indir.offset != 0 {
@@ -313,6 +320,7 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 					index: reg_index,
 					scale: 1 << scale,
 					offset: off,
+					offset_wide: false,
 				}
 			} else {
 				if mode == 0 && rm & 7 == 5 { // RIP relative
@@ -323,6 +331,7 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 						index: None,
 						scale: 0,
 						offset: off,
+						offset_wide: false,
 					}
 				} else {
 					IndirectAccess {
@@ -330,6 +339,7 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 						index: None,
 						scale: 0,
 						offset: 0,
+						offset_wide: false,
 					}
 				}
 			};
@@ -436,6 +446,7 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 						index: None,
 						scale: 0,
 						offset: read_imm(&state, S64),
+						offset_wide: true,
 					};
 					s().operands.push((Operand::Indirect(a), opsize));
 					true
@@ -621,7 +632,7 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 	pair!([0xfe], "dec", [RmOpcode(1)]);
 
 	for &(instr, opcode) in &[("rol", 0), ("ror", 1), ("rcl", 2), ("rcr", 3), ("shl", 4), ("shr", 5), ("sar", 7)] {
-		pair!([0xc0], instr, [RmOpcode(opcode), UnknownMem, ImmSize(S8), Imm]);
+		pair!([0xc0], instr, [RmOpcode(opcode), UnknownMem, OpSize(S8), ImmSize(S8), Imm]);
 		pair!([0xd0], instr, [RmOpcode(opcode), UnknownMem, FixImm(1)]);
 		pair!([0xd2], instr, [RmOpcode(opcode), UnknownMem, OpSize(S8), FixReg(1)]);
 	}
