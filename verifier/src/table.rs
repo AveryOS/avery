@@ -44,13 +44,31 @@ pub enum Operand {
 	Imm((i64, Size)),
 }
 
-#[derive(Copy, Clone)]
+const P_LOCK: u8 = 0xF0;
+const P_REP: u8 = 0xF3;
+const P_REPNE: u8 = 0xF2;
+const P_OP_SIZE: u8 = 0x66;
+const P_ADDR_SIZE: u8 = 0x67;
+const P_SEG_CS: u8 = 0x2E;
+const P_SEG_ES: u8 = 0x26;
+const P_SEG_DS: u8 = 0x3E;
+const P_SEG_SS: u8 = 0x36;
+const P_SEG_FS: u8 = 0x64;
+const P_SEG_GS: u8 = 0x65;
+
+pub const ALL_PREFIXES: &'static [u8] = &[P_LOCK, P_REP, P_REPNE,
+	P_OP_SIZE, P_ADDR_SIZE,
+	P_SEG_CS, P_SEG_DS, P_SEG_ES, P_SEG_SS, P_SEG_FS, P_SEG_GS];
+
+#[derive(Clone)]
 enum OpOption {
 	Rm,
 	FixImm(i64),
 	FixReg(usize),
 	FixRegRex(usize),
 	Cr(bool),
+	Prefix(u8),
+	OpSizePostfix,
 	Imm,
 	Addr,
 	Reg,
@@ -58,6 +76,7 @@ enum OpOption {
 	Branch,
 	UnknownMem,
 	NoMem,
+	MatchPrefix(Vec<u8>),
 	Mem(Option<usize>),
 	RmOpcode(usize),
 	OpSize(Size),
@@ -89,10 +108,13 @@ struct State<'s> {
 	cursor: Cursor<'s>,
 	def_op_size: Size,
 	operand_size: Size,
+	prefix_whitelist: Vec<u8>,
+	matched_prefixes: Vec<u8>,
 	operands: Vec<(Operand, Size)>,
 	imm_size: Size,
 	terminating: bool,
 	modrm_cache: Option<(Operand, usize)>,
+	op_size_postfix: bool,
 	unknown_mem: bool,
 	branch: bool,
 	no_mem: bool,
@@ -116,7 +138,6 @@ const LOCK_WHITELIST : &'static [&'static str] = &[
     "dec", "inc",
     "neg", "not", "or", "sbb", "sub",
     "xadd", "xchg", "xor"];
-
 
 fn operand_ptr(size_known: bool, op_size: Size) -> &'static str {
 	if size_known {
@@ -175,33 +196,26 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 	let rex = rex.unwrap_or(0);
 	let rex_w = ext_bit(rex as usize, 3, 0) != 0;
 	let rex_b = ext_bit(rex as usize, 0, 0) != 0;
-	let operand_size_override = prefixes.contains(&0x66);
-	let fs_override = prefixes.contains(&0x64);
-	let gs_override = prefixes.contains(&0x65);
-	let lock_prefix = prefixes.contains(&0xF0);
+	let operand_size_override = prefixes.contains(&P_OP_SIZE);
+	let fs_override = prefixes.contains(&P_SEG_FS);
+	let gs_override = prefixes.contains(&P_SEG_GS);
 
 	if gs_override && fs_override {
 		return None;
 	}
 
-	let banned_prefixes = prefixes.iter().any(|&p| match p {
-		0x64 | 0x65 | 0xF0 | 0x66 => false,
-		_ => true
-	});
-	if banned_prefixes {
-		println!("Unknown prefixes");
-		return None;
-	}
-
 	let op_size = if rex_w { S64 } else { if operand_size_override { S16 } else { S32 } };
-	let state = RefCell::new(State {
+	let state: RefCell<State> = RefCell::new(State {
 		cursor: in_cursor.clone(),
 		terminating: false,
+		matched_prefixes: Vec::new(),
+		prefix_whitelist: vec![P_LOCK], // lock has it's own whitelist
 		operands: Vec::new(),
 		def_op_size: op_size, // overriden by pair!
 		operand_size: op_size,
 		imm_size: if op_size == S16 { S16 } else { S32 },
 		modrm_cache: None,
+		op_size_postfix: false,
 		unknown_mem: false,
 		branch: false,
 		no_mem: false,
@@ -209,6 +223,14 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 
 	let sr = || state.borrow();
 	let s = || state.borrow_mut();
+
+	let has_prefix = |p: u8| {
+		if sr().matched_prefixes.contains(&p) {
+			false
+		} else {
+			prefixes.contains(&p)
+		}
+	};
 
 	let print_op = |i: usize| {
 		let op = sr().operands[i].clone();
@@ -349,8 +371,27 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 					s().operand_size = d;
 					true
 				}
+				OpSizePostfix => {
+					s().op_size_postfix = true;
+					true
+				}
+				MatchPrefix(ref bs) => {
+					if prefixes.ends_with(&bs) {
+						for p in bs.iter() {
+							s().prefix_whitelist.push(*p);
+							s().matched_prefixes.push(*p);
+						}
+						true
+					} else {
+						false
+					}
+				}
 				Term => {
 					s().terminating = true;
+					true
+				}
+				Prefix(p) => {
+					s().prefix_whitelist.push(p);
 					true
 				}
 				NoMem => {
@@ -463,33 +504,86 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 		allowed
 	};
 
+	let valid_state = |name: &str| {
+		let mut prefix = String::new();
+
+		if has_prefix(P_LOCK) {
+			if !LOCK_WHITELIST.contains(&name) {
+				return None;
+			} else {
+				prefix.push_str("lock ");
+			}
+		}
+
+		if has_prefix(P_REP) {
+			prefix.push_str("rep ");
+		}
+
+		if !sr().no_mem {
+			let len = sr().operands.len();
+			for i in 0..len {
+				let op = sr().operands[i].0.clone();
+				match op {
+					Operand::Direct(..) | Operand::Indirect(..) => s().prefix_whitelist.push(P_OP_SIZE),
+					_ => ()
+				}
+			}
+		}
+
+		if prefixes.iter().all(|p| sr().prefix_whitelist.contains(p)) {
+			Some(prefix)
+		} else {
+			None
+		}
+	};
+
+	let do_op = |code: &[u8], name: &str, options: &[OpOption]| -> Option<Option<Instruction>> {
+		let temp_state = sr().clone();
+		if sr().cursor.remaining().starts_with(code) {
+			s().cursor.offset += code.len();
+			if opts(options) {
+				let op_size_postfix = sr().op_size_postfix;
+				let iname = if op_size_postfix {
+					s().prefix_whitelist.push(P_OP_SIZE);
+					name.to_string() + match sr().operand_size {
+						S64 => "q",
+						S32 => "d",
+						S16 => "w",
+						S8 => "b",
+					}
+				} else {
+					name.to_string()
+				};
+				let prefix = match valid_state(name) {
+					Some(p) => p,
+					None => {
+						*s() = temp_state;
+						return Some(None)
+					}
+				};
+				let ops = sr().operands.iter().enumerate().map(|(i, _)| print_op(i)).collect::<Vec<String>>().join(", ");
+				return Some(Some(Instruction {
+					desc: format!("{}{}{}{}", prefix, iname, if sr().operands.is_empty() { "" } else { " " }, ops),
+					ops: sr().operands.clone(),
+					branch: sr().branch,
+					terminating: sr().terminating,
+				}));
+			} else {
+				*s() = temp_state;
+			}
+		}
+
+		None
+	};
+
 	macro_rules! op {
 		($code:expr, $name:expr, $opts:expr) => ({
-			let name: &str = $name;
-			let state = sr().clone();
-			if sr().cursor.data[sr().cursor.offset..].starts_with(&$code) {
-				s().cursor.offset += $code.len();
-				if opts(&$opts) {
-					let lock = if lock_prefix {
-						if !LOCK_WHITELIST.contains(&name) {
-							return None;
-						} else {
-							"lock "
-						}
-					} else {
-						""
-					};
+			match do_op(&$code, $name, &$opts) {
+				Some(v) => {
 					*in_cursor = sr().cursor.clone();
-					let ops = sr().operands.iter().enumerate().map(|(i, _)| print_op(i)).collect::<Vec<String>>().join(", ");
-					return Some(Instruction {
-						desc: format!("{}{}{}{}", lock, $name, if sr().operands.is_empty() { "" } else { " " }, ops),
-						ops: sr().operands.clone(),
-						branch: sr().branch,
-						terminating: sr().terminating,
-					});
-				} else {
-					*s() = state;
+					return v;
 				}
+				None => (),
 			}
 		})
 	}
@@ -536,7 +630,7 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 
 	for (cond_num, cond_name) in cond_codes.iter().enumerate() {
 		op!([0x70 + cond_num as u8], &format!("j{}", cond_name), [ImmSize(S8), Disp]);
-		op!([0x0f, 0x80 + cond_num as u8], &format!("j{}", cond_name), [disp_size, Disp]);
+		op!([0x0f, 0x80 + cond_num as u8], &format!("j{}", cond_name), [disp_size.clone(), Disp]);
 		op!([0x0f, 0x40 + cond_num as u8], &format!("cmov{}", cond_name), [Reg, Rm]);
 		op!([0x0f, 0x90 + cond_num as u8], &format!("set{}", cond_name), [OpSize(S8),RmOpcode(0)]);
 	}
@@ -549,19 +643,22 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 
 	op!([0x0f, 0xaf], "imul", [Reg, Rm]);
 
-	//println!("nop cmp {:x}", sr().cursor.peek());
-	op!([0x0f, 0x1f], "nop", [RmOpcode(0), NoMem]);
+	let nop_prefixes: Vec<OpOption> = ALL_PREFIXES.iter().filter(|&p| *p != P_LOCK).map(|v| Prefix(*v)).collect();
+
+	let mut opts = nop_prefixes.clone();
+	opts.extend([RmOpcode(0), NoMem].iter().cloned());
+	op!([0x0f, 0x1f], "nop", opts[..]);
 
 	op!([0xeb], "jmp", [ImmSize(S8), Term, Disp]);
-	op!([0xe9], "jmp", [Term, disp_size, Disp]);
+	op!([0xe9], "jmp", [Term, disp_size.clone(), Disp]);
 	op!([0xff], "jmp", [OpSize(S64), RmOpcode(4), Term, Branch]);
 
-	op!([0xe8], "call", [disp_size, Disp]);
+	op!([0xe8], "call", [disp_size.clone(), Disp]);
 	op!([0xff], "call", [OpSize(S64), RmOpcode(2), Branch]);
 
 	for reg in 0..8 {
-		op!([0x50 + reg], "push", [wide_op, FixRegRex(reg as usize)]);
-		op!([0x58 + reg], "pop", [wide_op, FixRegRex(reg as usize)]);
+		op!([0x50 + reg], "push", [wide_op.clone(), FixRegRex(reg as usize)]);
+		op!([0x58 + reg], "pop", [wide_op.clone(), FixRegRex(reg as usize)]);
 	}
 
 	pair!([0x84], "test", [Rm, Reg]);
@@ -593,9 +690,11 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 	op!([0x69], "imul", [Reg, Rm, Imm]);
 	op!([0x6b], "imul", [Reg, Rm, ImmSize(S8), Imm]);
 
+	op!([0x90], "pause", [MatchPrefix(vec![0xF3])]);
+
 	for reg in 0..8 {
 		if reg == 0 && !rex_b && !rex_w {
-			op!([0x90 ], "nop", [])
+			op!([0x90], "nop", [])
 		} else {
 			op!([0x90 + reg as u8], "xchg", [FixRegRex(reg), FixReg(0)])
 		}
@@ -617,9 +716,11 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 
 	op!([0x0f, 0xae, 0xf0], "mfence", []);
 
+	pair!([0xa4], "movs", [OpSizePostfix, Prefix(P_REP)]);
+
 	// System Instructions
 
-	op!([0x0f, 0x00], "ltr", [NoMem, Mem(Some(3))]);
+	op!([0x0f, 0x00], "ltr", [NoMem, OpSize(S16), RmOpcode(3)]);
 	op!([0x0f, 0x01], "lgdt", [NoMem, Mem(Some(2))]);
 	op!([0x0f, 0x01], "lidt", [NoMem, Mem(Some(3))]);
 	op!([0x0f, 0x01], "invlpg", [NoMem, Mem(Some(7))]);
@@ -637,10 +738,10 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 
 	op!([0xcd], "int", [ImmSize(S8), Imm]);
 
-	pair!([0xe4], "in", [FixReg(0), ImmSize(S8), Imm]);
+	pair!([0xe4], "in", [FixReg(0), OpSize(S8), ImmSize(S8), Imm]);
 	pair!([0xec], "in", [FixReg(0), OpSize(S16), FixReg(2)]);
 
-	pair!([0xe6], "out", [ImmSize(S8), Imm, FixReg(0)]);
+	pair!([0xe6], "out", [OpSize(S8), ImmSize(S8), Imm, OpSizeDef, FixReg(0)]);
 	pair!([0xee], "out", [OpSize(S16), FixReg(2), OpSizeDef, FixReg(0)]);
 
 	None

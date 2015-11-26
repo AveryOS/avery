@@ -28,15 +28,14 @@ fn prefixes<'s>(c: &mut Cursor<'s>) -> &'s [u8] {
 	let s = c.offset;
 	for _ in 0..3 {
 		let byte = c.peek();
-		match byte {
-			0x66 | 0x67 | 0x2E | 0x3E | 0x26 | 0x64 | 0x65 | 0x36 | 0xF0 | 0xF2 | 0xF3 => { 
-				if prefixes.contains(&byte) {
-					break
-				}
-				c.next();
-				prefixes.push(byte);
+		if table::ALL_PREFIXES.contains(&byte) { 
+			if prefixes.contains(&byte) {
+				break
 			}
-			_ => break
+			c.next();
+			prefixes.push(byte);
+		} else {
+			break
 		}
 	}
 	&c.data[s..c.offset]

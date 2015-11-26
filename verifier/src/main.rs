@@ -78,7 +78,11 @@ fn main() {
 
 		if let Some((data, offset, disp_off)) = dump {
 			println!("dumping symbol {} {:x} {}", name, offset, sym);
-			decoder::decode(data, offset, sym.size as usize, disp_off);
+			if sym.size != 0 {
+				decoder::decode(data, offset, sym.size as usize, disp_off);
+			}
 		}
 	});
+
+	println!("Done!");
 }

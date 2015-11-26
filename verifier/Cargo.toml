@@ -5,6 +5,7 @@ authors = ["John Kåre Alsaker <john.kare.alsaker@gmail.com>"]
 
 [dependencies]
 byteorder = "0.4.2"
+rand = "*"
 
 [dependencies.elfloader]
 path = "rust-elfloader"
@@ -20,3 +21,7 @@ path = "src/main.rs"
 [[bin]]
 name = "compare"
 path = "src/all.rs"
+
+[[bin]]
+name = "rnd"
+path = "src/rnd.rs"
