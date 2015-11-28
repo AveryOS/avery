@@ -360,10 +360,6 @@ task :deps_unix do
 			opts += ["LIBS=-liconv"] if Gem::Platform::local.os == 'darwin'
 			run File.join(src, 'configure'), "--prefix=#{prefix}", *opts
 		end# mtools doesn't build with mingw-w64
-
-		build_from_git.("avery-binutils", "https://github.com/Zoxc/avery-binutils.git") do |src, prefix|
-			run File.join(src, 'configure'), "--prefix=#{prefix}", *%w{--target=x86_64-pc-avery --with-sysroot --disable-nls --disable-werror --disable-gdb --disable-sim --disable-readline --disable-libdecnumber}
-		end # binutils is buggy with mingw-w64
 	end
 end
 
@@ -384,6 +380,25 @@ task :deps_srcs do
 
 		unless Dir.exists?("rlibc")
 			run "git", "clone" , "https://github.com/rust-lang/rlibc.git"
+		end
+	end
+end
+
+task :deps_user_unix do
+	raise "Cannot build UNIX dependencies with MinGW" if ENV['MSYSTEM'] && ENV['MSYSTEM'].start_with?('MINGW')
+
+	Dir.chdir('vendor/') do
+		build_from_git.("avery-binutils", "https://github.com/Zoxc/avery-binutils.git") do |src, prefix|
+			run File.join(src, 'configure'), "--prefix=#{prefix}", *%w{--target=x86_64-pc-avery --with-sysroot --disable-nls --disable-werror --disable-gdb --disable-sim --disable-readline --disable-libdecnumber}
+		end # binutils is buggy with mingw-w64
+		
+		# autotools for picky newlib
+		build_from_url.("ftp://ftp.gnu.org/gnu/automake/", "automake", "1.12", "gz") do |src, prefix|
+			run File.join(src, 'configure'), "--prefix=#{prefix}"
+		end
+		
+		build_from_url.("ftp://ftp.gnu.org/gnu/autoconf/", "autoconf", "2.65", "gz") do |src, prefix|
+			run File.join(src, 'configure'), "--prefix=#{prefix}"
 		end
 	end
 end
