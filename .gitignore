@@ -1,3 +1,4 @@
+/emu
 /emu/grubimage.img
 /build
 /vendor/rlibc
@@ -9,3 +10,4 @@
 /vendor/avery-binutils
 /vendor/avery-rust
 /vendor/avery-newlib
+/verifier/target
