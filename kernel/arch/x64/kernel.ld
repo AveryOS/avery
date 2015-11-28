@@ -15,7 +15,7 @@ SECTIONS
 
 	.bootstrap ALIGN(4) :
 	{
-		build/src/arch/x64/multiboot/bootstrap.s.o
+		build/kernel/arch/x64/multiboot/bootstrap.s.o
 		build/bootstrap.o(*)
 	}
 % else
@@ -35,7 +35,7 @@ SECTIONS
 
 	.ap_bootstrap ap_bootstrap_mapped : AT(ap_bootstrap_start - high_offset)
 	{
-		build/src/arch/x64/cpu.s.o(*)
+		build/kernel/arch/x64/cpu.s.o(*)
 	}
 
 	. = ap_bootstrap_start + (. - ap_bootstrap_mapped);

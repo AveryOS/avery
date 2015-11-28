@@ -80,10 +80,10 @@ build_kernel = proc do
 	kernel_object = build.output "#{type}/kernel.o"
 	kernel_bc = build.output "#{type}/kernel.ll"
 
-	sources = build.package('src/**/*')
+	sources = build.package('kernel/**/*')
 
-	efi_files = sources.extract('src/arch/x64/efi/**/*')
-	multiboot_files = sources.extract('src/arch/x64/multiboot/**/*')
+	efi_files = sources.extract('kernel/arch/x64/efi/**/*')
+	multiboot_files = sources.extract('kernel/arch/x64/multiboot/**/*')
 
 	if type == :multiboot
 		sources.add multiboot_files
@@ -99,14 +99,14 @@ build_kernel = proc do
 		# Build the kernel object
 		flags = ['--emit=obj,llvm-ir']
 		flags += ['--cfg', 'multiboot'] if type == :multiboot
-		build_crate(build, "", "#{type}", %w{--target x86_64-avery-kernel}, 'src/kernel.rs', flags)
+		build_crate(build, "", "#{type}", %w{--target x86_64-avery-kernel}, 'kernel/kernel.rs', flags)
 
 		# Preprocess files
 
 		gen_folder = "gen/#{type}"
 
-		linker_script = "src/arch/x64/kernel.ld"
-		generated_files = ['src/arch/x64/interrupts.s', linker_script]
+		linker_script = "kernel/arch/x64/kernel.ld"
+		generated_files = ['kernel/arch/x64/interrupts.s', linker_script]
 
 		generated_files.each do |file|
 			sources.extract(file)
@@ -165,13 +165,13 @@ task :deps do
 		build_libcore(build, "", %w{--target x86_64-avery-kernel})
 
 		# Build custom 64-bit libstd for the kernel
-		run 'rustc', '-L', 'build/crates', *RUSTFLAGS, '--target', 'x86_64-avery-kernel', 'src/std/std.rs', '--out-dir', build.output("crates")
+		run 'rustc', '-L', 'build/crates', *RUSTFLAGS, '--target', 'x86_64-avery-kernel', 'kernel/std/std.rs', '--out-dir', build.output("crates")
 
 		# Build 32-bit libcore
 		build_libcore(build, "bootstrap", %w{--target x86_32-avery-kernel})
 
 		# Build 32-bit multiboot bootstrap code
-		build_crate(build, "bootstrap", "bootstrap", %w{--target x86_32-avery-kernel}, 'src/arch/x64/multiboot/bootstrap.rs', ['--emit=asm,llvm-ir'])
+		build_crate(build, "bootstrap", "bootstrap", %w{--target x86_32-avery-kernel}, 'kernel/arch/x64/multiboot/bootstrap.rs', ['--emit=asm,llvm-ir'])
 
 		# Place 32-bit bootstrap code into a 64-bit ELF
 
