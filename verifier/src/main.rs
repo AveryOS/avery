@@ -20,7 +20,7 @@ mod decoder;
 mod table;
 
 fn main() {
-	let path = "kernel.elf";
+	let path = "test.elf";
 	let mut f = File::open(path).unwrap();
 	let mut buffer = Vec::new();
 	f.read_to_end(&mut buffer).unwrap();

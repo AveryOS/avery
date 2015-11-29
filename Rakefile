@@ -391,12 +391,12 @@ task :deps_user_unix do
 		build_from_git.("avery-binutils", "https://github.com/Zoxc/avery-binutils.git") do |src, prefix|
 			run File.join(src, 'configure'), "--prefix=#{prefix}", *%w{--target=x86_64-pc-avery --with-sysroot --disable-nls --disable-werror --disable-gdb --disable-sim --disable-readline --disable-libdecnumber}
 		end # binutils is buggy with mingw-w64
-		
+
 		# autotools for picky newlib
 		build_from_url.("ftp://ftp.gnu.org/gnu/automake/", "automake", "1.12", "gz") do |src, prefix|
 			run File.join(src, 'configure'), "--prefix=#{prefix}"
 		end
-		
+
 		build_from_url.("ftp://ftp.gnu.org/gnu/autoconf/", "autoconf", "2.65", "gz") do |src, prefix|
 			run File.join(src, 'configure'), "--prefix=#{prefix}"
 		end
@@ -421,7 +421,18 @@ task :deps_user do
 		append_path(File.realpath("avery-binutils/install/bin"))
 
 		build_from_git.("avery-newlib", "https://github.com/Zoxc/avery-newlib.git") do |src, prefix|
-			run File.join(src, 'configure'), "--prefix=#{prefix}", "--target=x86_64-pc-avery", 'CC_FOR_TARGET=clang -ffreestanding --target=x86_64-pc-avery -ccc-gcc-name x86_64-pc-avery-gcc'
+			run File.join(src, 'configure'), "--prefix=#{prefix}", "--target=x86_64-pc-avery", 'CC_FOR_TARGET=clang -fno-integrated-as -ffreestanding --target=x86_64-pc-avery -ccc-gcc-name x86_64-pc-avery-gcc'
+		end
+
+		run "rm", "-rf", "sysroot"
+		mkdirs('sysroot')
+		#run 'cp', '-r', 'avery-binutils/install/x86_64-pc-avery/.', "sysroot/usr/"
+		run 'cp', '-r', 'avery-newlib/install/x86_64-pc-avery/.', "sysroot/usr/"
+
+		build_from_git.("compiler-rt", "http://llvm.org/git/compiler-rt.git") do |src, prefix|
+			opts = ["-DLLVM_CONFIG_PATH=#{File.join(src, "../../avery-llvm/install/bin/llvm-config")}", "-DCMAKE_TOOLCHAIN_FILE=../../toolchain.txt", "-DCMAKE_INSTALL_PREFIX=#{prefix}"]
+			opts += ['-G',  'MSYS Makefiles'] if ON_WINDOWS
+			run "cmake", src, *opts
 		end
 
 		build_from_git.("avery-rust", "https://github.com/rust-lang/rust.git") do |src, prefix|
