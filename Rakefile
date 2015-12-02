@@ -2,6 +2,8 @@
 require_relative 'rake/build'
 require_relative 'rake/lokar'
 
+AVERY_DIR = File.expand_path('../', __FILE__)
+
 ENV['RUST_TARGET_PATH'] = File.expand_path('../targets', __FILE__)
 ENV['RUST_BACKTRACE'] = '1'
 
@@ -18,6 +20,8 @@ end
 raise "Install and use MSYS2 Ruby" if ENV['MSYSTEM'] && Gem.win_platform?
 
 ON_WINDOWS = Gem.win_platform? || ENV['MSYSTEM']
+
+ON_WINDOWS_MINGW = ENV['MSYSTEM'] && ENV['MSYSTEM'].start_with?('MINGW')
 
 EXE_POST = ON_WINDOWS ? ".exe" :	""
 
@@ -334,8 +338,13 @@ build_from_git = proc do |name, url, &proc|
 	end
 end
 
+update_cfg = proc do |path|
+	run 'cp', File.join(AVERY_DIR, 'vendor/config.guess'), path
+	run 'cp', File.join(AVERY_DIR, 'vendor/config.sub'), path
+end
+
 task :deps_unix do
-	raise "Cannot build UNIX dependencies with MinGW" if ENV['MSYSTEM'] && ENV['MSYSTEM'].start_with?('MINGW')
+	raise "Cannot build UNIX dependencies with MinGW" if ON_WINDOWS_MINGW
 
 	Dir.chdir('vendor/') do
 		build_from_url.("ftp://ftp.gnu.org/gnu/binutils/", "binutils", "2.25") do |src, prefix|
@@ -347,13 +356,9 @@ task :deps_unix do
 		end if nil #RbConfig::CONFIG['host_os'] == 'msys'
 
 		build_from_url.("ftp://ftp.gnu.org/gnu/mtools/", "mtools", "4.0.18") do |src, prefix|
+			update_cfg.(src)
 			#run 'cp', '-rf', "../../libiconv/install", ".."
 			Dir.chdir(src) do
-				# mtools can't detect MSYS2, fix this
-				if ENV['MSYSTEM']
-					run 'cp', '/usr/share/libtool/build-aux/config.guess', 'config.guess'
-					run 'cp', '/usr/share/libtool/build-aux/config.sub', 'config.sub'
-				end
 				run 'patch', '-i', "../../mtools-fix.diff"
 			end
 			opts = []
@@ -385,7 +390,7 @@ task :deps_srcs do
 end
 
 task :deps_user_unix do
-	raise "Cannot build UNIX dependencies with MinGW" if ENV['MSYSTEM'] && ENV['MSYSTEM'].start_with?('MINGW')
+	raise "Cannot build UNIX dependencies with MinGW" if ON_WINDOWS_MINGW
 
 	Dir.chdir('vendor/') do
 		build_from_git.("avery-binutils", "https://github.com/Zoxc/avery-binutils.git") do |src, prefix|
@@ -394,10 +399,13 @@ task :deps_user_unix do
 
 		# autotools for picky newlib
 		build_from_url.("ftp://ftp.gnu.org/gnu/automake/", "automake", "1.12", "gz") do |src, prefix|
+			update_cfg.(src)
+			update_cfg.(File.join(src, 'lib'))
 			run File.join(src, 'configure'), "--prefix=#{prefix}"
 		end
 
 		build_from_url.("ftp://ftp.gnu.org/gnu/autoconf/", "autoconf", "2.65", "gz") do |src, prefix|
+			update_cfg.(src)
 			run File.join(src, 'configure'), "--prefix=#{prefix}"
 		end
 	end
@@ -405,14 +413,17 @@ end
 
 task :deps_user do
 	Dir.chdir('vendor/') do
-		build_from_git.("avery-llvm", "https://github.com/Zoxc/llvm-sfi.git") do |src, prefix|
+		build_from_git.("avery-llvm", "https://github.com/Zoxc/avery-llvm.git") do |src, prefix|
+			Dir.chdir(src) do
+				run 'patch', '-i', "../../0001-cmake-hack-for-msys2.patch"
+			end
 			Dir.chdir(File.join(src, 'tools')) do
 					unless Dir.exists?("clang")
 						run "git", "clone" , "http://llvm.org/git/clang.git"
 					end
 			end
 			opts = %W{-DBUILD_SHARED_LIBS=On -DLLVM_TARGETS_TO_BUILD=X86 -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX=#{prefix}}
-			opts += ['-G',  'MSYS Makefiles'] if ON_WINDOWS
+			opts += ['-G',  'MSYS Makefiles'] if ON_WINDOWS_MINGW
 			run "cmake", src, *opts
 		end
 
@@ -424,19 +435,30 @@ task :deps_user do
 			run File.join(src, 'configure'), "--prefix=#{prefix}", "--target=x86_64-pc-avery", 'CC_FOR_TARGET=clang -fno-integrated-as -ffreestanding --target=x86_64-pc-avery -ccc-gcc-name x86_64-pc-avery-gcc'
 		end
 
+		# C++ isn't working yet
+		#run "rm", "avery-llvm/install/bin/clang++#{EXE_POST}"
+
 		run "rm", "-rf", "sysroot"
 		mkdirs('sysroot')
 		#run 'cp', '-r', 'avery-binutils/install/x86_64-pc-avery/.', "sysroot/usr/"
 		run 'cp', '-r', 'avery-newlib/install/x86_64-pc-avery/.', "sysroot/usr/"
 
-		build_from_git.("compiler-rt", "http://llvm.org/git/compiler-rt.git") do |src, prefix|
-			opts = ["-DLLVM_CONFIG_PATH=#{File.join(src, "../../avery-llvm/install/bin/llvm-config")}", "-DCMAKE_TOOLCHAIN_FILE=../../toolchain.txt", "-DCMAKE_INSTALL_PREFIX=#{prefix}"]
-			opts += ['-G',  'MSYS Makefiles'] if ON_WINDOWS
-			run "cmake", src, *opts
-		end
+		# CMAKE_STAGING_PREFIX, CMAKE_INSTALL_PREFIX
 
+		build_from_git.("libcxx", "http://llvm.org/git/libcxx.git") do |src, prefix| # -nodefaultlibs
+			opts = ["-DLLVM_CONFIG_PATH=#{File.join(src, "../../avery-llvm/install/bin/llvm-config")}", "-DCMAKE_TOOLCHAIN_FILE=../../toolchain.txt", "-DCMAKE_STAGING_PREFIX=#{prefix}"]
+			opts += ['-G',  'MSYS Makefiles'] if ON_WINDOWS_MINGW
+			run "cmake", src, *opts
+		end if nil
+
+		build_from_git.("compiler-rt", "http://llvm.org/git/compiler-rt.git") do |src, prefix|
+			opts = ["-DLLVM_CONFIG_PATH=#{File.join(src, "../../avery-llvm/install/bin/llvm-config")}", "-DCMAKE_TOOLCHAIN_FILE=../../toolchain.txt", "-DCMAKE_STAGING_PREFIX=#{prefix}", "-DCMAKE_INSTALL_PREFIX=#{prefix}", "-DCOMPILER_RT_BUILD_SANITIZERS=Off"]
+			opts += ['-G',  'MSYS Makefiles'] if ON_WINDOWS_MINGW
+			run "cmake", src, *opts
+		end if nil
+#, "--enable-clang"
 		build_from_git.("avery-rust", "https://github.com/rust-lang/rust.git") do |src, prefix|
-			run File.join(src, 'configure'), "--prefix=#{prefix}", "--target=x86_64-pc-avery", "--llvm-root=#{File.join(src, "../../avery-llvm/build")}", "--disable-docs", "--disable-jemalloc"
+			run File.join(src, 'configure'), "--prefix=#{prefix}", "--target=x86_64-pc-avery", "--llvm-root=#{File.join(src, "../../avery-llvm/build")}", "--disable-docs", "--disable-jemalloc", "--target-sysroot=#{File.join(Dir.pwd, "../../sysroot")}"
 		end
 	end
 end

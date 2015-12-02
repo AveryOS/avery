@@ -5,7 +5,11 @@
 /vendor/rust
 /vendor/binutils
 /vendor/mtools
-/vendor/install
+/vendor/sysroot
+/vendor/libcxx
+/vendor/compiler-rt
+/vendor/autoconf
+/vendor/automake
 /vendor/avery-llvm
 /vendor/avery-binutils
 /vendor/avery-rust
