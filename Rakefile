@@ -414,12 +414,9 @@ end
 task :deps_user do
 	Dir.chdir('vendor/') do
 		build_from_git.("avery-llvm", "https://github.com/Zoxc/avery-llvm.git") do |src, prefix|
-			Dir.chdir(src) do
-				run 'patch', '-i', "../../0001-cmake-hack-for-msys2.patch"
-			end
 			Dir.chdir(File.join(src, 'tools')) do
 					unless Dir.exists?("clang")
-						run "git", "clone" , "http://llvm.org/git/clang.git"
+						run "git", "clone" , "https://github.com/Zoxc/avery-clang.git"
 					end
 			end
 			opts = %W{-DBUILD_SHARED_LIBS=On -DLLVM_TARGETS_TO_BUILD=X86 -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX=#{prefix}}
@@ -457,7 +454,7 @@ task :deps_user do
 			run "cmake", src, *opts
 		end if nil
 #, "--enable-clang"
-		build_from_git.("avery-rust", "https://github.com/rust-lang/rust.git") do |src, prefix|
+		build_from_git.("avery-rust", "https://github.com/Zoxc/avery-rust.git") do |src, prefix|
 			run File.join(src, 'configure'), "--prefix=#{prefix}", "--target=x86_64-pc-avery", "--llvm-root=#{File.join(src, "../../avery-llvm/build")}", "--disable-docs", "--disable-jemalloc", "--target-sysroot=#{File.join(Dir.pwd, "../../sysroot")}"
 		end
 	end

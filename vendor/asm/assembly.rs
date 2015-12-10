@@ -3,7 +3,7 @@
 #![feature(plugin_registrar, rustc_private)]
 #![allow()]
 
-extern crate rustc;
+extern crate rustc_plugin;
 extern crate syntax;
 
 use std::collections::HashMap;
@@ -13,8 +13,8 @@ use syntax::ast::{TokenTree, Expr, AsmDialect};
 use syntax::codemap;
 use syntax::codemap::Pos;
 use syntax::ext::base::{ExtCtxt, MacResult, MacEager};
-use rustc::plugin::Registry;
-use syntax::parse::parser::Parser;
+use rustc_plugin::registry::Registry;
+use syntax::parse::parser::{LhsExpr, Parser};
 use syntax::parse::token;
 use syntax::parse::token::{keywords, intern_and_get_ident};
 use syntax::parse::common::seq_sep_trailing_allowed;
@@ -164,7 +164,7 @@ fn parse_operand(p: &mut Parser, data: &mut Data) -> PResult<usize> {
             parse_c_arrow(p, data)
         }
         _ => {
-            let exp = try!(p.parse_assoc_expr_with(AssocOp::BitOr.precedence(), None));
+            let exp = try!(p.parse_assoc_expr_with(AssocOp::BitOr.precedence(), LhsExpr::NotYetParsed));
 
             let rw = if try!(p.eat(&token::Le)) {
                 try!(p.expect(&token::Gt));
@@ -455,6 +455,7 @@ fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree]) 
             dialect: data.dialect,
             expn_id: expn_id,
         }),
+        attrs: None,
         span: sp
     }))
 }
