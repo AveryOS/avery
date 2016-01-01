@@ -1,8 +1,6 @@
 #![allow(improper_ctypes, dead_code)]
-#![feature(core, core_char_ext, lang_items,
-		   plugin, asm, negate_unsigned, core_slice_ext,
-		   core_str_ext, core_intrinsics, linkage,
-		   const_fn)]
+#![feature(lang_items,
+		   plugin, asm, negate_unsigned, core_intrinsics, linkage, const_fn)]
 #![plugin(assembly)]
 #![crate_type = "staticlib"]
 

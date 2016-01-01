@@ -1,6 +1,6 @@
 #![crate_type = "dylib"]
 #![crate_name = "assembly"]
-#![feature(plugin_registrar, rustc_private)]
+#![feature(plugin_registrar, rustc_private, str_char)]
 #![allow()]
 
 extern crate rustc_plugin;
@@ -9,16 +9,16 @@ extern crate syntax;
 use std::collections::HashMap;
 use syntax::ptr::P;
 use syntax::ast;
-use syntax::ast::{TokenTree, Expr, AsmDialect};
+use syntax::ast::{Expr, AsmDialect};
 use syntax::codemap;
 use syntax::codemap::Pos;
 use syntax::ext::base::{ExtCtxt, MacResult, MacEager};
 use rustc_plugin::registry::Registry;
+use self::asm::expand_asm;
 use syntax::parse::parser::{LhsExpr, Parser};
 use syntax::parse::token;
 use syntax::parse::token::{keywords, intern_and_get_ident};
 use syntax::parse::common::seq_sep_trailing_allowed;
-use syntax::ext::asm::expand_asm;
 use syntax::print::pprust::token_to_string;
 use syntax::util::parser::AssocOp;
 use syntax::parse::PResult;
@@ -26,13 +26,18 @@ use syntax::parse::PResult;
 macro_rules! panictry {
     ($e:expr) => ({
         use std::result::Result::{Ok, Err};
-        use syntax::diagnostic::FatalError;
+        use syntax::errors::FatalError;
         match $e {
             Ok(e) => e,
-            Err(FatalError) => panic!(FatalError)
+            Err(mut e) => {
+                e.emit();
+                panic!(FatalError);
+            }
         }
     })
 }
+
+mod asm;
 
 #[plugin_registrar]
 pub fn plugin_registrar(reg: &mut Registry) {
@@ -110,7 +115,7 @@ fn add_binding(data: &mut Data, name: Option<String>, c: Constraint, kind: Bindi
     idx
 }
 
-fn get_ident(p: &mut Parser) -> PResult<String> {
+fn get_ident<'a>(p: &mut Parser<'a>) -> PResult<'a, String> {
     match p.token {
         token::Ident(id, _) => {
             try!(p.bump());
@@ -122,21 +127,21 @@ fn get_ident(p: &mut Parser) -> PResult<String> {
     }
 }
 
-fn parse_c(p: &mut Parser) -> PResult<Constraint> {
+fn parse_c<'a>(p: &mut Parser<'a>) -> PResult<'a, Constraint> {
     try!(p.expect(&token::BinOp(token::Percent)));
     let early_clobber = try!(p.eat(&token::BinOp(token::And)));
     let indirect = try!(p.eat(&token::BinOp(token::Star)));
     Ok(Constraint { name: try!(get_ident(p)), indirect: indirect, early_clobber: early_clobber })
 }
 
-fn parse_let(p: &mut Parser) -> PResult<String> {
+fn parse_let<'a>(p: &mut Parser<'a>) -> PResult<'a, String> {
     try!(p.expect_keyword(keywords::Let));
     let n = try!(get_ident(p));
     try!(p.expect(&token::Colon));
     Ok(n)
 }
 
-fn parse_c_arrow(p: &mut Parser, data: &mut Data) -> PResult<usize> {
+fn parse_c_arrow<'a>(p: &mut Parser<'a>, data: &mut Data) -> PResult<'a, usize> {
     let c = try!(parse_c(p));
 
     let rw = if try!(p.eat(&token::Le)) {
@@ -158,7 +163,7 @@ fn parse_c_arrow(p: &mut Parser, data: &mut Data) -> PResult<usize> {
     Ok(add_binding(data, None, c, kind))
 }
 
-fn parse_operand(p: &mut Parser, data: &mut Data) -> PResult<usize> {
+fn parse_operand<'a>(p: &mut Parser<'a>, data: &mut Data) -> PResult<'a, usize> {
     match p.token {
         token::BinOp(token::Percent) => {
             parse_c_arrow(p, data)
@@ -194,7 +199,7 @@ fn parse_operand(p: &mut Parser, data: &mut Data) -> PResult<usize> {
     }
 }
 
-fn parse_binding(p: &mut Parser, data: &mut Data) -> PResult<usize> {
+fn parse_binding<'a>(p: &mut Parser<'a>, data: &mut Data) -> PResult<'a, usize> {
     if p.token.is_keyword(keywords::Let) {
         let name = Some(try!(parse_let(p)));
         let c = try!(parse_c(p));
@@ -211,7 +216,7 @@ fn parse_binding(p: &mut Parser, data: &mut Data) -> PResult<usize> {
     }
 }
 
-fn parse_opt(cx: &mut ExtCtxt, p: &mut Parser, data: &mut Data) -> PResult<()> {
+fn parse_opt<'a>(cx: &mut ExtCtxt, p: &mut Parser<'a>, data: &mut Data) -> PResult<'a, ()> {
     if p.token.is_keyword(keywords::Use) {
         try!(p.bump());
         data.clobbers.push(format!("~{{{}}}", &try!(get_ident(p))));
@@ -272,13 +277,13 @@ fn is_whitespace(c: Option<u8>) -> bool {
 }
 
 fn is_whitespace_left(cx: &ExtCtxt, sp: codemap::Span) -> bool {
-    let cm = &cx.parse_sess.span_diagnostic.cm;
+    let cm = cx.parse_sess.codemap();
     let fb = cm.lookup_byte_offset(sp.lo);
     is_whitespace(search(&fb, |p| { p == 0 }, -1))
 }
 
 fn is_whitespace_right(cx: &ExtCtxt, sp: codemap::Span) -> bool {
-    let cm = &cx.parse_sess.span_diagnostic.cm;
+    let cm = &cx.parse_sess.codemap();
     let mut fb = cm.lookup_byte_offset(sp.hi);
     fb.pos = codemap::Pos::from_usize(fb.pos.to_usize() - 1);
     is_whitespace(search(&fb, |p| { p >= fb.fm.src.as_ref().unwrap().len() - 1 }, 1))
@@ -395,18 +400,33 @@ fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree]) 
                 BindingIdx::Input(inputs.len())
             }
             BindingKind::Output(e) => {
-                outputs.push((c_out, e, false));
+                outputs.push(ast::InlineAsmOutput {
+                    constraint: c_out,
+                    expr: e,
+                    is_rw: false,
+                    is_indirect: b.constraint.indirect,
+                });
                 BindingIdx::Output(outputs.len())
             }
             BindingKind::InputThenOutput(e_in, e_out) => {
                 let c_outpos = intern_and_get_ident(&outputs.len().to_string());
                 inputs.push((c_outpos, e_in));
-                outputs.push((c_out, e_out, false));
+                outputs.push(ast::InlineAsmOutput {
+                    constraint: c_out,
+                    expr: e_out,
+                    is_rw: false,
+                    is_indirect: b.constraint.indirect,
+                });
                 BindingIdx::Input(inputs.len());
                 BindingIdx::Output(outputs.len())
             }
             BindingKind::InputAndOutput(e) => {
-                outputs.push((c_out, e, true));
+                outputs.push(ast::InlineAsmOutput {
+                    constraint: c_out,
+                    expr: e,
+                    is_rw: true,
+                    is_indirect: b.constraint.indirect,
+                });
                 BindingIdx::Output(outputs.len())
             }
         }

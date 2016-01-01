@@ -1,7 +1,7 @@
 #![crate_name = "std"]
 #![crate_type = "rlib"]
-#![feature(no_std, zero_one, core, core_intrinsics, raw, core_simd, num_bits_bytes, lang_items,
-    macro_reexport, allow_internal_unstable, core_panic, core_slice_ext, slice_bytes)]
+#![feature(zero_one, core_intrinsics, raw, num_bits_bytes, lang_items,
+    macro_reexport, allow_internal_unstable, core_panic, slice_bytes)]
 #![no_std]
 
 // We want to reexport a few macros from core but libcore has already been
@@ -31,8 +31,6 @@ pub use core::mem;
 pub use core::ops;
 pub use core::slice;
 pub use core::raw;
-#[allow(deprecated)]
-pub use core::simd;
 pub use core::result;
 pub use core::option;
 pub use core::panicking;

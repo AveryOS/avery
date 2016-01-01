@@ -1,6 +1,6 @@
 #![no_std]
 #![crate_type = "staticlib"]
-#![feature(no_std, asm, lang_items, plugin, core_str_ext, negate_unsigned)]
+#![feature(asm, lang_items, plugin, negate_unsigned)]
 #![plugin(assembly)]
 
 extern crate rlibc;

@@ -226,7 +226,7 @@ def run_qemu(efi)
 		opts = if efi
 			%w{-L . -bios OVMF.fd -hda fat:hda}
 		else
-			%w{-L qemu/Bios -hda grubdisk.img}
+			%w{-L qemu/Bios -drive file=grubdisk.img,index=0,media=disk,format=raw}
 		end
 		 # -d ,cpu_reset
 		 run *(%W{#{QEMU_PATH}qemu-system-x86_64 -serial file:serial.txt -d int -D int.log -no-reboot -s -smp 4} + opts)
@@ -264,7 +264,7 @@ task :bochs => :build do
 	end
 end
 
-CORES = 3
+CORES = 1
 
 # Build a unix like package at src
 build_unix_pkg = proc do |src, &proc|
@@ -384,7 +384,7 @@ task :deps_srcs do
 		end
 
 		unless Dir.exists?("rlibc")
-			run "git", "clone" , "https://github.com/rust-lang/rlibc.git"
+			run "git", "clone" , "https://github.com/alexcrichton/rlibc.git"
 		end
 	end
 end
@@ -453,9 +453,13 @@ task :deps_user do
 			opts += ['-G',  'MSYS Makefiles'] if ON_WINDOWS_MINGW
 			run "cmake", src, *opts
 		end if nil
+
+		ENV['CC'] = 'gcc'
+		ENV['CXX'] = 'g++'
+
 #, "--enable-clang"
 		build_from_git.("avery-rust", "https://github.com/Zoxc/avery-rust.git") do |src, prefix|
-			run File.join(src, 'configure'), "--prefix=#{prefix}", "--target=x86_64-pc-avery", "--llvm-root=#{File.join(src, "../../avery-llvm/build")}", "--disable-docs", "--disable-jemalloc", "--target-sysroot=#{File.join(Dir.pwd, "../../sysroot")}"
+			run File.join(src, 'configure'), "--prefix=#{prefix}", "--llvm-root=#{File.join(src, "../../avery-llvm/build")}", "--disable-docs", "--target-sysroot=#{File.join(Dir.pwd, "../../sysroot")}"#, "--target=x86_64-pc-avery", "--disable-jemalloc"
 		end
 	end
 end
