@@ -19,6 +19,8 @@ end
 
 raise "Install and use MSYS2 Ruby" if ENV['MSYSTEM'] && Gem.win_platform?
 
+ARCH = `./vendor/config.guess`.strip.sub(/[0-9\.]*$/, '')
+
 ON_WINDOWS = Gem.win_platform? || ENV['MSYSTEM']
 
 ON_WINDOWS_MINGW = ENV['MSYSTEM'] && ENV['MSYSTEM'].start_with?('MINGW')
@@ -35,6 +37,12 @@ end
 
 append_path(File.expand_path('../vendor/binutils/install/bin', __FILE__))
 append_path(File.expand_path('../vendor/mtools/install/bin', __FILE__))
+append_path(File.expand_path('../vendor/avery-llvm/install/bin', __FILE__))
+append_path(File.expand_path('../vendor/avery-llvm/install/lib', __FILE__)) # LLVM places DLLs in /lib ...
+append_path(File.expand_path('../vendor/avery-binutils/install/bin', __FILE__))
+append_path(File.expand_path("../vendor/avery-rust/build/#{ARCH}/stage1/bin", __FILE__))
+
+ENV['DYLD_LIBRARY_PATH'] = File.expand_path("../vendor/avery-rust/build/#{ARCH}/stage0/lib/rustlib/#{ARCH}/lib", __FILE__)
 
 QEMU_PATH = "#{'qemu/' if ON_WINDOWS}"
 AR = 'x86_64-elf-ar'
@@ -55,14 +63,14 @@ def assemble(build, source, objects)
 
 	objects << object_file
 end
-#--llvm-args=--inline-threshold=0
-RUSTFLAGS = ['-C',"ar=x86_64-elf-ar", '--sysroot', File.expand_path('../build/sysroot', __FILE__)] +
+#--llvm-args=--inline-threshold=0 # , '--sysroot', File.expand_path('../build/sysroot', __FILE__)
+RUSTFLAGS = ['-C',"ar=x86_64-elf-ar"] +
 	%w{-C opt-level=1 -C debuginfo=1 -Z no-landing-pads}
 
 def build_libcore(build, crate_prefix, flags)
 	crates = build.output(File.join(crate_prefix, "crates"))
 	mkdirs(crates)
-	run 'rustc', *RUSTFLAGS, *flags, 'vendor/rust/src/libcore/lib.rs', '--out-dir', crates
+	run 'rustc', *RUSTFLAGS, *flags, 'vendor/avery-rust/avery-rust/src/libcore/lib.rs', '--out-dir', crates
 
 	# libcore needs rlibc
 	run 'rustc', '-L', crates, *RUSTFLAGS, *flags, '--crate-type', 'rlib', '--crate-name', 'rlibc', 'vendor/rlibc/src/lib.rs', '--out-dir', crates
@@ -157,7 +165,7 @@ build_kernel = proc do
 	end
 end
 
-task :deps do
+task :deps => :deps_other do
 	build = Build.new('build', 'info.yml')
 	build.run do
 		mkdirs("build/phase")
@@ -264,7 +272,7 @@ task :bochs => :build do
 	end
 end
 
-CORES = 1
+CORES = 4
 
 # Build a unix like package at src
 build_unix_pkg = proc do |src, &proc|
@@ -281,15 +289,22 @@ build_unix_pkg = proc do |src, &proc|
 	end
 
 	unless File.exists?("built")
+		bin_path = "install"
+
 		Dir.chdir("build") do
-			run "make", "-j#{CORES}"
-			run "make", "install"
+			if src == 'avery-rust'
+				bin_path = "#{ARCH}/stage1"
+				run "make", "rustc-stage1", "-j#{CORES}"
+			else
+				run "make", "-j#{CORES}"
+				run "make", "install"
+			end
 		end
 
-		# Copy dependencies from MSYS/Cygwin
+		# Copy dependencies from MSYS
 		if File.exists?('/usr/bin/msys-2.0.dll')
-			mkdirs("install/bin")
-			run 'cp', '/usr/bin/msys-2.0.dll', "install/bin/msys-2.0.dll"
+			mkdirs("#{bin_path}/bin")
+			run 'cp', '/usr/bin/msys-2.0.dll', "#{bin_path}/bin/msys-2.0.dll"
 		end
 
 		run 'touch', "built"
@@ -365,34 +380,7 @@ task :deps_unix do
 			opts += ["LIBS=-liconv"] if Gem::Platform::local.os == 'darwin'
 			run File.join(src, 'configure'), "--prefix=#{prefix}", *opts
 		end# mtools doesn't build with mingw-w64
-	end
-end
 
-task :deps_srcs do
-	mkdirs('emu')
-	Dir.chdir('emu/') do
-		unless File.exists?('grubdisk.img')
-			run 'curl', '-O', 'https://raw.githubusercontent.com/Zoxc/avery-binaries/master/disk.tar.xz'
-			run 'tar', "Jxf", 'disk.tar.xz'
-			FileUtils.rm('disk.tar.xz')
-		end
-	end
-
-	Dir.chdir('vendor/') do
-		unless Dir.exists?("rust")
-			run "git", "clone" , 'https://github.com/rust-lang/rust.git', 'rust'
-		end
-
-		unless Dir.exists?("rlibc")
-			run "git", "clone" , "https://github.com/alexcrichton/rlibc.git"
-		end
-	end
-end
-
-task :deps_user_unix do
-	raise "Cannot build UNIX dependencies with MinGW" if ON_WINDOWS_MINGW
-
-	Dir.chdir('vendor/') do
 		build_from_git.("avery-binutils", "https://github.com/Zoxc/avery-binutils.git") do |src, prefix|
 			run File.join(src, 'configure'), "--prefix=#{prefix}", *%w{--target=x86_64-pc-avery --with-sysroot --disable-nls --disable-werror --disable-gdb --disable-sim --disable-readline --disable-libdecnumber}
 		end # binutils is buggy with mingw-w64
@@ -411,22 +399,32 @@ task :deps_user_unix do
 	end
 end
 
-task :deps_user do
+task :deps_other do
+	mkdirs('emu')
+	Dir.chdir('emu/') do
+		unless File.exists?('grubdisk.img')
+			run 'curl', '-O', 'https://raw.githubusercontent.com/Zoxc/avery-binaries/master/disk.tar.xz'
+			run 'tar', "Jxf", 'disk.tar.xz'
+			FileUtils.rm('disk.tar.xz')
+		end
+	end
+
 	Dir.chdir('vendor/') do
+		unless Dir.exists?("rlibc")
+			run "git", "clone" , "https://github.com/alexcrichton/rlibc.git"
+		end
+
 		build_from_git.("avery-llvm", "https://github.com/Zoxc/avery-llvm.git") do |src, prefix|
 			Dir.chdir(File.join(src, 'tools')) do
-					unless Dir.exists?("clang")
-						run "git", "clone" , "https://github.com/Zoxc/avery-clang.git"
-					end
+				unless Dir.exists?("clang")
+					run "git", "clone" , "https://github.com/Zoxc/avery-clang.git", "clang"
+				end
 			end
-			opts = %W{-DBUILD_SHARED_LIBS=On -DLLVM_TARGETS_TO_BUILD=X86 -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX=#{prefix}}
+			#-DBUILD_SHARED_LIBS=On  rustc on OS X wants static
+			opts = %W{-DLLVM_TARGETS_TO_BUILD=X86 -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX=#{prefix}}
 			opts += ['-G',  'MSYS Makefiles'] if ON_WINDOWS_MINGW
 			run "cmake", src, *opts
 		end
-
-		append_path(File.realpath("avery-llvm/install/bin"))
-		append_path(File.realpath("avery-llvm/install/lib")) # LLVM places DLLs in /lib ...
-		append_path(File.realpath("avery-binutils/install/bin"))
 
 		build_from_git.("avery-newlib", "https://github.com/Zoxc/avery-newlib.git") do |src, prefix|
 			run File.join(src, 'configure'), "--prefix=#{prefix}", "--target=x86_64-pc-avery", 'CC_FOR_TARGET=clang -fno-integrated-as -ffreestanding --target=x86_64-pc-avery -ccc-gcc-name x86_64-pc-avery-gcc'
@@ -438,7 +436,7 @@ task :deps_user do
 		run "rm", "-rf", "sysroot"
 		mkdirs('sysroot')
 		#run 'cp', '-r', 'avery-binutils/install/x86_64-pc-avery/.', "sysroot/usr/"
-		run 'cp', '-r', 'avery-newlib/install/x86_64-pc-avery/.', "sysroot/usr/"
+		run 'cp', '-r', 'avery-newlib/install/x86_64-pc-avery/.', "sysroot"
 
 		# CMAKE_STAGING_PREFIX, CMAKE_INSTALL_PREFIX
 
@@ -454,38 +452,36 @@ task :deps_user do
 			run "cmake", src, *opts
 		end if nil
 
+		#ENV['VERBOSE'] = '1'
+
+		# clang is not the host compiler, force use of gcc
 		ENV['CC'] = 'gcc'
 		ENV['CXX'] = 'g++'
 
-#, "--enable-clang"
 		build_from_git.("avery-rust", "https://github.com/Zoxc/avery-rust.git") do |src, prefix|
 			run File.join(src, 'configure'), "--prefix=#{prefix}", "--llvm-root=#{File.join(src, "../../avery-llvm/build")}", "--disable-docs", "--target-sysroot=#{File.join(Dir.pwd, "../../sysroot")}"#, "--target=x86_64-pc-avery", "--disable-jemalloc"
 		end
+
+		# place compiler-rt in lib/rustlib/x86_64-pc-avery/lib - rustc links to it // clang links to it instead
+		run 'cp', '-r', 'libcompiler-rt.a', "sysroot/lib"
+	end
+end
+
+task :user do
+	RUSTFLAGS = %w{-C opt-level=1 -C debuginfo=1 -Z no-landing-pads}
+	build = Build.new('build', 'info.yml')
+	build.run do
+		build_libcore(build, "user", %w{--target x86_64-pc-avery})
+		# rustc can't pass linker arguments with spaces in them; require a space free path
+		build_crate(build, "user", "user", %w{--target x86_64-pc-avery}, 'user/test.rs', ['-Z', 'print-link-args', '-C', "link-args=-v --sysroot #{File.expand_path('../vendor/sysroot', __FILE__)}"])
 	end
 end
 
 task :setup do
 	Rake::Task["deps_unix"].invoke
-	Rake::Task["match_rustc"].invoke
 	Rake::Task["deps"].invoke
 	Rake::Task["build"].invoke
 	puts "Setup has been run"
-end
-
-task :match_rustc => :deps_srcs do
-	rustc_ver = /\((.*?) /.match(`rustc --version`)[1]
-
-	Dir.chdir('vendor/') do
-		Dir.chdir('rlibc/') do
-			run *%w{git pull origin master}
-		end
-
-		Dir.chdir('rust/') do
-			run *%w{git checkout master}
-			run *%w{git pull origin master}
-			run *%w{git checkout}, rustc_ver
-		end
-	end
 end
 
 task :default => :build
