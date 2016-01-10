@@ -1,4 +1,4 @@
-This requires git, curl, libiconv, bison, patch, gcc, rustc and rake to be installed. OS X comes with most of these (with command line tools installed).
+This requires git, curl, libiconv, bison, patch, diffutils, texinfo, gcc and rake to be installed. OS X comes with all of these (with command line tools installed). On [MSYS2](https://msys2.github.io/) these can be installed by `pacman -S ruby git tar gcc bison make texinfo patch diffutils`.
 
 Run `rake deps_unix` to set up and build dependencies requiring a POSIX system. On Windows this must run in [MSYS2](https://msys2.github.io/) (and not with the MINGW shells). Be sure to install the dependencies in MSYS2 (including GCC).
 

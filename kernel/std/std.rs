@@ -1,7 +1,7 @@
 #![crate_name = "std"]
 #![crate_type = "rlib"]
 #![feature(zero_one, core_intrinsics, raw, num_bits_bytes, lang_items,
-    macro_reexport, allow_internal_unstable, core_panic, slice_bytes)]
+    macro_reexport, allow_internal_unstable, core_panic, clone_from_slice)]
 #![no_std]
 
 // We want to reexport a few macros from core but libcore has already been
@@ -80,7 +80,6 @@ pub mod prelude {
 pub mod io {
     use core;
     use core::cmp;
-    use core::slice;
 
     pub type Result<T> = core::result::Result<T, Error>;
 
@@ -144,7 +143,7 @@ pub mod io {
         fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
             let amt = cmp::min(buf.len(), self.len());
             let (a, b) = self.split_at(amt);
-            slice::bytes::copy_memory(a, buf);
+            buf.clone_from_slice(a);
             *self = b;
             Ok(amt)
         }
@@ -155,7 +154,7 @@ pub mod io {
                 return Err(Error);
             }
             let (a, b) = self.split_at(buf.len());
-            slice::bytes::copy_memory(a, buf);
+            buf.clone_from_slice(a);
             *self = b;
             Ok(())
         }

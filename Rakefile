@@ -2,6 +2,7 @@
 require_relative 'rake/build'
 require_relative 'rake/lokar'
 
+RUSTSHORT = false
 AVERY_DIR = File.expand_path('../', __FILE__)
 
 ENV['RUST_TARGET_PATH'] = File.expand_path('../targets', __FILE__)
@@ -18,8 +19,6 @@ def run(*cmd)
 end
 
 raise "Install and use MSYS2 Ruby" if ENV['MSYSTEM'] && Gem.win_platform?
-
-ARCH = `./vendor/config.guess`.strip.sub(/[0-9\.]*$/, '')
 
 ON_WINDOWS = Gem.win_platform? || ENV['MSYSTEM']
 
@@ -40,9 +39,15 @@ append_path(File.expand_path('../vendor/mtools/install/bin', __FILE__))
 append_path(File.expand_path('../vendor/avery-llvm/install/bin', __FILE__))
 append_path(File.expand_path('../vendor/avery-llvm/install/lib', __FILE__)) # LLVM places DLLs in /lib ...
 append_path(File.expand_path('../vendor/avery-binutils/install/bin', __FILE__))
-append_path(File.expand_path("../vendor/avery-rust/build/#{ARCH}/stage1/bin", __FILE__))
 
-ENV['DYLD_LIBRARY_PATH'] = File.expand_path("../vendor/avery-rust/build/#{ARCH}/stage0/lib/rustlib/#{ARCH}/lib", __FILE__)
+if RUSTSHORT
+	ARCH = `./vendor/config.guess`.strip.sub(/[0-9\.]*$/, '')
+	ENV['DYLD_LIBRARY_PATH'] = File.expand_path("../vendor/avery-rust/build/#{ARCH}/stage0/lib/rustlib/#{ARCH}/lib", __FILE__)
+	append_path(File.expand_path("../vendor/avery-rust/build/#{ARCH}/stage1/bin", __FILE__))
+else
+	ENV['DYLD_LIBRARY_PATH'] = File.expand_path("../vendor/avery-rust/install/lib", __FILE__)
+	append_path(File.expand_path("../vendor/avery-rust/install/bin", __FILE__))
+end
 
 QEMU_PATH = "#{'qemu/' if ON_WINDOWS}"
 AR = 'x86_64-elf-ar'
@@ -63,8 +68,11 @@ def assemble(build, source, objects)
 
 	objects << object_file
 end
-#--llvm-args=--inline-threshold=0 # , '--sysroot', File.expand_path('../build/sysroot', __FILE__)
-RUSTFLAGS = ['-C',"ar=x86_64-elf-ar"] +
+#--llvm-args=--inline-threshold=0 # , 
+
+# We need to pass along sysroot here so rustc won't try to use host crates. The sysroot folder doesn't need to exist.
+# opt-level=1 is needed so LLVM will optimize out uses of floating point in libcore
+RUSTFLAGS = ['-C',"ar=x86_64-elf-ar", '--sysroot', File.expand_path('../build/sysroot', __FILE__)] +
 	%w{-C opt-level=1 -C debuginfo=1 -Z no-landing-pads}
 
 def build_libcore(build, crate_prefix, flags)
@@ -292,7 +300,7 @@ build_unix_pkg = proc do |src, &proc|
 		bin_path = "install"
 
 		Dir.chdir("build") do
-			if src == 'avery-rust'
+			if src == 'avery-rust' && RUSTSHORT
 				bin_path = "#{ARCH}/stage1"
 				run "make", "rustc-stage1", "-j#{CORES}"
 			else
@@ -459,7 +467,7 @@ task :deps_other do
 		ENV['CXX'] = 'g++'
 
 		build_from_git.("avery-rust", "https://github.com/Zoxc/avery-rust.git") do |src, prefix|
-			run File.join(src, 'configure'), "--prefix=#{prefix}", "--llvm-root=#{File.join(src, "../../avery-llvm/build")}", "--disable-docs", "--target-sysroot=#{File.join(Dir.pwd, "../../sysroot")}"#, "--target=x86_64-pc-avery", "--disable-jemalloc"
+			run File.join(src, 'configure'), "--enable-debuginfo", "--prefix=#{prefix}", "--llvm-root=#{File.join(src, "../../avery-llvm/build")}", "--disable-docs", "--target-sysroot=#{File.join(Dir.pwd, "../../sysroot")}"#, "--target=x86_64-pc-avery", "--disable-jemalloc"
 		end
 
 		# place compiler-rt in lib/rustlib/x86_64-pc-avery/lib - rustc links to it // clang links to it instead
@@ -482,6 +490,10 @@ task :setup do
 	Rake::Task["deps"].invoke
 	Rake::Task["build"].invoke
 	puts "Setup has been run"
+end
+
+task :sh do
+	run 'sh'
 end
 
 task :default => :build
