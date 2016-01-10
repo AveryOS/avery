@@ -29,10 +29,7 @@ macro_rules! panictry {
         use syntax::errors::FatalError;
         match $e {
             Ok(e) => e,
-            Err(mut e) => {
-                e.emit();
-                panic!(FatalError);
-            }
+            Err(FatalError) => panic!(FatalError),
         }
     })
 }
@@ -115,7 +112,7 @@ fn add_binding(data: &mut Data, name: Option<String>, c: Constraint, kind: Bindi
     idx
 }
 
-fn get_ident<'a>(p: &mut Parser<'a>) -> PResult<'a, String> {
+fn get_ident(p: &mut Parser) -> PResult<String> {
     match p.token {
         token::Ident(id, _) => {
             try!(p.bump());
@@ -127,21 +124,21 @@ fn get_ident<'a>(p: &mut Parser<'a>) -> PResult<'a, String> {
     }
 }
 
-fn parse_c<'a>(p: &mut Parser<'a>) -> PResult<'a, Constraint> {
+fn parse_c(p: &mut Parser) -> PResult<Constraint> {
     try!(p.expect(&token::BinOp(token::Percent)));
     let early_clobber = try!(p.eat(&token::BinOp(token::And)));
     let indirect = try!(p.eat(&token::BinOp(token::Star)));
     Ok(Constraint { name: try!(get_ident(p)), indirect: indirect, early_clobber: early_clobber })
 }
 
-fn parse_let<'a>(p: &mut Parser<'a>) -> PResult<'a, String> {
+fn parse_let(p: &mut Parser) -> PResult<String> {
     try!(p.expect_keyword(keywords::Let));
     let n = try!(get_ident(p));
     try!(p.expect(&token::Colon));
     Ok(n)
 }
 
-fn parse_c_arrow<'a>(p: &mut Parser<'a>, data: &mut Data) -> PResult<'a, usize> {
+fn parse_c_arrow(p: &mut Parser, data: &mut Data) -> PResult<usize> {
     let c = try!(parse_c(p));
 
     let rw = if try!(p.eat(&token::Le)) {
@@ -163,7 +160,7 @@ fn parse_c_arrow<'a>(p: &mut Parser<'a>, data: &mut Data) -> PResult<'a, usize> 
     Ok(add_binding(data, None, c, kind))
 }
 
-fn parse_operand<'a>(p: &mut Parser<'a>, data: &mut Data) -> PResult<'a, usize> {
+fn parse_operand(p: &mut Parser, data: &mut Data) -> PResult<usize> {
     match p.token {
         token::BinOp(token::Percent) => {
             parse_c_arrow(p, data)
@@ -199,7 +196,7 @@ fn parse_operand<'a>(p: &mut Parser<'a>, data: &mut Data) -> PResult<'a, usize> 
     }
 }
 
-fn parse_binding<'a>(p: &mut Parser<'a>, data: &mut Data) -> PResult<'a, usize> {
+fn parse_binding(p: &mut Parser, data: &mut Data) -> PResult<usize> {
     if p.token.is_keyword(keywords::Let) {
         let name = Some(try!(parse_let(p)));
         let c = try!(parse_c(p));
@@ -216,7 +213,7 @@ fn parse_binding<'a>(p: &mut Parser<'a>, data: &mut Data) -> PResult<'a, usize> 
     }
 }
 
-fn parse_opt<'a>(cx: &mut ExtCtxt, p: &mut Parser<'a>, data: &mut Data) -> PResult<'a, ()> {
+fn parse_opt(cx: &mut ExtCtxt, p: &mut Parser, data: &mut Data) -> PResult<()> {
     if p.token.is_keyword(keywords::Use) {
         try!(p.bump());
         data.clobbers.push(format!("~{{{}}}", &try!(get_ident(p))));
