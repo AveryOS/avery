@@ -29,7 +29,10 @@ macro_rules! panictry {
         use syntax::errors::FatalError;
         match $e {
             Ok(e) => e,
-            Err(FatalError) => panic!(FatalError),
+            Err(mut e) => {
+                e.emit();
+                panic!(FatalError);
+            }
         }
     })
 }
@@ -112,36 +115,36 @@ fn add_binding(data: &mut Data, name: Option<String>, c: Constraint, kind: Bindi
     idx
 }
 
-fn get_ident(p: &mut Parser) -> PResult<String> {
+fn get_ident<'a>(p: &mut Parser<'a>) -> PResult<'a, String> {
     match p.token {
         token::Ident(id, _) => {
-            try!(p.bump());
+            p.bump();
             Ok(id.name.as_str().to_string())
         }
         _ => {
-            Err(p.unexpected())
+            p.unexpected()
         }
     }
 }
 
-fn parse_c(p: &mut Parser) -> PResult<Constraint> {
+fn parse_c<'a>(p: &mut Parser<'a>) -> PResult<'a, Constraint> {
     try!(p.expect(&token::BinOp(token::Percent)));
-    let early_clobber = try!(p.eat(&token::BinOp(token::And)));
-    let indirect = try!(p.eat(&token::BinOp(token::Star)));
+    let early_clobber = p.eat(&token::BinOp(token::And));
+    let indirect = p.eat(&token::BinOp(token::Star));
     Ok(Constraint { name: try!(get_ident(p)), indirect: indirect, early_clobber: early_clobber })
 }
 
-fn parse_let(p: &mut Parser) -> PResult<String> {
+fn parse_let<'a>(p: &mut Parser<'a>) -> PResult<'a, String> {
     try!(p.expect_keyword(keywords::Let));
     let n = try!(get_ident(p));
     try!(p.expect(&token::Colon));
     Ok(n)
 }
 
-fn parse_c_arrow(p: &mut Parser, data: &mut Data) -> PResult<usize> {
+fn parse_c_arrow<'a>(p: &mut Parser<'a>, data: &mut Data) -> PResult<'a, usize> {
     let c = try!(parse_c(p));
 
-    let rw = if try!(p.eat(&token::Le)) {
+    let rw = if p.eat(&token::Le) {
         try!(p.expect(&token::Gt));
         true
     } else {
@@ -160,7 +163,7 @@ fn parse_c_arrow(p: &mut Parser, data: &mut Data) -> PResult<usize> {
     Ok(add_binding(data, None, c, kind))
 }
 
-fn parse_operand(p: &mut Parser, data: &mut Data) -> PResult<usize> {
+fn parse_operand<'a>(p: &mut Parser<'a>, data: &mut Data) -> PResult<'a, usize> {
     match p.token {
         token::BinOp(token::Percent) => {
             parse_c_arrow(p, data)
@@ -168,7 +171,7 @@ fn parse_operand(p: &mut Parser, data: &mut Data) -> PResult<usize> {
         _ => {
             let exp = try!(p.parse_assoc_expr_with(AssocOp::BitOr.precedence(), LhsExpr::NotYetParsed));
 
-            let rw = if try!(p.eat(&token::Le)) {
+            let rw = if p.eat(&token::Le) {
                 try!(p.expect(&token::Gt));
                 true
             } else {
@@ -185,7 +188,7 @@ fn parse_operand(p: &mut Parser, data: &mut Data) -> PResult<usize> {
 
             let kind = if rw {
                 BindingKind::InputAndOutput(exp)
-            } else if try!(p.eat(&token::FatArrow)) {
+            } else if p.eat(&token::FatArrow) {
                 BindingKind::InputThenOutput(exp, try!(p.parse_expr()))
             }  else {
                 BindingKind::Input(exp)
@@ -196,12 +199,12 @@ fn parse_operand(p: &mut Parser, data: &mut Data) -> PResult<usize> {
     }
 }
 
-fn parse_binding(p: &mut Parser, data: &mut Data) -> PResult<usize> {
+fn parse_binding<'a>(p: &mut Parser<'a>, data: &mut Data) -> PResult<'a, usize> {
     if p.token.is_keyword(keywords::Let) {
         let name = Some(try!(parse_let(p)));
         let c = try!(parse_c(p));
 
-        let kind = if try!(p.eat(&token::FatArrow)) {
+        let kind = if p.eat(&token::FatArrow) {
             BindingKind::Output(try!(p.parse_expr()))
         } else {
             BindingKind::Bare
@@ -213,12 +216,12 @@ fn parse_binding(p: &mut Parser, data: &mut Data) -> PResult<usize> {
     }
 }
 
-fn parse_opt(cx: &mut ExtCtxt, p: &mut Parser, data: &mut Data) -> PResult<()> {
+fn parse_opt<'a>(cx: &mut ExtCtxt, p: &mut Parser<'a>, data: &mut Data) -> PResult<'a, ()> {
     if p.token.is_keyword(keywords::Use) {
-        try!(p.bump());
+        p.bump();
         data.clobbers.push(format!("~{{{}}}", &try!(get_ident(p))));
     } else if p.token.is_keyword(keywords::Mod) {
-        try!(p.bump());
+        p.bump();
         match &try!(get_ident(p))[..] {
             "attsyntax" => {
                 data.dialect = AsmDialect::Att;
@@ -336,7 +339,7 @@ fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree]) 
                         out.push(Output::Str(" ".to_string()));
                     }
 
-                    panictry!(p.bump());
+                    p.bump();
                     out.push(Output::Binding(parse_binding(&mut p, &mut data).unwrap()));
 
                     if is_whitespace_right(cx, p.span) {
@@ -348,10 +351,10 @@ fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree]) 
                 whitespace_wrap(cx, &mut out, p.span, |out| {
                     if let Some(idx) = data.idents.get(&token_to_string(&p.token)) {
                         out.push(Output::Binding(*idx));
-                        panictry!(p.bump());
+                        p.bump();
                     } else {
                         out.push(Output::Str(token_to_string(&p.token)));
-                        panictry!(p.bump());
+                        p.bump();
                     }
                 });
             }
@@ -359,21 +362,21 @@ fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree]) 
                 whitespace_wrap(cx, &mut out, p.span, |out| {
                     out.push(Output::Str("$$".to_string()));
                 });
-                panictry!(p.bump());
+                p.bump();
             }
             token::Semi => {
                 out.push(Output::Str("\n\t".to_string()));
-                panictry!(p.bump());
+                p.bump();
             }
             token::Interpolated(_) => {
-                panictry!(Err(p.unexpected()));
+                panictry!(p.unexpected());
             }
             token::Eof => break,
             _ => {
                 whitespace_wrap(cx, &mut out, p.span, |out| {
                     out.push(Output::Str(token_to_string(&p.token)));
                 });
-                panictry!(p.bump());
+                p.bump();
             }
         }
     }
