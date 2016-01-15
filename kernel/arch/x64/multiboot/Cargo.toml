@@ -1,0 +1,10 @@
+[package]
+name = "bootstrap"
+version = "0.1.0"
+
+[lib]
+path = "bootstrap.rs"
+
+[dependencies]
+core = { path = "../../../../vendor/avery-rust/src/src/libcore" }
+rlibc = { path = "../../../../vendor/rlibc/src" }

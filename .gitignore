@@ -1,7 +1,9 @@
 /emu
 /emu/grubimage.img
 /build
-/vendor/rlibc
+/vendor/cargo
+/vendor/bindgen
+/vendor/rlibc/src
 /vendor/rust
 /vendor/binutils
 /vendor/mtools

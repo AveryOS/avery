@@ -105,7 +105,7 @@ def build_libcore(build, crate_prefix, flags)
 	run 'rustc', *RUSTFLAGS, *flags, 'vendor/avery-rust/src/src/libcore/lib.rs', '--out-dir', crates
 
 	# libcore needs rlibc
-	run 'rustc', '-L', crates, *RUSTFLAGS, *flags, '--crate-type', 'rlib', '--crate-name', 'rlibc', 'vendor/rlibc/src/lib.rs', '--out-dir', crates
+	run 'rustc', '-L', crates, *RUSTFLAGS, *flags, '--crate-type', 'rlib', '--crate-name', 'rlibc', 'vendor/rlibc/src/src/lib.rs', '--out-dir', crates
 end
 
 def build_crate(build, crate_prefix, out_prefix, flags, src, src_flags)
@@ -480,8 +480,8 @@ task :deps_other do
 	end
 
 	Dir.chdir('vendor/') do
-		unless Dir.exists?("rlibc")
-			run "git", "clone" , "https://github.com/alexcrichton/rlibc.git"
+		unless Dir.exists?("rlibc/src")
+			run "git", "clone" , "https://github.com/alexcrichton/rlibc.git", "rlibc/src"
 		end
 
 		build_from_url.("ftp://ftp.gnu.org/gnu/binutils/", "binutils", "2.25", {unix: true}) do |src, prefix|
