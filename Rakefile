@@ -4,17 +4,41 @@ require_relative 'rake/lokar'
 
 RUSTSHORT = false
 AVERY_DIR = File.expand_path('../', __FILE__)
+Dir.chdir(AVERY_DIR)
 
 ENV['RUST_TARGET_PATH'] = File.expand_path('../targets', __FILE__)
 ENV['RUST_BACKTRACE'] = '1'
+UNIX_EMU = [false]
+
+def which(cmd)
+	exts = ENV['PATHEXT'] ? ENV['PATHEXT'].split(';') : ['']
+	ENV['PATH'].split(File::PATH_SEPARATOR).each do |path|
+		exts.each { |ext|
+			exe = File.join(path, "#{cmd}#{ext}")
+			return exe if File.executable?(exe) && !File.directory?(exe)
+		}
+	end
+	return nil
+end
+
+NINJA = which('ninja')
 
 def mkdirs(target)
 	FileUtils.makedirs(target)
 end
 
 def run(*cmd)
-	puts cmd.join(" ")
-	system([cmd.first, cmd.first], *cmd[1..-1])
+	puts cmd.map { |c| c.shellescape }.join(" ")
+
+	# Run commands in the MSYS shell
+	if ON_WINDOWS_MINGW && UNIX_EMU[0]
+		msystem = ENV['MSYSTEM']
+		ENV['MSYSTEM'] = 'MSYS'
+		system('bash', '-lc', "cd #{Dir.pwd.shellescape}; " + cmd.map { |c| c.shellescape }.join(" "))
+		ENV['MSYSTEM'] = msystem
+	else
+		 system([cmd.first, cmd.first], *cmd[1..-1])
+	end
 	raise "Command #{cmd.join(" ")} failed with error code #{$?}" if $? != 0
 end
 
@@ -49,7 +73,7 @@ else
 	append_path(File.expand_path("../vendor/avery-rust/install/bin", __FILE__))
 end
 
-QEMU_PATH = "#{'qemu/' if ON_WINDOWS}"
+QEMU_PATH = "#{'qemu/' if !which("qemu-system-x86_64")}"
 AR = 'x86_64-elf-ar'
 AS = 'x86_64-elf-as'
 LD = 'x86_64-elf-ld'
@@ -68,7 +92,7 @@ def assemble(build, source, objects)
 
 	objects << object_file
 end
-#--llvm-args=--inline-threshold=0 # , 
+#--llvm-args=--inline-threshold=0 # ,
 
 # We need to pass along sysroot here so rustc won't try to use host crates. The sysroot folder doesn't need to exist.
 # opt-level=1 is needed so LLVM will optimize out uses of floating point in libcore
@@ -283,7 +307,7 @@ end
 CORES = 4
 
 # Build a unix like package at src
-build_unix_pkg = proc do |src, &proc|
+build_unix_pkg = proc do |src, opts, &proc|
 	mkdirs("install")
 	prefix = File.realpath("install");
 
@@ -291,7 +315,10 @@ build_unix_pkg = proc do |src, &proc|
 
 	unless File.exists?("configured")
 		Dir.chdir("build") do
+			old_unix = UNIX_EMU[0]
+			UNIX_EMU[0] = opts[:unix]
 			proc.call(File.join("..", src), prefix)
+			UNIX_EMU[0] = old_unix
 		end
 		run 'touch', "configured"
 	end
@@ -304,13 +331,25 @@ build_unix_pkg = proc do |src, &proc|
 				bin_path = "#{ARCH}/stage1"
 				run "make", "rustc-stage1", "-j#{CORES}"
 			else
-				run "make", "-j#{CORES}"
-				run "make", "install"
+				if opts[:cargo]
+					run "cargo", "build"
+				else
+					if opts[:ninja] && NINJA
+						run "ninja"
+						run "ninja", "install"
+					else
+						old_unix = UNIX_EMU[0]
+						UNIX_EMU[0] = opts[:unix]
+						run "make", "-j#{CORES}"
+						run "make", "install"
+						UNIX_EMU[0] = old_unix
+					end
+				end
 			end
 		end
 
 		# Copy dependencies from MSYS
-		if File.exists?('/usr/bin/msys-2.0.dll')
+		if opts[:unix] && File.exists?('/usr/bin/msys-2.0.dll')
 			mkdirs("#{bin_path}/bin")
 			run 'cp', '/usr/bin/msys-2.0.dll', "#{bin_path}/bin/msys-2.0.dll"
 		end
@@ -320,15 +359,15 @@ build_unix_pkg = proc do |src, &proc|
 end
 
 # Build a unix like package from url
-build_from_url = proc do |url, name, ver, ext = "bz2", &proc|
+build_from_url = proc do |url, name, ver, opts = {}, &proc|
 	src = "#{name}-#{ver}"
-
+	ext = opts[:ext] || "bz2"
 	mkdirs(name)
 	Dir.chdir(name) do
 		mkdirs("install")
 		prefix = File.realpath("install");
 
-		unless File.exists?(src)
+		unless File.exists?("src")
 			tar = "#{src}.tar.#{ext}"
 			unless File.exists?(tar)
 				run 'curl', '-O', "#{url}#{tar}"
@@ -343,21 +382,21 @@ build_from_url = proc do |url, name, ver, ext = "bz2", &proc|
 					"z"
 			end
 
-			run 'tar', "#{uncompress}xf", tar
+			run 'tar', "--one-top-level=src", "--strip-components=1", "-#{uncompress}xf", tar
 		end
 
-		build_unix_pkg.(src, &proc)
+		build_unix_pkg.("src", opts, &proc)
 	end
 end
 
 # Build a unix like package from git
-build_from_git = proc do |name, url, &proc|
+build_from_git = proc do |name, url, opts = {}, &proc|
 	mkdirs(name)
 	Dir.chdir(name) do
-		unless Dir.exists?(name)
-			run "git", "clone" , url, name
+		unless Dir.exists?("src")
+			run "git", "clone" , url, "src"
 		end
-		build_unix_pkg.(name, &proc)
+		build_unix_pkg.("src", opts, &proc)
 	end
 end
 
@@ -366,50 +405,71 @@ update_cfg = proc do |path|
 	run 'cp', File.join(AVERY_DIR, 'vendor/config.sub'), path
 end
 
-task :deps_unix do
-	raise "Cannot build UNIX dependencies with MinGW" if ON_WINDOWS_MINGW
+task :deps_msys do
+	raise "Cannot install dependencies when not in a MSYS2 MINGW shell" if !ON_WINDOWS_MINGW
+	mingw = if ENV['MSYSTEM']='MINGW64'
+		'mingw-w64-x86_64'
+	else
+		'mingw-w64-i686'
+	end
+	run *%W{pacman --needed --noconfirm -S ruby git tar gcc bison make texinfo patch diffutils autoconf #{mingw}-python2 #{mingw}-cmake #{mingw}-gcc #{mingw}-ninja}
+end
 
+task :extra do
 	Dir.chdir('vendor/') do
-		build_from_url.("ftp://ftp.gnu.org/gnu/binutils/", "binutils", "2.25") do |src, prefix|
-			run File.join(src, 'configure'), "--prefix=#{prefix}", *%w{--target=x86_64-elf --with-sysroot --disable-nls --disable-werror}
-		end # binutils is buggy with mingw-w64
-
-		build_from_url.("ftp://ftp.gnu.org/gnu/libiconv/", "libiconv", "1.14", "gz") do |src, prefix|
+		build_from_url.("ftp://ftp.gnu.org/gnu/libiconv/", "libiconv", "1.14", {unix: true, ext: "gz"}) do |src, prefix|
 			run File.join(src, 'configure'), "--prefix=#{prefix}"
 		end if nil #RbConfig::CONFIG['host_os'] == 'msys'
 
-		build_from_url.("ftp://ftp.gnu.org/gnu/mtools/", "mtools", "4.0.18") do |src, prefix|
-			update_cfg.(src)
-			#run 'cp', '-rf', "../../libiconv/install", ".."
-			Dir.chdir(src) do
-				run 'patch', '-i', "../../mtools-fix.diff"
-			end
-			opts = []
-			opts += ["LIBS=-liconv"] if Gem::Platform::local.os == 'darwin'
-			run File.join(src, 'configure'), "--prefix=#{prefix}", *opts
-		end# mtools doesn't build with mingw-w64
-
-		build_from_git.("avery-binutils", "https://github.com/Zoxc/avery-binutils.git") do |src, prefix|
-			run File.join(src, 'configure'), "--prefix=#{prefix}", *%w{--target=x86_64-pc-avery --with-sysroot --disable-nls --disable-werror --disable-gdb --disable-sim --disable-readline --disable-libdecnumber}
-		end # binutils is buggy with mingw-w64
-
 		# autotools for picky newlib
-		build_from_url.("ftp://ftp.gnu.org/gnu/automake/", "automake", "1.12", "gz") do |src, prefix|
+		build_from_url.("ftp://ftp.gnu.org/gnu/automake/", "automake", "1.12", {unix: true, ext: "gz"}) do |src, prefix|
 			update_cfg.(src)
 			update_cfg.(File.join(src, 'lib'))
 			run File.join(src, 'configure'), "--prefix=#{prefix}"
 		end
 
-		build_from_url.("ftp://ftp.gnu.org/gnu/autoconf/", "autoconf", "2.65", "gz") do |src, prefix|
+		build_from_url.("ftp://ftp.gnu.org/gnu/autoconf/", "autoconf", "2.65", {unix: true, ext: "gz"}) do |src, prefix|
 			update_cfg.(src)
 			run File.join(src, 'configure'), "--prefix=#{prefix}"
+		end
+
+		build_from_git.("avery-binutils", "https://github.com/Zoxc/avery-binutils.git", {unix: true}) do |src, prefix|
+			run File.join(src, 'configure'), "--prefix=#{prefix}", *%w{--target=x86_64-pc-avery --with-sysroot --disable-nls --disable-werror --disable-gdb --disable-sim --disable-readline --disable-libdecnumber}
+		end # binutils is buggy with mingw-w64
+
+		build_from_git.("avery-newlib", "https://github.com/Zoxc/avery-newlib.git") do |src, prefix|
+			run File.join(src, 'configure'), "--prefix=#{prefix}", "--target=x86_64-pc-avery", 'CC_FOR_TARGET=clang -fno-integrated-as -ffreestanding --target=x86_64-pc-avery -ccc-gcc-name x86_64-pc-avery-gcc'
+		end
+	end
+end
+
+task :bindgen do
+	Dir.chdir('vendor/') do
+		build_from_git.("cargo", "https://github.com/rust-lang/cargo.git") do |src, prefix|
+			Dir.chdir(src) do
+				run *%w{git submodule update --init}
+				run *%w{python -B src/etc/install-deps.py}
+			end
+			#run File.join(src, 'configure'), "--local-rust-root=#{prefix}/../../avery-rust/install/bin/rustc"
+		end
+
+		build_from_git.("bindgen", "https://github.com/crabtw/rust-bindgen.git", {cargo: true}) do |src, prefix|
 		end
 	end
 end
 
 task :deps_other do
+	raise "Cannot build non-UNIX dependencies with MSYS2 shell, use the MinGW shell and run `rake deps`" if ON_WINDOWS && !ON_WINDOWS_MINGW
+	raise "Ninja is required on Windows" if ON_WINDOWS_MINGW && !NINJA
+
 	mkdirs('emu')
 	Dir.chdir('emu/') do
+		if ON_WINDOWS && QEMU_PATH == 'qemu/' && !Dir.exists?('qemu')
+			run 'curl', '-O', 'https://raw.githubusercontent.com/Zoxc/avery-binaries/master/qemu.tar.xz'
+			run 'tar', "Jxf", 'qemu.tar.xz'
+			FileUtils.rm('qemu.tar.xz')
+		end
+
 		unless File.exists?('grubdisk.img')
 			run 'curl', '-O', 'https://raw.githubusercontent.com/Zoxc/avery-binaries/master/disk.tar.xz'
 			run 'tar', "Jxf", 'disk.tar.xz'
@@ -422,7 +482,22 @@ task :deps_other do
 			run "git", "clone" , "https://github.com/alexcrichton/rlibc.git"
 		end
 
-		build_from_git.("avery-llvm", "https://github.com/Zoxc/avery-llvm.git") do |src, prefix|
+		build_from_url.("ftp://ftp.gnu.org/gnu/binutils/", "binutils", "2.25", {unix: true}) do |src, prefix|
+			run File.join(src, 'configure'), "--prefix=#{prefix}", *%w{--target=x86_64-elf --with-sysroot --disable-nls --disable-werror}
+		end # binutils is buggy with mingw-w64
+
+		build_from_url.("ftp://ftp.gnu.org/gnu/mtools/", "mtools", "4.0.18", {unix: true}) do |src, prefix|
+			update_cfg.(src)
+			#run 'cp', '-rf', "../../libiconv/install", ".."
+			Dir.chdir(src) do
+				run 'patch', '-i', "../../mtools-fix.diff"
+			end
+			opts = []
+			opts += ["LIBS=-liconv"] if Gem::Platform::local.os == 'darwin'
+			run File.join(src, 'configure'), "--prefix=#{prefix}", *opts
+		end# mtools doesn't build with mingw-w64
+
+		build_from_git.("avery-llvm", "https://github.com/Zoxc/avery-llvm.git", {ninja: true}) do |src, prefix|
 			Dir.chdir(File.join(src, 'tools')) do
 				unless Dir.exists?("clang")
 					run "git", "clone" , "https://github.com/Zoxc/avery-clang.git", "clang"
@@ -430,13 +505,12 @@ task :deps_other do
 			end
 			#-DBUILD_SHARED_LIBS=On  rustc on OS X wants static
 			opts = %W{-DLLVM_TARGETS_TO_BUILD=X86 -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX=#{prefix}}
-			opts += ['-G',  'MSYS Makefiles'] if ON_WINDOWS_MINGW
+			opts += ['-G',  'Ninja', '-DLLVM_PARALLEL_LINK_JOBS=1'] if NINJA
+			opts += %w{-DCMAKE_CXX_COMPILER=g++ -DCMAKE_C_COMPILER=gcc -DBUILD_SHARED_LIBS=On} if ON_WINDOWS_MINGW
 			run "cmake", src, *opts
 		end
 
-		build_from_git.("avery-newlib", "https://github.com/Zoxc/avery-newlib.git") do |src, prefix|
-			run File.join(src, 'configure'), "--prefix=#{prefix}", "--target=x86_64-pc-avery", 'CC_FOR_TARGET=clang -fno-integrated-as -ffreestanding --target=x86_64-pc-avery -ccc-gcc-name x86_64-pc-avery-gcc'
-		end
+		# Newlib/avery-binutils should be built here
 
 		# C++ isn't working yet
 		#run "rm", "avery-llvm/install/bin/clang++#{EXE_POST}"
@@ -444,7 +518,7 @@ task :deps_other do
 		run "rm", "-rf", "sysroot"
 		mkdirs('sysroot')
 		#run 'cp', '-r', 'avery-binutils/install/x86_64-pc-avery/.', "sysroot/usr/"
-		run 'cp', '-r', 'avery-newlib/install/x86_64-pc-avery/.', "sysroot"
+		run 'cp', '-r', 'avery-newlib/install/x86_64-pc-avery/.', "sysroot" if Dir.exists?("avery-newlib/install")
 
 		# CMAKE_STAGING_PREFIX, CMAKE_INSTALL_PREFIX
 
@@ -471,25 +545,17 @@ task :deps_other do
 		end
 
 		# place compiler-rt in lib/rustlib/x86_64-pc-avery/lib - rustc links to it // clang links to it instead
-		run 'cp', '-r', 'libcompiler-rt.a', "sysroot/lib"
+		run 'cp', '-r', 'libcompiler-rt.a', "sysroot/lib" if File.exists?("libcompiler-rt.a")
 	end
 end
 
 task :user do
-	RUSTFLAGS = %w{-C opt-level=1 -C debuginfo=1 -Z no-landing-pads}
 	build = Build.new('build', 'info.yml')
 	build.run do
 		build_libcore(build, "user", %w{--target x86_64-pc-avery})
 		# rustc can't pass linker arguments with spaces in them; require a space free path
 		build_crate(build, "user", "user", %w{--target x86_64-pc-avery}, 'user/test.rs', ['-Z', 'print-link-args', '-C', "link-args=-v --sysroot #{File.expand_path('../vendor/sysroot', __FILE__)}"])
 	end
-end
-
-task :setup do
-	Rake::Task["deps_unix"].invoke
-	Rake::Task["deps"].invoke
-	Rake::Task["build"].invoke
-	puts "Setup has been run"
 end
 
 task :sh do

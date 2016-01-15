@@ -1,9 +1,5 @@
-This requires git, curl, libiconv, bison, patch, diffutils, texinfo, gcc and rake to be installed. OS X comes with all of these (with command line tools installed). On [MSYS2](https://msys2.github.io/) these can be installed by `pacman -S ruby git tar gcc bison make texinfo patch diffutils`.
+This requires git, curl, libiconv, bison, patch, diffutils, texinfo, libssl-dev (on Unix), gcc, cmake, ninja (on Windows) and rake to be installed. OS X comes with all dependencies (with command line tools installed). On Windows, all commands must be run in a [MSYS2](https://msys2.github.io/) MINGW shell. The dependencies can be installed in MSYS2 by running `rake deps_msys`.
 
-Run `rake deps_unix` to set up and build dependencies requiring a POSIX system. On Windows this must run in [MSYS2](https://msys2.github.io/) (and not with the MINGW shells). Be sure to install the dependencies in MSYS2 (including GCC).
-
-Run `rake deps` to set up and build dependencies. On Windows this must also run in [MSYS2](https://msys2.github.io/) (optionally in a MINGW shell).
-
-The above tasks can be run with `rake setup` in a POSIX system (MSYS2 shell included).
+Run `rake deps` to set up and build dependencies. This will take a while as it builds LLVM, rustc and other things.
 
 You can then build the kernel with `rake`. `rake qemu` runs it in QEMU.
