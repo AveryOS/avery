@@ -62,6 +62,7 @@ append_path(File.expand_path('../vendor/binutils/install/bin', __FILE__))
 append_path(File.expand_path('../vendor/mtools/install/bin', __FILE__))
 append_path(File.expand_path('../vendor/avery-llvm/install/bin', __FILE__))
 append_path(File.expand_path('../vendor/avery-binutils/install/bin', __FILE__))
+append_path(File.expand_path('../vendor/cargo/install/bin', __FILE__))
 
 if RUSTSHORT
 	ARCH = `./vendor/config.guess`.strip.sub(/[0-9\.]*$/, '')
@@ -310,10 +311,12 @@ build_unix_pkg = proc do |src, opts, &proc|
 	mkdirs("install")
 	prefix = File.realpath("install");
 
-	mkdirs("build")
+	build_dir = opts[:intree] ? src : "build"
+
+	mkdirs(build_dir)
 
 	unless File.exists?("configured")
-		Dir.chdir("build") do
+		Dir.chdir(build_dir) do
 			old_unix = UNIX_EMU[0]
 			UNIX_EMU[0] = opts[:unix]
 			proc.call(File.join("..", src), prefix)
@@ -325,13 +328,13 @@ build_unix_pkg = proc do |src, opts, &proc|
 	unless File.exists?("built")
 		bin_path = "install"
 
-		Dir.chdir("build") do
+		Dir.chdir(build_dir) do
 			if src == 'avery-rust' && RUSTSHORT
 				bin_path = "#{ARCH}/stage1"
 				run "make", "rustc-stage1", "-j#{CORES}"
 			else
 				if opts[:cargo]
-					run "cargo", "build"
+					run "cargo", "install", "--path=#{File.join("..", src)}", "--root=#{File.join("..", 'install')}"
 				else
 					if opts[:ninja] && NINJA
 						run "ninja"
@@ -444,14 +447,14 @@ end
 
 task :bindgen do
 	Dir.chdir('vendor/') do
-		build_from_git.("cargo", "https://github.com/rust-lang/cargo.git") do |src, prefix|
+		build_from_git.("cargo", "https://github.com/rust-lang/cargo.git", {intree: true}) do |src, prefix|
 			Dir.chdir(src) do
 				run *%w{git submodule update --init}
-				run *%w{python -B src/etc/install-deps.py}
 			end
-			#run File.join(src, 'configure'), "--local-rust-root=#{prefix}/../../avery-rust/install/bin/rustc"
+			run File.join(src, 'configure'), "--enable-nightly", "--prefix=#{prefix}", "--local-rust-root=#{File.expand_path("../vendor/avery-rust/install", __FILE__)}"
 		end
 
+		ENV['LIBCLANG_PATH'] = File.expand_path("../vendor/avery-llvm/install/#{ON_WINDOWS ? 'bin' : 'lib'}", __FILE__)
 		build_from_git.("bindgen", "https://github.com/crabtw/rust-bindgen.git", {cargo: true}) do |src, prefix|
 		end
 	end
