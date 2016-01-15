@@ -41,9 +41,13 @@ pub fn print_args(args: Arguments) {
     drop(lock);
 }
 
+#[lang = "eh_unwind_resume"]
+fn eh_unwind_resume() {
+    panic!("Exceptions not supported");
+}
+
 #[lang = "eh_personality"]
-extern fn eh_personality()
-{
+extern fn eh_personality() {
     panic!("Exceptions not supported");
 }
 

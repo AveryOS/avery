@@ -1,6 +1,6 @@
 #![no_std]
 #![crate_type = "staticlib"]
-#![feature(asm, lang_items, plugin, negate_unsigned)]
+#![feature(asm, lang_items, plugin)]
 #![plugin(assembly)]
 
 extern crate rlibc;
@@ -9,8 +9,7 @@ use core::mem::{size_of_val, uninitialized};
 
 use multiboot::*;
 
-#[lang = "begin_unwind"] fn begin_unwind() {}
-#[lang = "stack_exhausted"] fn stack_exhausted() {}
+#[lang = "eh_unwind_resume"] fn eh_unwind_resume() {}
 #[lang = "eh_personality"] fn eh_personality() {}
 #[lang = "panic_fmt"] fn panic_fmt() {}
 
