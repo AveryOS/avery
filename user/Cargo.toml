@@ -1,0 +1,10 @@
+[package]
+name = "test"
+version = "0.1.0"
+
+[[bin]]
+name = "test"
+path = "test.rs"
+
+[dependencies]
+rlibc = "0.1.5"

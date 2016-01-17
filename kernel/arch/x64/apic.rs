@@ -86,7 +86,7 @@ pub unsafe fn initialize(register_base: Option<Addr>) {
 }
 
 pub unsafe fn initialize_ap() {
-	reg(REG_DFR, -1);
+	reg(REG_DFR, !0);
 	reg(REG_LDR, get_reg(REG_LDR) & 0x00FFFFFF);
 	reg(REG_LVT_TIMER, LVT_MASK);
 	reg(REG_LVT_THERMAL, LVT_MASK);
@@ -137,7 +137,7 @@ pub unsafe fn calibrate_done() {
 
 pub unsafe fn calibrate_ap() {
 	reg(REG_TIMER_DIV, 2);
-	reg(REG_TIMER_INIT, -1);
+	reg(REG_TIMER_INIT, !0);
 	reg(REG_LVT_TIMER, LVT_MASK);
 
 	interrupts::enable();

@@ -109,28 +109,10 @@ def assemble(build, source, objects)
 
 	objects << object_file
 end
-#--llvm-args=--inline-threshold=0 # ,
 
 # We need to pass along sysroot here so rustc won't try to use host crates. The sysroot folder doesn't need to exist.
-# opt-level=1 is needed so LLVM will optimize out uses of floating point in libcore
-RUSTFLAGS = ['--sysroot', hostpath('build/sysroot')] + %w{-g -C ar=x86_64-elf-a -Z no-landing-pads -v}
+RUSTFLAGS = ['--sysroot', hostpath('build/sysroot')] + %w{-g -Z no-landing-pads}
 ENV['RUSTFLAGS'] = RUSTFLAGS.join(" ") # Cargo uses this. How to pass spaces here?
-
-def build_libcore(build, crate_prefix, flags)
-	crates = build.output(File.join(crate_prefix, "crates"))
-	mkdirs(crates)
-	run 'rustc', *RUSTFLAGS, *flags, 'vendor/rust/src/src/libcore/lib.rs', '--out-dir', crates
-
-	# libcore needs rlibc
-	run 'rustc', '-L', crates, *RUSTFLAGS, *flags, '--crate-type', 'rlib', '--crate-name', 'rlibc', 'vendor/rlibc/src/src/lib.rs', '--out-dir', crates
-end
-
-def build_crate(build, crate_prefix, out_prefix, flags, src, src_flags)
-	crates = build.output(File.join(crate_prefix, "crates"))
-	out_prefix = build.output(out_prefix)
-	mkdirs(out_prefix)
-	run 'rustc', '-C', 'target-feature=-mmx,-sse,-sse2', '-C', 'lto', '-L', crates, '-L', 'build/phase', *RUSTFLAGS, *flags, src,  '--out-dir', out_prefix, *src_flags
-end
 
 kernel_object_bootstrap = "build/bootstrap.o"
 
@@ -158,10 +140,11 @@ build_kernel = proc do
 
 	build.run do
 		# Build the kernel object
-		flags = ['--emit=obj,llvm-ir']
+		flags = ["--emit=llvm-ir,obj=#{kernel_object}"]
 		flags += ['--cfg', 'multiboot'] if type == :multiboot
-		build_crate(build, "", "#{type}", %w{--target x86_64-avery-kernel}, 'kernel/kernel.rs', flags)
-
+		
+		run *%w{cargo rustc --release --manifest-path kernel/Cargo.toml --target x86_64-avery-kernel --}, *flags
+	
 		# Preprocess files
 
 		gen_folder = "gen/#{type}"
@@ -216,65 +199,48 @@ end
 
 task :deps => :deps_other do
 	build_core = proc do |target|
-		run *%W{cargo build --release --manifest-path vendor/rust/src/src/libcore/Cargo.toml --features disable_float --target #{target} -v}
+		run *%W{cargo build --release --manifest-path vendor/rust/src/src/libcore/Cargo.toml --features disable_float --target #{target}}
 		mkdirs("build/sysroot/lib/rustlib/#{target}/lib")
 		FileUtils.cp "build/cargo/target/#{target}/release/libcore.rlib", "build/sysroot/lib/rustlib/#{target}/lib"
 	end
 	build_core.('x86_32-avery-kernel')
 	build_core.('x86_64-avery-kernel')
 
-	run *%w{cargo build --release --manifest-path kernel/arch/x64/multiboot/Cargo.toml --target x86_32-avery-kernel -v}
-
+	run *%w{cargo rustc --release --manifest-path kernel/arch/x64/multiboot/Cargo.toml --target x86_32-avery-kernel -- --emit=asm=build/bootstrap.s}
+	
 	build = Build.new('build', 'info.yml')
 	build.run do
-		mkdirs("build/phase")
-
-		# Build assembly plugin
-		run *%w{rustc -O --out-dir build/phase vendor/asm/assembly.rs}
-
-		# Build 64-bit libcore
-		build_libcore(build, "", %w{--target x86_64-avery-kernel})
-
-		# Build custom 64-bit libstd for the kernel
-		run 'rustc', '-L', 'build/crates', *RUSTFLAGS, '--target', 'x86_64-avery-kernel', 'kernel/std/std.rs', '--out-dir', build.output("crates")
-
-		# Build 32-bit libcore
-		build_libcore(build, "bootstrap", %w{--target x86_32-avery-kernel})
-
-		# Build 32-bit multiboot bootstrap code
-		build_crate(build, "bootstrap", "bootstrap", %w{--target x86_32-avery-kernel}, 'kernel/arch/x64/multiboot/bootstrap.rs', ['--emit=asm,llvm-ir'])
-
 		# Place 32-bit bootstrap code into a 64-bit ELF
+	  
+		build.process kernel_object_bootstrap, "build/bootstrap.s" do |o, i|
+			File.open(i, 'r+') do |file|
+				content = file.read.lines.map do |l|
+					if l.strip =~ /^.cfi.*/
+						""
+					else
+						l
+					end
+				end.join
+				file.pos = 0
+				file.truncate 0
+				file.write ".code32\n"
+				file.write content
+			end
 
-		asm = build.output("bootstrap/bootstrap.s")
+			run AS, i, '-o', kernel_object_bootstrap
 
-		File.open(asm, 'r+') do |file|
-			content = file.read.lines.map do |l|
-				if l.strip =~ /^.cfi.*/
-					""
-				else
-					l
-				end
-			end.join
-			file.pos = 0
-			file.truncate 0
-			file.write ".code32\n"
-			file.write content
+			# Strip all but the entry symbol `setup_long_mode` so they don't conflict with 64-bit kernel symbols
+			run 'x86_64-elf-objcopy', '--strip-debug', '-G', 'setup_long_mode', kernel_object_bootstrap
 		end
-
-		run AS, asm, '-o', kernel_object_bootstrap
-
-		# Strip all but the entry symbol `setup_long_mode` so they don't conflict with 64-bit kernel symbols
-		run 'x86_64-elf-objcopy', '--strip-debug', '-G', 'setup_long_mode', kernel_object_bootstrap
 	end
 end
 
-task :build do
+task :build => :deps do
 	type = :multiboot
 	build_kernel.call
 end
 
-task :build_efi do
+task :build_efi => :deps do
 	type = :efi
 	build_kernel.call
 end
@@ -356,12 +322,13 @@ task :clean do
 end
 
 task :user do
-	build = Build.new('build', 'info.yml')
-	build.run do
-		build_libcore(build, "user", %w{--target x86_64-pc-avery})
-		# rustc can't pass linker arguments with spaces in them; require a space free path
-		build_crate(build, "user", "user", %w{--target x86_64-pc-avery}, 'user/test.rs', ['-Z', 'print-link-args', '-C', "link-args=-v --sysroot #{File.expand_path('../vendor/sysroot', __FILE__)}"])
-	end
+	ENV['RUSTFLAGS'] = (['--sysroot', hostpath('vendor/sysroot')] + %w{-g -Z no-landing-pads -Z print-link-args}).join(" ") # Cargo uses this. How to pass spaces here?
+
+	run *%w{cargo build --release --manifest-path vendor/rust/src/src/libcore/Cargo.toml --target x86_64-pc-avery}
+	mkdirs("vendor/sysroot/lib/rustlib/x86_64-pc-avery/lib")
+	FileUtils.cp "build/cargo/target/x86_64-pc-avery/release/libcore.rlib", "vendor/sysroot/lib/rustlib/x86_64-pc-avery/lib"
+	
+	run *%w{cargo build --release --manifest-path user/Cargo.toml --target x86_64-pc-avery}
 end
 
 task :sh do

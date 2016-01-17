@@ -18,7 +18,7 @@ fn read_lebi128<R: Read>(r: &mut R) -> Result<i64, Error> {
     }
 
     if (shift < 8 * 8) && (byte & 0x40 != 0) {
-        result |= -(1u64 << shift);
+        result |= ((1u64 << shift) as i64).wrapping_neg() as u64;
     }
 
     Ok(result as i64)

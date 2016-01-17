@@ -21,7 +21,7 @@ mod multiboot;
 pub static HEADER: Header = Header {
     magic: HEADER_MAGIC,
     flags: HEADER_FLAG_PAGE_ALIGN | HEADER_FLAG_MEMORY_INFO,
-    checksum: -(HEADER_MAGIC + (HEADER_FLAG_PAGE_ALIGN | HEADER_FLAG_MEMORY_INFO))
+    checksum: -((HEADER_MAGIC + (HEADER_FLAG_PAGE_ALIGN | HEADER_FLAG_MEMORY_INFO)) as i32) as u32
 };
 
 extern {

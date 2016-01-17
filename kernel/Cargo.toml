@@ -3,8 +3,9 @@ name = "avery"
 version = "0.1.0"
 
 [lib]
-path = "kernel/kernel.rs"
+path = "kernel.rs"
 
 [dependencies]
 rlibc = "0.1.5"
 assembly = { path = "../vendor/asm" }
+std = { path = "std" }
