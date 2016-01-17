@@ -143,6 +143,7 @@ build_kernel = proc do
 		flags = ["--emit=llvm-ir,obj=#{kernel_object}"]
 		flags += ['--cfg', 'multiboot'] if type == :multiboot
 		
+		mkdirs(build.output "#{type}")
 		run *%w{cargo rustc --release --manifest-path kernel/Cargo.toml --target x86_64-avery-kernel --}, *flags
 	
 		# Preprocess files
