@@ -386,7 +386,7 @@ build_from_url = proc do |url, name, ver, opts = {}, &proc|
 		mkdirs("install")
 		prefix = File.realpath("install");
 
-		if !File.exists?("src") && build_type != :clean
+		if !File.exists?(src) && build_type != :clean
 			tar = "#{src}.tar.#{ext}"
 			unless File.exists?(tar)
 				run 'curl', '-O', "#{url}#{tar}"
@@ -401,10 +401,10 @@ build_from_url = proc do |url, name, ver, opts = {}, &proc|
 					"z"
 			end
 
-			run 'tar', "--one-top-level=src", "--strip-components=1", "-#{uncompress}xf", tar
+			run 'tar', "-#{uncompress}xf", tar
 		end
 
-		build_unix_pkg.("src", opts, &proc)
+		build_unix_pkg.(src, opts, &proc)
 	end
 end
 
