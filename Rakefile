@@ -524,8 +524,8 @@ external_builds = proc do |real, extra|
 			run File.join(src, 'configure'), "--prefix=#{prefix}", *opts
 		end # mtools doesn't build with mingw-w64
 
-		mkdirs("llvm/src/tools")
 		checkout_git.("llvm", "https://github.com/AveryOS/llvm.git", {branch: "avery"})
+		mkdirs("llvm/src/tools")
 		checkout_git.("llvm/src/tools/clang", "https://github.com/AveryOS/clang.git", {branch: "avery"})
 
 		build_from_git.("llvm", "https://github.com/AveryOS/llvm.git", {branch: "avery", ninja: true}) do |src, prefix|
