@@ -6,6 +6,8 @@ RUSTSHORT = false
 AVERY_DIR = File.expand_path('../', __FILE__)
 Dir.chdir(AVERY_DIR)
 
+ENV['CARGO_HOME'] = File.expand_path('../build/cargo/home', __FILE__)
+ENV['CARGO_TARGET_DIR'] = File.expand_path('../build/cargo/target', __FILE__)
 ENV['RUST_TARGET_PATH'] = File.expand_path('../targets', __FILE__)
 ENV['RUST_BACKTRACE'] = '1'
 UNIX_EMU = [false]
@@ -58,19 +60,19 @@ def append_path(path)
 	end
 end
 
-append_path(File.expand_path('../vendor/binutils/install/bin', __FILE__))
+append_path(File.expand_path('../vendor/elf-binutils/install/bin', __FILE__))
 append_path(File.expand_path('../vendor/mtools/install/bin', __FILE__))
-append_path(File.expand_path('../vendor/avery-llvm/install/bin', __FILE__))
-append_path(File.expand_path('../vendor/avery-binutils/install/bin', __FILE__))
+append_path(File.expand_path('../vendor/llvm/install/bin', __FILE__))
+append_path(File.expand_path('../vendor/binutils/install/bin', __FILE__))
 append_path(File.expand_path('../vendor/cargo/install/bin', __FILE__))
 
 if RUSTSHORT
 	ARCH = `./vendor/config.guess`.strip.sub(/[0-9\.]*$/, '')
-	ENV['DYLD_LIBRARY_PATH'] = File.expand_path("../vendor/avery-rust/build/#{ARCH}/stage0/lib/rustlib/#{ARCH}/lib", __FILE__)
-	append_path(File.expand_path("../vendor/avery-rust/build/#{ARCH}/stage1/bin", __FILE__))
+	ENV['DYLD_LIBRARY_PATH'] = File.expand_path("../vendor/rust/build/#{ARCH}/stage0/lib/rustlib/#{ARCH}/lib", __FILE__)
+	append_path(File.expand_path("../vendor/rust/build/#{ARCH}/stage1/bin", __FILE__))
 else
-	ENV['DYLD_LIBRARY_PATH'] = File.expand_path("../vendor/avery-rust/install/lib", __FILE__)
-	append_path(File.expand_path("../vendor/avery-rust/install/bin", __FILE__))
+	ENV['DYLD_LIBRARY_PATH'] = File.expand_path("../vendor/rust/install/lib", __FILE__)
+	append_path(File.expand_path("../vendor/rust/install/bin", __FILE__))
 end
 
 QEMU_PATH = "#{'qemu/' if !which("qemu-system-x86_64")}"
@@ -98,11 +100,12 @@ end
 # opt-level=1 is needed so LLVM will optimize out uses of floating point in libcore
 RUSTFLAGS = ['-C',"ar=x86_64-elf-ar", '--sysroot', File.expand_path('../build/sysroot', __FILE__)] +
 	%w{-C opt-level=1 -C debuginfo=1 -Z no-landing-pads}
+ENV['RUSTFLAGS'] = RUSTFLAGS.join(" ") # Cargo uses this. How to pass spaces here?
 
 def build_libcore(build, crate_prefix, flags)
 	crates = build.output(File.join(crate_prefix, "crates"))
 	mkdirs(crates)
-	run 'rustc', *RUSTFLAGS, *flags, 'vendor/avery-rust/src/src/libcore/lib.rs', '--out-dir', crates
+	run 'rustc', *RUSTFLAGS, *flags, 'vendor/rust/src/src/libcore/lib.rs', '--out-dir', crates
 
 	# libcore needs rlibc
 	run 'rustc', '-L', crates, *RUSTFLAGS, *flags, '--crate-type', 'rlib', '--crate-name', 'rlibc', 'vendor/rlibc/src/src/lib.rs', '--out-dir', crates
@@ -198,6 +201,9 @@ build_kernel = proc do
 end
 
 task :deps => :deps_other do
+	run *%w{cargo build --manifest-path vendor/rust/src/src/libcore/Cargo.toml --features disable_float --target x86_32-avery-kernel -v}
+	run *%w{cargo build --manifest-path kernel/arch/x64/multiboot/Cargo.toml --target x86_32-avery-kernel -v}
+
 	build = Build.new('build', 'info.yml')
 	build.run do
 		mkdirs("build/phase")
@@ -306,8 +312,17 @@ end
 
 CORES = 4
 
+build_type = :build
+
 # Build a unix like package at src
 build_unix_pkg = proc do |src, opts, &proc|
+	if build_type == :clean
+		FileUtils.rm_rf(["built", "configured", "build", "install"])
+		FileUtils.rm_rf(["src/target"]) if opts[:cargo]
+	end
+
+	next if build_type != :build
+
 	mkdirs("install")
 	prefix = File.realpath("install");
 
@@ -323,13 +338,13 @@ build_unix_pkg = proc do |src, opts, &proc|
 			UNIX_EMU[0] = old_unix
 		end
 		run 'touch', "configured"
-	end
+	end if proc
 
 	unless File.exists?("built")
 		bin_path = "install"
 
 		Dir.chdir(build_dir) do
-			if src == 'avery-rust' && RUSTSHORT
+			if src == 'rust' && RUSTSHORT
 				bin_path = "#{ARCH}/stage1"
 				run "make", "rustc-stage1", "-j#{CORES}"
 			else
@@ -364,12 +379,14 @@ end
 build_from_url = proc do |url, name, ver, opts = {}, &proc|
 	src = "#{name}-#{ver}"
 	ext = opts[:ext] || "bz2"
-	mkdirs(name)
-	Dir.chdir(name) do
+	path = opts[:path] || name
+
+	mkdirs(path)
+	Dir.chdir(path) do
 		mkdirs("install")
 		prefix = File.realpath("install");
 
-		unless File.exists?("src")
+		if !File.exists?("src") && build_type != :clean
 			tar = "#{src}.tar.#{ext}"
 			unless File.exists?(tar)
 				run 'curl', '-O', "#{url}#{tar}"
@@ -391,12 +408,56 @@ build_from_url = proc do |url, name, ver, opts = {}, &proc|
 	end
 end
 
+checkout_git = proc do |path, url, opts = {}, &proc|
+	branch = opts[:branch] || "master"
+	if Dir.exists?(path)
+		if build_type == :clean
+			#run "git", "clean", "-dfx"
+		end
+
+		if build_type == :update
+			Dir.chdir(path) do
+				rep = Dir.pwd
+				git_url = url.gsub("https://", "git@").sub("/", ':')
+				remote = `git remote get-url origin`.strip
+				if remote != url && remote != git_url
+					raise "Git remote mismatch for #{rep}. Local is #{remote}. Required is #{url}"
+				end
+				unless `git status -uno --porcelain`.strip.empty?
+					raise "Dirty working directory in  #{rep}"
+				end
+				local = `git rev-parse #{branch}`
+				remote = `git rev-parse origin/#{branch}`
+				raise "Local branch #{branch} doesn't match origin in #{rep}" if local != remote
+				run "git", "fetch", "origin"
+				run "git", "checkout", branch
+				run "git", "reset", "--hard", "origin/#{branch}"
+				new_local = `git rev-parse #{branch}`
+				if local != new_local
+					puts "Must rebuild #{rep}"
+					next :rebuild
+				end
+			end
+		end
+	else
+		if build_type == :build
+			b = opts[:branch] ? ["-b",  opts[:branch]] : []
+			run "git", "clone", *b, url, path
+		end
+	end
+
+	nil
+end
+
 # Build a unix like package from git
 build_from_git = proc do |name, url, opts = {}, &proc|
 	mkdirs(name)
 	Dir.chdir(name) do
-		unless Dir.exists?("src")
-			run "git", "clone" , url, "src"
+		if checkout_git.("src", url, opts) == :rebuild
+			old = build_type
+			build_type = :clean
+			build_unix_pkg.("src", opts, &proc)
+			build_type = old
 		end
 		build_unix_pkg.("src", opts, &proc)
 	end
@@ -417,63 +478,20 @@ task :deps_msys do
 	run *%W{pacman --needed --noconfirm -S ruby git tar gcc bison make texinfo patch diffutils autoconf #{mingw}-python2 #{mingw}-cmake #{mingw}-gcc #{mingw}-ninja}
 end
 
-task :extra do
-	Dir.chdir('vendor/') do
-		build_from_url.("ftp://ftp.gnu.org/gnu/libiconv/", "libiconv", "1.14", {unix: true, ext: "gz"}) do |src, prefix|
-			run File.join(src, 'configure'), "--prefix=#{prefix}"
-		end if nil #RbConfig::CONFIG['host_os'] == 'msys'
-
-		# autotools for picky newlib
-		build_from_url.("ftp://ftp.gnu.org/gnu/automake/", "automake", "1.12", {unix: true, ext: "gz"}) do |src, prefix|
-			update_cfg.(src)
-			update_cfg.(File.join(src, 'lib'))
-			run File.join(src, 'configure'), "--prefix=#{prefix}"
-		end
-
-		build_from_url.("ftp://ftp.gnu.org/gnu/autoconf/", "autoconf", "2.65", {unix: true, ext: "gz"}) do |src, prefix|
-			update_cfg.(src)
-			run File.join(src, 'configure'), "--prefix=#{prefix}"
-		end
-
-		build_from_git.("avery-binutils", "https://github.com/Zoxc/avery-binutils.git", {unix: true}) do |src, prefix|
-			run File.join(src, 'configure'), "--prefix=#{prefix}", *%w{--target=x86_64-pc-avery --with-sysroot --disable-nls --disable-werror --disable-gdb --disable-sim --disable-readline --disable-libdecnumber}
-		end # binutils is buggy with mingw-w64
-
-		build_from_git.("avery-newlib", "https://github.com/Zoxc/avery-newlib.git") do |src, prefix|
-			run File.join(src, 'configure'), "--prefix=#{prefix}", "--target=x86_64-pc-avery", 'CC_FOR_TARGET=clang -fno-integrated-as -ffreestanding --target=x86_64-pc-avery -ccc-gcc-name x86_64-pc-avery-gcc'
-		end
-	end
-end
-
-task :bindgen do
-	Dir.chdir('vendor/') do
-		build_from_git.("cargo", "https://github.com/rust-lang/cargo.git", {intree: true}) do |src, prefix|
-			Dir.chdir(src) do
-				run *%w{git submodule update --init}
-			end
-			run File.join(src, 'configure'), "--enable-nightly", "--prefix=#{prefix}", "--local-rust-root=#{File.expand_path("../vendor/avery-rust/install", __FILE__)}"
-		end
-
-		ENV['LIBCLANG_PATH'] = File.expand_path("../vendor/avery-llvm/install/#{ON_WINDOWS ? 'bin' : 'lib'}", __FILE__)
-		build_from_git.("bindgen", "https://github.com/crabtw/rust-bindgen.git", {cargo: true}) do |src, prefix|
-		end
-	end
-end
-
-task :deps_other do
+external_builds = proc do |real, extra|
 	raise "Cannot build non-UNIX dependencies with MSYS2 shell, use the MinGW shell and run `rake deps`" if ON_WINDOWS && !ON_WINDOWS_MINGW
 	raise "Ninja is required on Windows" if ON_WINDOWS_MINGW && !NINJA
 
 	mkdirs('emu')
 	Dir.chdir('emu/') do
 		if ON_WINDOWS && QEMU_PATH == 'qemu/' && !Dir.exists?('qemu')
-			run 'curl', '-O', 'https://raw.githubusercontent.com/Zoxc/avery-binaries/master/qemu.tar.xz'
+			run 'curl', '-O', 'https://raw.githubusercontent.com/AveryOS/binaries/master/qemu.tar.xz'
 			run 'tar', "Jxf", 'qemu.tar.xz'
 			FileUtils.rm('qemu.tar.xz')
 		end
 
 		unless File.exists?('grubdisk.img')
-			run 'curl', '-O', 'https://raw.githubusercontent.com/Zoxc/avery-binaries/master/disk.tar.xz'
+			run 'curl', '-O', 'https://raw.githubusercontent.com/AveryOS/binaries/master/disk.tar.xz'
 			run 'tar', "Jxf", 'disk.tar.xz'
 			FileUtils.rm('disk.tar.xz')
 		end
@@ -484,7 +502,7 @@ task :deps_other do
 			run "git", "clone" , "https://github.com/alexcrichton/rlibc.git", "rlibc/src"
 		end
 
-		build_from_url.("ftp://ftp.gnu.org/gnu/binutils/", "binutils", "2.25", {unix: true}) do |src, prefix|
+		build_from_url.("ftp://ftp.gnu.org/gnu/binutils/", "binutils", "2.25", {unix: true, path: 'elf-binutils'}) do |src, prefix|
 			run File.join(src, 'configure'), "--prefix=#{prefix}", *%w{--target=x86_64-elf --with-sysroot --disable-nls --disable-werror}
 		end # binutils is buggy with mingw-w64
 
@@ -497,14 +515,12 @@ task :deps_other do
 			opts = []
 			opts += ["LIBS=-liconv"] if Gem::Platform::local.os == 'darwin'
 			run File.join(src, 'configure'), "--prefix=#{prefix}", *opts
-		end# mtools doesn't build with mingw-w64
+		end # mtools doesn't build with mingw-w64
 
-		build_from_git.("avery-llvm", "https://github.com/Zoxc/avery-llvm.git", {ninja: true}) do |src, prefix|
-			Dir.chdir(File.join(src, 'tools')) do
-				unless Dir.exists?("clang")
-					run "git", "clone" , "https://github.com/Zoxc/avery-clang.git", "clang"
-				end
-			end
+		mkdirs("llvm/src/tools")
+		checkout_git.("llvm/src/tools/clang", "https://github.com/AveryOS/clang.git", {branch: "avery"})
+
+		build_from_git.("llvm", "https://github.com/AveryOS/llvm.git", {branch: "avery", ninja: true}) do |src, prefix|
 			#-DBUILD_SHARED_LIBS=On  rustc on OS X wants static
 			opts = %W{-DLLVM_TARGETS_TO_BUILD=X86 -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX=#{prefix}}
 			opts += ['-G',  'Ninja', '-DLLVM_PARALLEL_LINK_JOBS=1'] if NINJA
@@ -512,26 +528,51 @@ task :deps_other do
 			run "cmake", src, *opts
 		end
 
-		# Newlib/avery-binutils should be built here
+		build_from_url.("ftp://ftp.gnu.org/gnu/libiconv/", "libiconv", "1.14", {unix: true, ext: "gz"}) do |src, prefix|
+			run File.join(src, 'configure'), "--prefix=#{prefix}"
+		end if nil #RbConfig::CONFIG['host_os'] == 'msys'
+
+		# autotools for picky newlib
+
+		build_from_url.("ftp://ftp.gnu.org/gnu/automake/", "automake", "1.12", {unix: true, ext: "gz"}) do |src, prefix|
+			update_cfg.(src)
+			update_cfg.(File.join(src, 'lib'))
+			run File.join(src, 'configure'), "--prefix=#{prefix}"
+		end if extra
+
+		build_from_url.("ftp://ftp.gnu.org/gnu/autoconf/", "autoconf", "2.65", {unix: true, ext: "gz"}) do |src, prefix|
+			update_cfg.(src)
+			run File.join(src, 'configure'), "--prefix=#{prefix}"
+		end if extra
+
+		build_from_git.("binutils", "https://github.com/AveryOS/binutils.git", {branch: "avery", unix: true}) do |src, prefix|
+			run File.join(src, 'configure'), "--prefix=#{prefix}", *%w{--target=x86_64-pc-avery --with-sysroot --disable-nls --disable-werror --disable-gdb --disable-sim --disable-readline --disable-libdecnumber}
+		end if extra # binutils is buggy with mingw-w64
+
+		build_from_git.("newlib", "https://github.com/AveryOS/newlib.git", {branch: "avery"}) do |src, prefix|
+			run File.join(src, 'configure'), "--prefix=#{prefix}", "--target=x86_64-pc-avery", 'CC_FOR_TARGET=clang -fno-integrated-as -ffreestanding --target=x86_64-pc-avery -ccc-gcc-name x86_64-pc-avery-gcc'
+		end if extra
 
 		# C++ isn't working yet
-		#run "rm", "avery-llvm/install/bin/clang++#{EXE_POST}"
+		#run "rm", "llvm/install/bin/clang++#{EXE_POST}"
 
-		run "rm", "-rf", "sysroot"
-		mkdirs('sysroot')
-		#run 'cp', '-r', 'avery-binutils/install/x86_64-pc-avery/.', "sysroot/usr/"
-		run 'cp', '-r', 'avery-newlib/install/x86_64-pc-avery/.', "sysroot" if Dir.exists?("avery-newlib/install")
+		if real
+			run "rm", "-rf", "sysroot"
+			mkdirs('sysroot')
+			#run 'cp', '-r', 'avery-binutils/install/x86_64-pc-avery/.', "sysroot/usr/"
+			run 'cp', '-r', 'avery-newlib/install/x86_64-pc-avery/.', "sysroot" if Dir.exists?("avery-newlib/install")
+		end
 
 		# CMAKE_STAGING_PREFIX, CMAKE_INSTALL_PREFIX
 
 		build_from_git.("libcxx", "http://llvm.org/git/libcxx.git") do |src, prefix| # -nodefaultlibs
-			opts = ["-DLLVM_CONFIG_PATH=#{File.join(src, "../../avery-llvm/install/bin/llvm-config")}", "-DCMAKE_TOOLCHAIN_FILE=../../toolchain.txt", "-DCMAKE_STAGING_PREFIX=#{prefix}"]
+			opts = ["-DLLVM_CONFIG_PATH=#{File.join(src, "../../llvm/install/bin/llvm-config")}", "-DCMAKE_TOOLCHAIN_FILE=../../toolchain.txt", "-DCMAKE_STAGING_PREFIX=#{prefix}"]
 			opts += ['-G',  'MSYS Makefiles'] if ON_WINDOWS_MINGW
 			run "cmake", src, *opts
 		end if nil
 
 		build_from_git.("compiler-rt", "http://llvm.org/git/compiler-rt.git") do |src, prefix|
-			opts = ["-DLLVM_CONFIG_PATH=#{File.join(src, "../../avery-llvm/install/bin/llvm-config")}", "-DCMAKE_TOOLCHAIN_FILE=../../toolchain.txt", "-DCMAKE_STAGING_PREFIX=#{prefix}", "-DCMAKE_INSTALL_PREFIX=#{prefix}", "-DCOMPILER_RT_BUILD_SANITIZERS=Off"]
+			opts = ["-DLLVM_CONFIG_PATH=#{File.join(src, "../../llvm/install/bin/llvm-config")}", "-DCMAKE_TOOLCHAIN_FILE=../../toolchain.txt", "-DCMAKE_STAGING_PREFIX=#{prefix}", "-DCMAKE_INSTALL_PREFIX=#{prefix}", "-DCOMPILER_RT_BUILD_SANITIZERS=Off"]
 			opts += ['-G',  'MSYS Makefiles'] if ON_WINDOWS_MINGW
 			run "cmake", src, *opts
 		end if nil
@@ -542,13 +583,45 @@ task :deps_other do
 		ENV['CC'] = 'gcc'
 		ENV['CXX'] = 'g++'
 
-		build_from_git.("avery-rust", "https://github.com/Zoxc/avery-rust.git") do |src, prefix|
-			run File.join(src, 'configure'), "--enable-debuginfo", "--prefix=#{prefix}", "--llvm-root=#{File.join(src, "../../avery-llvm/build")}", "--disable-docs", "--target-sysroot=#{File.join(Dir.pwd, "../../sysroot")}"#, "--target=x86_64-pc-avery", "--disable-jemalloc"
+		build_from_git.("rust", "https://github.com/AveryOS/rust.git", {branch: "avery"}) do |src, prefix|
+			run File.join(src, 'configure'), "--enable-debuginfo", "--prefix=#{prefix}", "--llvm-root=#{File.join(src, "../../llvm/build")}", "--disable-docs", "--target-sysroot=#{File.join(Dir.pwd, "../../sysroot")}"#, "--target=x86_64-pc-avery", "--disable-jemalloc"
+		end
+
+		build_from_git.("cargo", "https://github.com/brson/cargo.git", {intree: true, branch: 'rustflags'}) do |src, prefix|
+			Dir.chdir(src) do
+				run *%w{git submodule update --init}
+			end
+			run File.join(src, 'configure'), "--enable-nightly", "--prefix=#{prefix}", "--local-rust-root=#{File.expand_path("../vendor/rust/install", __FILE__)}"
 		end
 
 		# place compiler-rt in lib/rustlib/x86_64-pc-avery/lib - rustc links to it // clang links to it instead
-		run 'cp', '-r', 'libcompiler-rt.a', "sysroot/lib" if File.exists?("libcompiler-rt.a")
+		#run 'cp', '-r', 'libcompiler-rt.a', "sysroot/lib" if real && File.exists?("libcompiler-rt.a")
+
+		ENV['LIBCLANG_PATH'] = File.expand_path("../vendor/llvm/install/#{ON_WINDOWS ? 'bin' : 'lib'}", __FILE__)
+		build_from_git.("bindgen", "https://github.com/crabtw/rust-bindgen.git", {cargo: true}) if extra
 	end
+end
+
+task :deps_other do
+	external_builds.(true, false)
+end
+
+task :extra do
+	external_builds.(true, true)
+end
+
+task :update do
+	build_type = :update
+	external_builds.(false, true)
+end
+
+task :update_all => :update do
+	#checkout_git.(".", "https://github.com/AveryOS/avery.git")
+end
+
+task :clean do
+	build_type = :clean
+	external_builds.(false, true)
 end
 
 task :user do
