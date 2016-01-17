@@ -6,6 +6,8 @@ RUSTSHORT = false
 AVERY_DIR = File.expand_path('../', __FILE__)
 Dir.chdir(AVERY_DIR)
 
+CLEANENV = ENV.to_h
+
 ENV['CARGO_HOME'] = File.expand_path('../build/cargo/home', __FILE__)
 ENV['CARGO_TARGET_DIR'] = File.expand_path('../build/cargo/target', __FILE__)
 ENV['RUST_TARGET_PATH'] = File.expand_path('../targets', __FILE__)
@@ -323,6 +325,9 @@ build_unix_pkg = proc do |src, opts, &proc|
 
 	next if build_type != :build
 
+	old_env = ENV.to_h
+	ENV.replace(CLEANENV.merge(opts[:env] || {}))
+
 	mkdirs("install")
 	prefix = File.realpath("install");
 
@@ -373,6 +378,8 @@ build_unix_pkg = proc do |src, opts, &proc|
 
 		run 'touch', "built"
 	end
+
+	ENV.replace(old_env)
 end
 
 # Build a unix like package from url
@@ -410,7 +417,7 @@ end
 
 checkout_git = proc do |path, url, opts = {}, &proc|
 	branch = opts[:branch] || "master"
-	if Dir.exists?(path)
+	if Dir.exists?(File.join(path, ".git"))
 		if build_type == :clean
 			#run "git", "clean", "-dfx"
 		end
@@ -580,10 +587,8 @@ external_builds = proc do |real, extra|
 		#ENV['VERBOSE'] = '1'
 
 		# clang is not the host compiler, force use of gcc
-		ENV['CC'] = 'gcc'
-		ENV['CXX'] = 'g++'
-
-		build_from_git.("rust", "https://github.com/AveryOS/rust.git", {branch: "avery"}) do |src, prefix|
+		env = {'CC' => 'gcc', 'CXX' => 'g++'}
+		build_from_git.("rust", "https://github.com/AveryOS/rust.git", {branch: "avery", env: env}) do |src, prefix|
 			run File.join(src, 'configure'), "--enable-debuginfo", "--prefix=#{prefix}", "--llvm-root=#{File.join(src, "../../llvm/build")}", "--disable-docs", "--target-sysroot=#{File.join(Dir.pwd, "../../sysroot")}"#, "--target=x86_64-pc-avery", "--disable-jemalloc"
 		end
 
@@ -597,8 +602,8 @@ external_builds = proc do |real, extra|
 		# place compiler-rt in lib/rustlib/x86_64-pc-avery/lib - rustc links to it // clang links to it instead
 		#run 'cp', '-r', 'libcompiler-rt.a', "sysroot/lib" if real && File.exists?("libcompiler-rt.a")
 
-		ENV['LIBCLANG_PATH'] = File.expand_path("../vendor/llvm/install/#{ON_WINDOWS ? 'bin' : 'lib'}", __FILE__)
-		build_from_git.("bindgen", "https://github.com/crabtw/rust-bindgen.git", {cargo: true}) if extra
+		env = {'LIBCLANG_PATH' => File.expand_path("../vendor/llvm/install/#{ON_WINDOWS ? 'bin' : 'lib'}", __FILE__)}
+		build_from_git.("bindgen", "https://github.com/crabtw/rust-bindgen.git", {cargo: true, env: env}) if extra
 	end
 end
 
