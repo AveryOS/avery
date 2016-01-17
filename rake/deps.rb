@@ -285,18 +285,19 @@ EXTERNAL_BUILDS = proc do |real, extra|
 		else
 			{}
 		end
+		env['CARGO_HOME'] = path('build/cargo/home')
 
 		build_from_git.("cargo", "https://github.com/AveryOS/cargo.git", {intree: true, branch: 'avery', env: env}) do |src, prefix|
 			Dir.chdir(src) do
 				run *%w{git submodule update --init}
 			end
-			run File.join(src, 'configure'), "--enable-nightly", "--prefix=#{prefix}", "--local-rust-root=#{File.expand_path("../vendor/rust/install", __FILE__)}"
+			run File.join(src, 'configure'), "--prefix=#{prefix}", "--local-rust-root=#{path("vendor/rust/install")}"
 		end
 
 		# place compiler-rt in lib/rustlib/x86_64-pc-avery/lib - rustc links to it // clang links to it instead
 		#run 'cp', '-r', 'libcompiler-rt.a', "sysroot/lib" if real && File.exists?("libcompiler-rt.a")
 
-		env = {'LIBCLANG_PATH' => File.expand_path("../vendor/llvm/install/#{ON_WINDOWS ? 'bin' : 'lib'}", __FILE__)}
+		env = {'LIBCLANG_PATH' => path("vendor/llvm/install/#{ON_WINDOWS ? 'bin' : 'lib'}")}
 		build_from_git.("bindgen", "https://github.com/crabtw/rust-bindgen.git", {cargo: true, env: env}) if extra
 	end
 end

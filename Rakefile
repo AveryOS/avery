@@ -6,6 +6,10 @@ RUSTSHORT = false
 AVERY_DIR = File.expand_path('../', __FILE__)
 Dir.chdir(AVERY_DIR)
 
+def path(p)
+  File.expand_path(File.join('..', p), __FILE__)
+end
+
 def append_path(path)
 	if Gem.win_platform?
 		ENV['PATH'] = "#{path.gsub('/', '\\')};#{ENV['PATH']}"
@@ -32,7 +36,7 @@ end
 # rustc build needs LLVM in PATH on Windows
 CLEANENV = ENV.to_h
 
-ENV['CARGO_HOME'] = File.expand_path('../build/cargo/home', __FILE__)
+ENV['CARGO_HOME'] = path('build/cargo/home')
 ENV['CARGO_TARGET_DIR'] = File.expand_path('../build/cargo/target', __FILE__)
 ENV['RUST_TARGET_PATH'] = File.expand_path('../targets', __FILE__)
 ENV['RUST_BACKTRACE'] = '1'
@@ -361,7 +365,7 @@ task :user do
 end
 
 task :sh do
-	run 'sh'
+	run 'bash'
 end
 
 task :default => :build
