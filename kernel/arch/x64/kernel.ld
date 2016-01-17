@@ -87,6 +87,11 @@ SECTIONS
  	. += debug_str_start;
 	debug_str_end = .;
 
+	debug_loc_start = .;
+	.debug_loc 0 : AT(debug_loc_start - high_offset) { *(.debug_loc) }
+	. += debug_loc_start;
+	debug_loc_end = .;
+
 	. = ALIGN(page_size);
 	data_start = .;
 

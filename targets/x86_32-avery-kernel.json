@@ -12,6 +12,7 @@
 	"code-model": "kernel",
 	"exe-suffix": "",
 	"features": "",
+	"no-compiler-rt": true,
 	"executables": true,
 	"disable-redzone": true,
 	"linker-is-gnu": true,

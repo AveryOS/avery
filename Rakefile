@@ -144,7 +144,7 @@ build_kernel = proc do
 		flags += ['--cfg', 'multiboot'] if type == :multiboot
 		
 		mkdirs(build.output "#{type}")
-		run *%w{cargo rustc --release --manifest-path kernel/Cargo.toml --target x86_64-avery-kernel --}, *flags
+		run *%w{cargo rustc --release --manifest-path kernel/Cargo.toml --target x86_64-avery-kernel -- -C lto}, *flags
 	
 		# Preprocess files
 
@@ -207,7 +207,7 @@ task :deps => :deps_other do
 	build_core.('x86_32-avery-kernel')
 	build_core.('x86_64-avery-kernel')
 
-	run *%w{cargo rustc --release --manifest-path kernel/arch/x64/multiboot/Cargo.toml --target x86_32-avery-kernel -- --emit=asm=build/bootstrap.s}
+	run *%w{cargo rustc --release --manifest-path kernel/arch/x64/multiboot/Cargo.toml --target x86_32-avery-kernel -- -C lto --emit=asm=build/bootstrap.s}
 	
 	build = Build.new('build', 'info.yml')
 	build.run do

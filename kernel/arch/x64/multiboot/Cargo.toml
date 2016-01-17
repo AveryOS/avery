@@ -4,6 +4,7 @@ version = "0.1.0"
 
 [lib]
 path = "bootstrap.rs"
+crate-type = ["staticlib"]
 
 [dependencies]
 rlibc = "0.1.5"
