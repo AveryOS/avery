@@ -6,6 +6,30 @@ RUSTSHORT = false
 AVERY_DIR = File.expand_path('../', __FILE__)
 Dir.chdir(AVERY_DIR)
 
+def append_path(path)
+	if Gem.win_platform?
+		ENV['PATH'] = "#{path.gsub('/', '\\')};#{ENV['PATH']}"
+	else
+		ENV['PATH'] = "#{path}:#{ENV['PATH']}"
+	end
+end
+
+append_path(File.expand_path('../vendor/elf-binutils/install/bin', __FILE__))
+append_path(File.expand_path('../vendor/mtools/install/bin', __FILE__))
+append_path(File.expand_path('../vendor/llvm/install/bin', __FILE__))
+append_path(File.expand_path('../vendor/binutils/install/bin', __FILE__))
+append_path(File.expand_path('../vendor/cargo/install/bin', __FILE__))
+
+if RUSTSHORT
+	ARCH = `./vendor/config.guess`.strip.sub(/[0-9\.]*$/, '')
+	ENV['DYLD_LIBRARY_PATH'] = File.expand_path("../vendor/rust/build/#{ARCH}/stage0/lib/rustlib/#{ARCH}/lib", __FILE__)
+	append_path(File.expand_path("../vendor/rust/build/#{ARCH}/stage1/bin", __FILE__))
+else
+	ENV['DYLD_LIBRARY_PATH'] = File.expand_path("../vendor/rust/install/lib", __FILE__)
+	append_path(File.expand_path("../vendor/rust/install/bin", __FILE__))
+end
+
+# rustc build needs LLVM in PATH on Windows
 CLEANENV = ENV.to_h
 
 ENV['CARGO_HOME'] = File.expand_path('../build/cargo/home', __FILE__)
@@ -53,29 +77,6 @@ ON_WINDOWS = Gem.win_platform? || ENV['MSYSTEM']
 ON_WINDOWS_MINGW = ENV['MSYSTEM'] && ENV['MSYSTEM'].start_with?('MINGW')
 
 EXE_POST = ON_WINDOWS ? ".exe" :	""
-
-def append_path(path)
-	if Gem.win_platform?
-		ENV['PATH'] = "#{path.gsub('/', '\\')};#{ENV['PATH']}"
-	else
-		ENV['PATH'] = "#{path}:#{ENV['PATH']}"
-	end
-end
-
-append_path(File.expand_path('../vendor/elf-binutils/install/bin', __FILE__))
-append_path(File.expand_path('../vendor/mtools/install/bin', __FILE__))
-append_path(File.expand_path('../vendor/llvm/install/bin', __FILE__))
-append_path(File.expand_path('../vendor/binutils/install/bin', __FILE__))
-append_path(File.expand_path('../vendor/cargo/install/bin', __FILE__))
-
-if RUSTSHORT
-	ARCH = `./vendor/config.guess`.strip.sub(/[0-9\.]*$/, '')
-	ENV['DYLD_LIBRARY_PATH'] = File.expand_path("../vendor/rust/build/#{ARCH}/stage0/lib/rustlib/#{ARCH}/lib", __FILE__)
-	append_path(File.expand_path("../vendor/rust/build/#{ARCH}/stage1/bin", __FILE__))
-else
-	ENV['DYLD_LIBRARY_PATH'] = File.expand_path("../vendor/rust/install/lib", __FILE__)
-	append_path(File.expand_path("../vendor/rust/install/bin", __FILE__))
-end
 
 QEMU_PATH = "#{'qemu/' if !which("qemu-system-x86_64")}"
 AR = 'x86_64-elf-ar'
@@ -589,7 +590,7 @@ external_builds = proc do |real, extra|
 		# clang is not the host compiler, force use of gcc
 		env = {'CC' => 'gcc', 'CXX' => 'g++'}
 		build_from_git.("rust", "https://github.com/AveryOS/rust.git", {branch: "avery", env: env}) do |src, prefix|
-			run File.join(src, 'configure'), "--enable-debuginfo", "--prefix=#{prefix}", "--llvm-root=#{File.join(src, "../../llvm/build")}", "--disable-docs", "--target-sysroot=#{File.join(Dir.pwd, "../../sysroot")}"#, "--target=x86_64-pc-avery", "--disable-jemalloc"
+			run File.join(src, 'configure'), "--enable-debuginfo", "--prefix=#{prefix}", "--llvm-root=#{File.join(src, "../../llvm/build")}", "--disable-docs"#, "--target-sysroot=#{File.join(Dir.pwd, "../../sysroot")}", "--target=x86_64-pc-avery", "--disable-jemalloc"
 		end
 
 		build_from_git.("cargo", "https://github.com/brson/cargo.git", {intree: true, branch: 'rustflags'}) do |src, prefix|
