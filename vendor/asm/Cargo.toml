@@ -1,0 +1,7 @@
+[package]
+name = "assembly"
+version = "0.1.0"
+
+[lib]
+path = "assembly.rs"
+plugin = true
