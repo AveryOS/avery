@@ -593,7 +593,7 @@ external_builds = proc do |real, extra|
 			run File.join(src, 'configure'), "--enable-debuginfo", "--prefix=#{prefix}", "--llvm-root=#{File.join(src, "../../llvm/build")}", "--disable-docs"#, "--target-sysroot=#{File.join(Dir.pwd, "../../sysroot")}", "--target=x86_64-pc-avery", "--disable-jemalloc"
 		end
 
-		build_from_git.("cargo", "https://github.com/brson/cargo.git", {intree: true, branch: 'rustflags'}) do |src, prefix|
+		build_from_git.("cargo", "https://github.com/AveryOS/cargo.git", {intree: true, branch: 'avery'}) do |src, prefix|
 			Dir.chdir(src) do
 				run *%w{git submodule update --init}
 			end
