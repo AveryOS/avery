@@ -278,9 +278,10 @@ EXTERNAL_BUILDS = proc do |real, extra|
 		end
 
 		env = if which 'brew'
+			prefix = `brew --prefix openssl`
 			{
-				'OPENSSL_INCLUDE_DIR' => '/usr/local/opt/openssl/include',
-				'OPENSSL_LIB_DIR' => '/usr/local/opt/openssl/lib'
+				'OPENSSL_INCLUDE_DIR' => "#{prefix}/include",
+				'OPENSSL_LIB_DIR' => "#{prefix}/lib"
 			}
 		else
 			{}
