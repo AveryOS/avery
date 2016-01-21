@@ -190,10 +190,6 @@ EXTERNAL_BUILDS = proc do |real, extra|
 	end
 
 	Dir.chdir('vendor/') do
-		unless Dir.exists?("rlibc/src")
-			run "git", "clone" , "https://github.com/alexcrichton/rlibc.git", "rlibc/src"
-		end
-
 		build_from_url.("ftp://ftp.gnu.org/gnu/binutils/", "binutils", "2.25", {unix: true, path: 'elf-binutils'}) do |src, prefix|
 			run File.join(src, 'configure'), "--prefix=#{prefix}", *%w{--target=x86_64-elf --with-sysroot --disable-nls --disable-werror}
 		end # binutils is buggy with mingw-w64
