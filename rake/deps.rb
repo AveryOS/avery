@@ -5,7 +5,7 @@ build_type = :build
 build_unix_pkg = proc do |src, opts, &proc|
 	if build_type == :clean
 		FileUtils.rm_rf(["built", "configured", "build", "install"])
-		FileUtils.rm_rf(["src/target"]) if opts[:cargo]
+		FileUtils.rm_rf(["#{src}/target"]) if opts[:cargo]
 	end
 
 	next if build_type != :build
@@ -70,25 +70,26 @@ build_from_url = proc do |url, name, ver, opts = {}, &proc|
 
 	mkdirs(path)
 	Dir.chdir(path) do
-		mkdirs("install")
-		prefix = File.realpath("install");
+		if build_type == :clean
+			FileUtils.rm_rf(src)
+		else
+			if !File.exists?(src)
+				tar = "#{src}.tar.#{ext}"
+				unless File.exists?(tar)
+					run 'curl', '-O', "#{url}#{tar}"
+				end
 
-		if !File.exists?(src) && build_type != :clean
-			tar = "#{src}.tar.#{ext}"
-			unless File.exists?(tar)
-				run 'curl', '-O', "#{url}#{tar}"
+				uncompress = case ext
+					when "bz2"
+						"j"
+					when "xz"
+						"J"
+					when "gz"
+						"z"
+				end
+
+				run 'tar', "-#{uncompress}xf", tar
 			end
-
-			uncompress = case ext
-				when "bz2"
-					"j"
-				when "xz"
-					"J"
-				when "gz"
-					"z"
-			end
-
-			run 'tar', "-#{uncompress}xf", tar
 		end
 
 		build_unix_pkg.(src, opts, &proc)
@@ -141,6 +142,7 @@ build_from_git = proc do |name, url, opts = {}, &proc|
 	mkdirs(name)
 	Dir.chdir(name) do
 		if checkout_git.("src", url, opts) == :rebuild
+			puts "Cleaning #{name}"
 			old = build_type
 			build_type = :clean
 			build_unix_pkg.("src", opts, &proc)
@@ -165,7 +167,9 @@ task :deps_msys do
 	run *%W{pacman --needed --noconfirm -S ruby git tar gcc bison make texinfo patch diffutils autoconf #{mingw}-python2 #{mingw}-cmake #{mingw}-gcc #{mingw}-ninja}
 end
 
-EXTERNAL_BUILDS = proc do |real, extra|
+EXTERNAL_BUILDS = proc do |type, real, extra|
+	build_type = type
+
 	raise "Cannot build non-UNIX dependencies with MSYS2 shell, use the MinGW shell and run `rake deps`" if ON_WINDOWS && !ON_WINDOWS_MINGW
 	raise "Ninja is required on Windows" if ON_WINDOWS_MINGW && !NINJA
 
@@ -217,14 +221,14 @@ EXTERNAL_BUILDS = proc do |real, extra|
 
 		# autotools for picky newlib
 
-		build_from_url.("ftp://ftp.gnu.org/gnu/automake/", "automake", "1.12", {unix: true, ext: "gz"}) do |src, prefix|
+		build_from_url.("ftp://ftp.gnu.org/gnu/autoconf/", "autoconf", "2.65", {unix: true, ext: "gz"}) do |src, prefix|
 			update_cfg.(src)
-			update_cfg.(File.join(src, 'lib'))
 			run File.join(src, 'configure'), "--prefix=#{prefix}"
 		end if extra
 
-		build_from_url.("ftp://ftp.gnu.org/gnu/autoconf/", "autoconf", "2.65", {unix: true, ext: "gz"}) do |src, prefix|
+		build_from_url.("ftp://ftp.gnu.org/gnu/automake/", "automake", "1.12", {unix: true, ext: "gz"}) do |src, prefix|
 			update_cfg.(src)
+			update_cfg.(File.join(src, 'lib'))
 			run File.join(src, 'configure'), "--prefix=#{prefix}"
 		end if extra
 
@@ -292,9 +296,4 @@ EXTERNAL_BUILDS = proc do |real, extra|
 		env = {'LIBCLANG_PATH' => path("vendor/llvm/install/#{ON_WINDOWS ? 'bin' : 'lib'}")}
 		build_from_git.("bindgen", "https://github.com/crabtw/rust-bindgen.git", {cargo: true, env: env}) if extra
 	end
-end
-
-def external_builds(type, real, extra)
-	build_type = type
-	EXTERNAL_BUILDS.(real, extra)
 end

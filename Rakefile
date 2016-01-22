@@ -31,6 +31,7 @@ append_path(File.expand_path('../vendor/llvm/install/bin', __FILE__))
 append_path(File.expand_path('../vendor/binutils/install/bin', __FILE__))
 append_path(File.expand_path('../vendor/cargo/install/bin', __FILE__))
 append_path(File.expand_path("../vendor/rust/install/bin", __FILE__))
+append_path(File.expand_path("../vendor/autoconf/install/bin", __FILE__))
 
 sos = path("vendor/llvm/install/lib") + ":" + path("vendor/rust/install/lib")
 ENV['DYLD_LIBRARY_PATH'] = sos
@@ -306,15 +307,15 @@ require_relative 'rake/deps'
 CORES = 4
 
 task :deps_other do
-	external_builds(:build, true, false)
+	EXTERNAL_BUILDS.(:build, true, false)
 end
 
 task :extra do
-	external_builds(:build, true, true)
+	EXTERNAL_BUILDS.(:build, true, true)
 end
 
 task :update do
-	external_builds(:update, false, true)
+	EXTERNAL_BUILDS.(:update, false, true)
 end
 
 task :update_all => :update do
@@ -322,7 +323,7 @@ task :update_all => :update do
 end
 
 task :clean do
-	external_builds(:clean, false, true)
+	EXTERNAL_BUILDS.(:clean, false, true)
 end
 
 task :user do
