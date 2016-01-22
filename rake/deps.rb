@@ -34,23 +34,18 @@ build_unix_pkg = proc do |src, opts, &proc|
 		bin_path = "install"
 
 		Dir.chdir(build_dir) do
-			if src == 'rust' && RUSTSHORT
-				bin_path = "#{ARCH}/stage1"
-				run "make", "rustc-stage1", "-j#{CORES}"
+			if opts[:cargo]
+				run "cargo", "install", "--path=#{File.join("..", src)}", "--root=#{File.join("..", 'install')}"
 			else
-				if opts[:cargo]
-					run "cargo", "install", "--path=#{File.join("..", src)}", "--root=#{File.join("..", 'install')}"
+				if opts[:ninja] && NINJA
+					run "ninja"
+					run "ninja", "install"
 				else
-					if opts[:ninja] && NINJA
-						run "ninja"
-						run "ninja", "install"
-					else
-						old_unix = UNIX_EMU[0]
-						UNIX_EMU[0] = opts[:unix]
-						run "make", "-j#{CORES}"
-						run "make", "install"
-						UNIX_EMU[0] = old_unix
-					end
+					old_unix = UNIX_EMU[0]
+					UNIX_EMU[0] = opts[:unix]
+					run "make", "-j#{CORES}"
+					run "make", "install"
+					UNIX_EMU[0] = old_unix
 				end
 			end
 		end
@@ -210,9 +205,9 @@ EXTERNAL_BUILDS = proc do |real, extra|
 
 		build_from_git.("llvm", "https://github.com/AveryOS/llvm.git", {branch: "avery", ninja: true}) do |src, prefix|
 			#-DBUILD_SHARED_LIBS=On  rustc on OS X wants static
-			opts = %W{-DLLVM_TARGETS_TO_BUILD=X86 -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX=#{prefix}}
+			opts = %W{-DLLVM_TARGETS_TO_BUILD=X86 -DCMAKE_BUILD_TYPE=RelWithDebInfo  -DBUILD_SHARED_LIBS=On -DCMAKE_INSTALL_PREFIX=#{prefix}}
 			opts += ['-G',  'Ninja', '-DLLVM_PARALLEL_LINK_JOBS=1'] if NINJA
-			opts += %w{-DCMAKE_CXX_COMPILER=g++ -DCMAKE_C_COMPILER=gcc -DBUILD_SHARED_LIBS=On} if ON_WINDOWS_MINGW
+			opts += %w{-DCMAKE_CXX_COMPILER=g++ -DCMAKE_C_COMPILER=gcc} if ON_WINDOWS_MINGW
 			run "cmake", src, *opts
 		end
 
