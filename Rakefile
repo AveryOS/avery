@@ -117,7 +117,7 @@ end
 # We need to pass along sysroot here so rustc won't try to use host crates. The sysroot folder doesn't need to exist.
 RUSTFLAGS = ['--sysroot', hostpath('build/sysroot')] + %w{-g -Z no-landing-pads}
 ENV['RUSTFLAGS'] = RUSTFLAGS.join(" ") # Cargo uses this. How to pass spaces here?
-ENV['RUSTFLAGS_HOST'] = "-L #{hostpath("vendor/install/llvm/#{ON_WINDOWS ? "bin" : "lib"}")}" # Workaround bug with LLVM linking
+ENV['RUSTFLAGS_HOST'] = "-L #{hostpath("vendor/llvm/install//#{ON_WINDOWS ? "bin" : "lib"}")}" # Workaround bug with LLVM linking
 kernel_object_bootstrap = "build/bootstrap.o"
 
 type = :multiboot
