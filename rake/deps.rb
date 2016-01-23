@@ -208,7 +208,6 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 		checkout_git.("llvm/src/tools/clang", "https://github.com/AveryOS/clang.git", {branch: "avery"})
 
 		build_from_git.("llvm", "https://github.com/AveryOS/llvm.git", {branch: "avery", ninja: true}) do |src, prefix|
-			#-DBUILD_SHARED_LIBS=On  rustc on OS X wants static
 			opts = %W{-DLLVM_TARGETS_TO_BUILD=X86 -DCMAKE_BUILD_TYPE=RelWithDebInfo  -DBUILD_SHARED_LIBS=On -DCMAKE_INSTALL_PREFIX=#{prefix}}
 			opts += ['-G',  'Ninja', '-DLLVM_PARALLEL_LINK_JOBS=1'] if NINJA
 			opts += %w{-DCMAKE_CXX_COMPILER=g++ -DCMAKE_C_COMPILER=gcc} if ON_WINDOWS_MINGW
