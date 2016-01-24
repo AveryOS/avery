@@ -6,12 +6,50 @@
 extern crate rlibc;
 
 use core::mem::{size_of_val, uninitialized};
+use core::fmt::{Write, Arguments, Error};
 
 use multiboot::*;
 
+static mut VGA: *mut u16 = 0xb8000 as *mut u16;
+
+struct ScreenWriter(isize);
+
+impl Write for ScreenWriter {
+	fn write_str(&mut self, s: &str) -> Result<(), Error> {
+		for c in s.chars() {
+			unsafe {
+				*VGA.offset(82 + self.0) = c as u16 | (12 << 8);
+			}
+			self.0 += 1;
+		}
+
+		Ok(())
+	}
+}
+
+macro_rules! error {
+	($($arg:tt)*) => (
+		error_args(format_args!($($arg)*))
+	)
+}
+
+fn error_args(args: Arguments) -> ! {
+	unsafe {
+		for i in 0isize..(80 * 25) {
+			*VGA.offset(i) = 0;
+		}
+		assert!(ScreenWriter(0).write_fmt(args).is_ok());
+		loop {
+			asm! { cli; hlt }
+		}
+	}
+}
+
 #[lang = "eh_unwind_resume"] fn eh_unwind_resume() {}
 #[lang = "eh_personality"] fn eh_personality() {}
-#[lang = "panic_fmt"] fn panic_fmt() {}
+#[lang = "panic_fmt"] extern fn panic_fmt(fmt: Arguments, file: &'static str, line: u32) -> ! {
+	error!("Panic: {} - Loc: {}:{}", fmt, file, line);
+}
 
 type Table = [u64; 512];
 
@@ -32,7 +70,7 @@ extern {
 	static mut pml4t: Table;
 	static mut pdpt: Table;
 	static mut pdt: Table;
-	static mut pt: Table;
+	static mut pts: [Table; 16];
 
 	static low_end: u8;
 	static kernel_size: u8; // &kernel_size == kernel size in pages
@@ -85,52 +123,28 @@ unsafe fn cpuid(input: u32) -> CPUIDResult {
 	return result;
 }
 
-fn halt() -> ! {
-	loop {
-		unsafe {
-			asm! { hlt }
-		}
-	}
-}
-
-fn error(s: &str) -> ! {
-	let vga = 0xb8000 as *mut u16;
-
-	unsafe {
-		for i in 0isize..(80 * 25) {
-			*vga.offset(i) = 0;
-		}
-
-		let mut i = 0isize;
-		for c in s.chars() {
-			*vga.offset(82 + i) = c as u16 | (12 << 8);
-			i += 1;
-		}
-	}
-
-	halt();
-}
-
 #[no_mangle]
 pub unsafe extern fn setup_long_mode(multiboot: u32, magic: u32) {
 	if magic != multiboot::MAGIC {
-		error("This kernel requires a multiboot compatible loader!");
+		error!("This kernel requires a multiboot compatible loader!");
 	}
 
 	if multiboot + 0x1000 > 0x200000 {
-		error("Multiboot structure loaded too high in memory");
+		error!("Multiboot structure loaded too high in memory");
 	}
 
 	// setup the higher-half
 	pml4t[510] = offset(&pml4t) | 3;
 	pml4t[511] = offset(&pdpt) | 3;
 	pdpt[510] = offset(&pdt) | 3;
-	pdt[0] = offset(&pt) | 3;
 
 	let mut physical = offset(&low_end);
 
 	for i in 0..(offset(&kernel_size) as usize) {
-		pt[i] = physical | 3;
+		let pt_i = i % 512;
+		let pdt_i = i / 512;
+		pdt[pdt_i] = offset(&pts[pdt_i]) | 3;
+		pts[pdt_i][pt_i] = physical | 3;
 		physical += 0x1000;
 	}
 
@@ -150,13 +164,13 @@ pub unsafe extern fn setup_long_mode(multiboot: u32, magic: u32) {
 	}
 
 	if cpuid(0x80000000).eax < 0x80000001 {
-		error("Long mode is not supported (no extended flags was found)!");
+		error!("Long mode is not supported (no extended flags was found)!");
 	}
 
 	let long_mode_flag = 1 << 29;
 
 	if cpuid(0x80000001).edx & long_mode_flag == 0 {
-		error("Long mode is not supported (bit was not set)!");
+		error!("Long mode is not supported (bit was not set)!");
 	}
 
 	let gdt_ptr = GDT64Pointer {
@@ -202,5 +216,5 @@ pub unsafe extern fn setup_long_mode(multiboot: u32, magic: u32) {
 		ljmp $8, $bootstrap.64
 	}
 
-	halt();
+	error!("Couldn't jump into long mode");
 }
