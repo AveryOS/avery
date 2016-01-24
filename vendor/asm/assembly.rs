@@ -253,8 +253,12 @@ fn search<F: Fn(usize) -> bool>(fb: &codemap::FileMapAndBytePos, test: F, offset
         if test(p) {
             return None;
         }
-
-        p = p + offset as usize;
+        
+        p = match offset {
+            -1 => p - 1,
+            1 => p + 1,
+            _ => panic!()
+        };
 
         let c = fb.fm.src.as_ref().unwrap()[..].as_bytes()[p];
 

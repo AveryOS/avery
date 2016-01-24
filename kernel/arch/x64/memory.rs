@@ -62,68 +62,68 @@ pub struct TableEntry(Addr);
 type Table = [TableEntry; TABLE_ENTRIES];
 
 pub fn map_view(address: Page, mut target: PhysicalPage, pages: usize, flags: Addr) {
-    let ops = &mut *LOCK.lock();
-    for i in 0..pages {
-        let page = Page::new(address.ptr() + i * PAGE_SIZE);
-        unsafe {
-        	set_page_entry(ops, page, page_table_entry(target, flags));
+	let ops = &mut *LOCK.lock();
+	for i in 0..pages {
+		let page = Page::new(address.ptr() + i * PAGE_SIZE);
+		unsafe {
+			set_page_entry(ops, page, page_table_entry(target, flags));
 
-            //println!("MAP VIEW @ {:#x} to {:#x}", page.ptr(), target.addr());
+			//println!("MAP VIEW @ {:#x} to {:#x}", page.ptr(), target.addr());
 
-            target = PhysicalPage::new(target.addr() + arch::PHYS_PAGE_SIZE);
-        }
-    }
+			target = PhysicalPage::new(target.addr() + arch::PHYS_PAGE_SIZE);
+		}
+	}
 }
 
 pub fn unmap_view(address: Page, pages: usize) {
-    let ops = &mut *LOCK.lock();
-    for i in 0..pages {
-        let page = Page::new(address.ptr() + i * PAGE_SIZE);
+	let ops = &mut *LOCK.lock();
+	for i in 0..pages {
+		let page = Page::new(address.ptr() + i * PAGE_SIZE);
 
 		let page_entry = get_page_entry(ops, page);
 
-        unsafe {
-    		if entry_present(*page_entry) {
-                //println!("UNMAP VIEW @ {:#x} to {:#x}", page.ptr(), physical_page_from_table_entry(*page_entry).addr());
+		unsafe {
+			if entry_present(*page_entry) {
+				//println!("UNMAP VIEW @ {:#x} to {:#x}", page.ptr(), physical_page_from_table_entry(*page_entry).addr());
 
-    			*page_entry = NULL_ENTRY;
+				*page_entry = NULL_ENTRY;
 
-    			invalidate_page(page);
-    		}
-        }
+				invalidate_page(page);
+			}
+		}
 	}
 }
 
 pub fn map(address: Page, pages: usize, flags: Addr) {
-    let ops = &mut *LOCK.lock();
-    for i in 0..pages {
-        let page = Page::new(address.ptr() + i * PAGE_SIZE);
-        unsafe {
-            let alloc = physical::allocate_page();
-            //println!("MAP PAGE @ {:#x} to {:#x}", page.ptr(), alloc.addr());
+	let ops = &mut *LOCK.lock();
+	for i in 0..pages {
+		let page = Page::new(address.ptr() + i * PAGE_SIZE);
+		unsafe {
+			let alloc = physical::allocate_page();
+			//println!("MAP PAGE @ {:#x} to {:#x}", page.ptr(), alloc.addr());
 
-        	set_page_entry(ops, page, page_table_entry(alloc, flags));
-        }
-    }
+			set_page_entry(ops, page, page_table_entry(alloc, flags));
+		}
+	}
 }
 
 pub fn unmap(address: Page, pages: usize) {
-    let ops = &mut *LOCK.lock();
-    for i in 0..pages {
-        let page = Page::new(address.ptr() + i * PAGE_SIZE);
+	let ops = &mut *LOCK.lock();
+	for i in 0..pages {
+		let page = Page::new(address.ptr() + i * PAGE_SIZE);
 
 		let page_entry = get_page_entry(ops, page);
 
-        unsafe {
-    		if entry_present(*page_entry) {
-                //println!("UNMAP PAGE @ {:#x} to {:#x}", page.ptr(), physical_page_from_table_entry(*page_entry).addr());
+		unsafe {
+			if entry_present(*page_entry) {
+				//println!("UNMAP PAGE @ {:#x} to {:#x}", page.ptr(), physical_page_from_table_entry(*page_entry).addr());
 
-    			physical::free_page(physical_page_from_table_entry(*page_entry));
-    			*page_entry = NULL_ENTRY;
+				physical::free_page(physical_page_from_table_entry(*page_entry));
+				*page_entry = NULL_ENTRY;
 
-    			invalidate_page(page);
-    		}
-        }
+				invalidate_page(page);
+			}
+		}
 	}
 }
 
@@ -132,31 +132,31 @@ fn entry_present(entry: TableEntry) -> bool {
 }
 
 pub fn ensure_page_entry<'s>(_: &'s mut Ops, pointer: Page) -> &'s mut TableEntry {
-    unsafe {
-    	let (ptl4_index, ptl3_index, ptl2_index, ptl1_index) = decode_address(pointer);
+	unsafe {
+		let (ptl4_index, ptl3_index, ptl2_index, ptl1_index) = decode_address(pointer);
 
-    	let ptl3 = &mut *((MAPPED_PML3TS + ptl4_index * PAGE_SIZE) as *mut Table);
+		let ptl3 = &mut *((MAPPED_PML3TS + ptl4_index * PAGE_SIZE) as *mut Table);
 
-    	ensure_table_entry(&mut ptl4_static, ptl4_index, ptl3);
+		ensure_table_entry(&mut ptl4_static, ptl4_index, ptl3);
 
-    	let ptl2 = &mut *((MAPPED_PML2TS + ptl4_index * PTL1_SIZE + ptl3_index * PAGE_SIZE) as *mut Table);
+		let ptl2 = &mut *((MAPPED_PML2TS + ptl4_index * PTL1_SIZE + ptl3_index * PAGE_SIZE) as *mut Table);
 
-    	ensure_table_entry(ptl3, ptl3_index, ptl2);
+		ensure_table_entry(ptl3, ptl3_index, ptl2);
 
-    	let ptl1 = &mut *((MAPPED_PML1TS + ptl4_index * PTL2_SIZE + ptl3_index * PTL1_SIZE + ptl2_index * PAGE_SIZE) as *mut Table);
+		let ptl1 = &mut *((MAPPED_PML1TS + ptl4_index * PTL2_SIZE + ptl3_index * PTL1_SIZE + ptl2_index * PAGE_SIZE) as *mut Table);
 
-    	ensure_table_entry(ptl2, ptl2_index, ptl1);
+		ensure_table_entry(ptl2, ptl2_index, ptl1);
 
-    	&mut ptl1[ptl1_index]
-    }
+		&mut ptl1[ptl1_index]
+	}
 }
 
 unsafe fn set_page_entry<'s>(ops: &'s mut Ops, address: Page, entry: TableEntry) {
 	*ensure_page_entry(ops, address) = entry;
 
-    asm! {
-        [use memory]
-    }
+	asm! {
+		[use memory]
+	}
 }
 
 fn ensure_table_entry(table: &mut Table, index: usize, lower: &mut Table) {
@@ -166,24 +166,24 @@ fn ensure_table_entry(table: &mut Table, index: usize, lower: &mut Table) {
 
 		table[index] = page_table_entry(page, flags);
 
-        *lower = [NULL_ENTRY; TABLE_ENTRIES];
+		*lower = [NULL_ENTRY; TABLE_ENTRIES];
 	}
 }
 
 unsafe fn invalidate_page(page: Page) {
-    asm! {
-        [page.ptr() => %rdi, use memory]
+	asm! {
+		[page.ptr() => %rdi, use memory]
 
-        invlpg [rdi]
-    }
+		invlpg [rdi]
+	}
 }
 
 unsafe fn load_pml4(pml4t: PhysicalPage) {
-    asm! {
-        [pml4t.addr() => %rax, use memory]
+	asm! {
+		[pml4t.addr() => %rax, use memory]
 
-        mov cr3, rax;
-    }
+		mov cr3, rax;
+	}
 }
 
 fn physical_page_from_table_entry(entry: TableEntry) -> PhysicalPage {
@@ -195,14 +195,14 @@ pub fn get_physical_page(virtual_address: Page) -> PhysicalPage {
 }
 
 extern {
-    static mut ptl4_static: Table;
-    static mut ptl3_static: Table;
-    static mut ptl2_kernel: Table;
+	static mut ptl4_static: Table;
+	static mut ptl3_static: Table;
+	static mut ptl2_kernel: Table;
 
-    static mut ptl2_dynamic: Table;
-    static mut ptl1_kernel: Table;
-    static mut ptl1_physical: Table;
-    static mut ptl1_frame: Table;
+	static mut ptl2_dynamic: Table;
+	static mut ptl1_kernel: Table;
+	static mut ptl1_physical: Table;
+	static mut ptl1_frame: Table;
 }
 
 fn decode_address(pointer: Page) -> (usize, usize, usize, usize) {
@@ -248,11 +248,11 @@ fn page_table_entry(page: PhysicalPage, flags: Addr) -> TableEntry {
 		static kernel_end: void;
 	}
 
-    if unsafe { KERNEL_MAPPED } &&
-            page.addr() >= offset(&low_end) as Addr &&
-            page.addr() < (offset(&kernel_end) - offset(&kernel_start) + offset(&low_end)) as Addr {
-        panic!("Mapping kernel physical memory! {:#x}", page.addr());
-    }
+	if unsafe { KERNEL_MAPPED } &&
+			page.addr() >= offset(&low_end) as Addr &&
+			page.addr() < (offset(&kernel_end) - offset(&kernel_start) + offset(&low_end)) as Addr {
+		panic!("Mapping kernel physical memory! {:#x}", page.addr());
+	}
 
 	TableEntry(page.addr() | flags)
 }
@@ -282,7 +282,7 @@ fn table_entry_from_data(table: &'static Table) -> TableEntry {
 }
 
 pub unsafe fn get_pml4_physical() -> PhysicalPage {
-    Page::new(offset(&ptl4_static)).get_physical()
+	Page::new(offset(&ptl4_static)).get_physical()
 }
 
 pub unsafe fn initialize_initial(st: &memory::initial::State)
@@ -330,17 +330,17 @@ pub unsafe fn initialize_initial(st: &memory::initial::State)
 		map_page_table(&mut ptl1_kernel, virtual_offset, virtual_offset + (hole.end - hole.base) as usize, hole.base, flags);
 	}
 
-    KERNEL_MAPPED = true;
+	KERNEL_MAPPED = true;
 
 	extern {
 		static stack_start: void;
 		static stack_end: void;
 	}
 
-    // Unmap the stack guard page
-    *get_page_entry(&mut *LOCK.lock(), Page::new(offset(&stack_start))) = NULL_ENTRY;
+	// Unmap the stack guard page
+	*get_page_entry(&mut *LOCK.lock(), Page::new(offset(&stack_start))) = NULL_ENTRY;
 
-    println!("BSP Stack is {:#x} - {:#x}", offset(&stack_start), offset(&stack_end));
+	println!("BSP Stack is {:#x} - {:#x}", offset(&stack_start), offset(&stack_end));
 
 	load_pml4(get_pml4_physical());
 
