@@ -263,7 +263,7 @@ pub unsafe fn initialize_initial(st: &memory::initial::State)
 		static kernel_start: void;
 	}
 
-	let high_offset = offset(&kernel_start) + offset(&low_end);
+	let high_offset = offset(&kernel_start) - offset(&low_end);
 
 	let table_index = RefCell::new(0);
 
@@ -275,7 +275,9 @@ pub unsafe fn initialize_initial(st: &memory::initial::State)
 
 	let get_table = |table: &mut Table, index: usize| -> &'static mut Table {
 		if !entry_present(table[index]) {
-			table[index] = page_table_entry(PhysicalPage::new((alloc_table() as *mut Table as usize - high_offset) as Addr), PRESENT_BIT | WRITE_BIT);
+			let new_table = alloc_table() as *mut Table as usize - high_offset;
+
+			table[index] = page_table_entry(PhysicalPage::new(new_table as Addr), PRESENT_BIT | WRITE_BIT);
 		}
 
 		&mut *((physical_page_from_table_entry(table[index]).addr() as usize + high_offset) as *mut Table)
@@ -287,8 +289,6 @@ pub unsafe fn initialize_initial(st: &memory::initial::State)
 		let ptl3 = get_table(&mut ptl4_static, ptl4_index);
 		let ptl2 = get_table(ptl3, ptl3_index);
 		let ptl1 = get_table(ptl2, ptl2_index);
-
-		println!("Setting {:#x}  to {:#x}", pointer.ptr(), physical_page_from_table_entry(entry).addr());
 
 		ptl1[ptl1_index] = entry;
 	};
@@ -336,8 +336,6 @@ pub unsafe fn initialize_initial(st: &memory::initial::State)
 
 		map(hole.virtual_base, (hole.end - hole.base) as usize, hole.base, flags);
 	}
-
-	println!("mapping...");
 
 	load_pml4(get_pml4_physical());
 
