@@ -30,7 +30,12 @@ pub unsafe fn initialize_basic() {
 }
 
 pub fn cpus() -> &'static mut [CPU] {
-	unsafe { CPUS.as_mut().unwrap().iter_mut().into_slice() }
+	unsafe {
+		match CPUS.as_mut() {
+			Some(cpus) => cpus.iter_mut().into_slice(),
+			None => &mut []
+		}
+	}
 }
 
 pub unsafe fn allocate() -> &'static mut CPU {

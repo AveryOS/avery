@@ -102,14 +102,21 @@ pub unsafe fn setup_gs(cpu: *const cpu::CPU) {
 	arch::write_msr(arch::GS_BASE, cpu as u64);
 }
 
-pub fn current_slow() -> &'static mut cpu::CPU {
+pub fn current_safe() -> Option<&'static mut cpu::CPU> {
 	for cpu in cpu::cpus() {
 		if is_local_cpu(cpu) {
-			return cpu
+			return Some(cpu)
 		}
 	}
 
-	panic!("Unable to find current CPU");
+	None
+}
+
+pub fn current_slow() -> &'static mut cpu::CPU {
+	match current_safe() {
+		Some(cpu) => cpu,
+		None => panic!("Unable to find current CPU"),
+	}
 }
 
 pub fn current() -> &'static mut cpu::CPU {

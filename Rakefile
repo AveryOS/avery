@@ -114,8 +114,15 @@ def assemble(build, source, objects)
 	objects << object_file
 end
 
+RELEASE_BUILD = false
+CARGO_BUILD = RELEASE_BUILD ? 'release' : 'debug'
+
+def cargo(path, cargoflags, flags = [])
+	run 'cargo', 'rustc', *(RELEASE_BUILD ? ['--release'] : []), '--manifest-path', File.join(path, 'Cargo.toml'), *cargoflags, '--', *flags
+end
+
 # We need to pass along sysroot here so rustc won't try to use host crates. The sysroot folder doesn't need to exist.
-RUSTFLAGS = ['--sysroot', hostpath('build/sysroot')] + %w{-g -Z no-landing-pads}
+RUSTFLAGS = ['--sysroot', hostpath('build/sysroot')] + %w{-g -Z no-landing-pads -C target-feature=-mmx,-sse,-sse2}
 ENV['RUSTFLAGS'] = RUSTFLAGS.join(" ") # Cargo uses this. How to pass spaces here?
 ENV['RUSTFLAGS_HOST'] = "-L #{hostpath("vendor/llvm/install//#{ON_WINDOWS ? "bin" : "lib"}")}" # Workaround bug with LLVM linking
 kernel_object_bootstrap = "build/bootstrap.o"
@@ -123,6 +130,7 @@ kernel_object_bootstrap = "build/bootstrap.o"
 type = :multiboot
 build_kernel = proc do
 	build = Build.new('build', 'info.yml')
+	mkdirs(build.output "#{type}")
 	kernel_binary = build.output "#{type}/kernel.elf"
 	kernel_object = build.output "#{type}/kernel.o"
 	kernel_bc = build.output "#{type}/kernel.ll"
@@ -144,11 +152,10 @@ build_kernel = proc do
 
 	build.run do
 		# Build the kernel object
-		flags = ["--emit=llvm-ir,obj=#{kernel_object}"]
+		flags = ['-C', 'lto', "--emit=llvm-ir,obj=#{kernel_object}"]
 		flags += ['--cfg', 'multiboot'] if type == :multiboot
 		
-		mkdirs(build.output "#{type}")
-		run *%w{cargo rustc --release --manifest-path kernel/Cargo.toml --target x86_64-avery-kernel -- -C lto}, *flags
+		cargo 'kernel', %w{--target x86_64-avery-kernel}, flags
 	
 		# Preprocess files
 
@@ -189,8 +196,10 @@ build_kernel = proc do
 			run 'x86_64-elf-objcopy', '--set-section-flags', '.debug*=alloc,contents,load,readonly,data,debug', obj
 		end
 
-		# Finally link
-		run LD, '-z', 'max-page-size=0x1000', '-T', build.output(File.join(gen_folder, linker_script)), *objects, '-o', kernel_binary
+		compiler_rt = 'vendor/compiler-rt/install-x86_64-generic-generic/lib/generic/libclang_rt.builtins-x86_64.a'
+
+		# Finally link#compiler_rt
+		run 'x86_64-elf-ld', '-z', 'max-page-size=0x1000', '-T', build.output(File.join(gen_folder, linker_script)), *objects, '-o', kernel_binary
 
 		# Copy kernel into emulation environment
 		case type
@@ -204,35 +213,25 @@ end
 
 task :deps => :deps_other do
 	build_core = proc do |target|
-		run *%W{cargo build --release --manifest-path vendor/rust/src/src/libcore/Cargo.toml --features disable_float --target #{target}}
+		cargo 'vendor/rust/src/src/libcore', %W{--features disable_float --target #{target}}
 		mkdirs("build/sysroot/lib/rustlib/#{target}/lib")
-		FileUtils.cp "build/cargo/target/#{target}/release/libcore.rlib", "build/sysroot/lib/rustlib/#{target}/lib"
+		FileUtils.cp "build/cargo/target/#{target}/#{CARGO_BUILD}/libcore.rlib", "build/sysroot/lib/rustlib/#{target}/lib"
 	end
 	build_core.('x86_32-avery-kernel')
 	build_core.('x86_64-avery-kernel')
 
-	run *%w{cargo rustc --release --manifest-path kernel/arch/x64/multiboot/Cargo.toml --target x86_32-avery-kernel -- -C lto --emit=asm=build/bootstrap.s}
+	cargo 'kernel/arch/x64/multiboot', %w{--target x86_32-avery-kernel}, %w{-C lto --emit=obj=build/bootstrap-32.o -O}
 	
+	compiler_rt = 'vendor/compiler-rt/install-x86_64-generic-generic/lib/generic/libclang_rt.builtins-i386.a'
+
 	build = Build.new('build', 'info.yml')
 	build.run do
-		# Place 32-bit bootstrap code into a 64-bit ELF
-	  
-		build.process kernel_object_bootstrap, "build/bootstrap.s" do |o, i|
-			File.open(i, 'r+') do |file|
-				content = file.read.lines.map do |l|
-					if l.strip =~ /^.cfi.*/
-						""
-					else
-						l
-					end
-				end.join
-				file.pos = 0
-				file.truncate 0
-				file.write ".code32\n"
-				file.write content
-			end
+		build.process kernel_object_bootstrap, "build/bootstrap-32.o" do |o, i|
+			# Link in compiler-rt
+			#run 'x86_64-elf-ld', '-melf_i386', '-r', i, compiler_rt, '-o', "build/bootstrap-32rt.o"
 
-			run AS, i, '-o', kernel_object_bootstrap
+			# Place 32-bit bootstrap code into a 64-bit ELF
+			run 'x86_64-elf-objcopy', '-O', 'elf64-x86-64', "build/bootstrap-32.o", kernel_object_bootstrap
 
 			# Strip all but the entry symbol `setup_long_mode` so they don't conflict with 64-bit kernel symbols
 			run 'x86_64-elf-objcopy', '--strip-debug', '-G', 'setup_long_mode', kernel_object_bootstrap
@@ -282,15 +281,14 @@ end
 task :bochsdbg => :build do
 	Dir.chdir('emu/') do
 		puts "Running Bochs..."
-		run 'bochs\bochsdbg', '-q', '-f', 'avery.bxrc'
+		run 'bochs/bochsdbg', '-q', '-f', 'avery.bxrc'
 	end
 end
 
 task :bochs4 => :build do
-
 	Dir.chdir('emu/') do
 		puts "Running Bochs..."
-		run 'bochs4\bochs', '-q', '-f', 'avery4.bxrc' # bochs4\bochs -q -f avery4.bxrc
+		run 'bochs4/bochs', '-q', '-f', 'avery4.bxrc'
 	end
 end
 
@@ -298,7 +296,7 @@ task :bochs => :build do
 
 	Dir.chdir('emu/') do
 		puts "Running Bochs..."
-		run 'bochs\bochs', '-q', '-f', 'avery.bxrc'
+		run 'bochs/bochs', '-q', '-f', 'avery.bxrc'
 	end
 end
 
@@ -329,11 +327,11 @@ end
 task :user do
 	ENV['RUSTFLAGS'] = (['--sysroot', hostpath('vendor/sysroot')] + %w{-g -Z no-landing-pads -Z print-link-args}).join(" ") # Cargo uses this. How to pass spaces here?
 
-	run *%w{cargo build --release --manifest-path vendor/rust/src/src/libcore/Cargo.toml --target x86_64-pc-avery}
+	cargo 'vendor/rust/src/src/libcore', %w{--target x86_64-pc-avery}
 	mkdirs("vendor/sysroot/lib/rustlib/x86_64-pc-avery/lib")
 	FileUtils.cp "build/cargo/target/x86_64-pc-avery/release/libcore.rlib", "vendor/sysroot/lib/rustlib/x86_64-pc-avery/lib"
 	
-	run *%w{cargo build --release --manifest-path user/Cargo.toml --target x86_64-pc-avery}
+	cargo 'user', %w{--target x86_64-pc-avery}
 end
 
 task :sh do

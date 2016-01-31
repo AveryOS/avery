@@ -29,9 +29,9 @@ pdpt:
 pdt:
 .fill 0x1000
 
-.global pt
-pt:
-.fill 0x1000
+.global pts
+pts:
+.fill 0x10000
 
 .global entry
 entry:

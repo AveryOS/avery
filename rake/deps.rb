@@ -189,7 +189,7 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 	end
 
 	Dir.chdir('vendor/') do
-		build_from_url.("ftp://ftp.gnu.org/gnu/binutils/", "binutils", "2.25", {unix: true, path: 'elf-binutils'}) do |src, prefix|
+		build_from_url.("ftp://ftp.gnu.org/gnu/binutils/", "binutils", "2.26", {unix: true, path: 'elf-binutils'}) do |src, prefix|
 			run File.join(src, 'configure'), "--prefix=#{prefix}", *%w{--target=x86_64-elf --with-sysroot --disable-nls --disable-werror}
 		end # binutils is buggy with mingw-w64
 
@@ -245,8 +245,7 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 		if real
 			run "rm", "-rf", "sysroot"
 			mkdirs('sysroot')
-			#run 'cp', '-r', 'avery-binutils/install/x86_64-pc-avery/.', "sysroot/usr/"
-			run 'cp', '-r', 'avery-newlib/install/x86_64-pc-avery/.', "sysroot" if Dir.exists?("avery-newlib/install")
+			run 'cp', '-r', 'newlib/install/x86_64-pc-avery/.', "sysroot" if Dir.exists?("newlib/install")
 		end
 
 		# CMAKE_STAGING_PREFIX, CMAKE_INSTALL_PREFIX
@@ -256,6 +255,41 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 			opts += ['-G',  'MSYS Makefiles'] if ON_WINDOWS_MINGW
 			run "cmake", src, *opts
 		end if nil
+
+		checkout_git.("compiler-rt/src", "https://github.com/AveryOS/compiler-rt.git", {branch: "avery"})
+
+		build_rt = proc do |target, s|
+			next if Dir.exists?("compiler-rt/install-#{target}")
+			mkdirs("compiler-rt/build-#{target}")
+			Dir.chdir("compiler-rt/build-#{target}") do
+				src = '../src'
+				prefix = hostpath("../install-#{target}")
+				opts = ["-DLLVM_CONFIG_PATH=#{File.join(src, "../../llvm/install/bin/llvm-config")}",
+					"-DFREESTANDING=On",
+					"-DCMAKE_SYSTEM_NAME=Generic",
+					#"-DCMAKE_SIZEOF_VOID_P=#{s}",
+					"-DCMAKE_SYSROOT=#{hostpath("fake-sysroot")}",
+					"-DCMAKE_ASM_COMPILER=clang",
+					"-DCMAKE_C_COMPILER=clang",
+					"-DCMAKE_CXX_COMPILER=clang++",
+					"-DCMAKE_C_COMPILER_TARGET=#{target}",
+					"-DCMAKE_CXX_COMPILER_TARGET=#{target}",
+					"-DCMAKE_STAGING_PREFIX=#{prefix}",
+					"-DCMAKE_INSTALL_PREFIX=#{prefix}",
+					"-DCMAKE_C_FLAGS=-ffreestanding -O2 -nostdlib",
+					"-DCMAKE_CXX_FLAGS=-ffreestanding -O2 -nostdlib",
+					"-DCOMPILER_RT_BUILD_SANITIZERS=Off",
+					"-DCOMPILER_RT_DEFAULT_TARGET_TRIPLE=#{target}"]
+				opts += ['-G',  'MSYS Makefiles'] if ON_WINDOWS_MINGW
+				run "cmake", src, *opts
+				ENV['VERBOSE'] = '1'
+				run "cmake", '--build', '.', '--target', 'install'
+			end
+		end
+
+		#build_rt.("x86_64-pc-avery", 8)
+		#build_rt.("x86_64-generic-generic", 8) # Builds i386 too
+		#build_rt.("i386-generic-generic", 4)
 
 		build_from_git.("compiler-rt", "http://llvm.org/git/compiler-rt.git") do |src, prefix|
 			opts = ["-DLLVM_CONFIG_PATH=#{File.join(src, "../../llvm/install/bin/llvm-config")}", "-DCMAKE_TOOLCHAIN_FILE=../../toolchain.txt", "-DCMAKE_STAGING_PREFIX=#{prefix}", "-DCMAKE_INSTALL_PREFIX=#{prefix}", "-DCOMPILER_RT_BUILD_SANITIZERS=Off"]

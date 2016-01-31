@@ -69,7 +69,7 @@ pub fn halt() {
 
 pub unsafe fn freeze() -> ! {
 	interrupts::disable();
-	cpu::current_slow().arch.frozen.store(true, std::sync::atomic::Ordering::SeqCst);
+	cpu::current_safe().map(|cpu| cpu.arch.frozen.store(true, std::sync::atomic::Ordering::SeqCst));
 	loop {
 		halt();
 	}
@@ -153,7 +153,6 @@ pub unsafe fn initialize_basic() {
 	segments::initialize_gdt();
 	cpu::initialize_basic();
 	interrupts::initialize_idt();
-	serial::initialize();
 }
 
 pub unsafe fn initialize() {

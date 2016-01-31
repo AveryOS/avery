@@ -35,11 +35,11 @@ pub fn init(info: &multiboot::Info) {
 	fn setup_segment(params: &mut params::Info, kind: params::SegmentKind, virtual_start: &'static void, virtual_end: &'static void)
 	{
 		let base = offset(virtual_start) - offset(&kernel_start) + offset(&low_end);
-
+		
 		params.segments.push(params::Segment {
 			kind: kind,
 			base: base as Addr,
-			end: (base + offset(virtual_end) - offset(virtual_start)) as Addr,
+			end: (base + (offset(virtual_end) - offset(virtual_start))) as Addr,
 			virtual_base: offset(virtual_start),
 			found: false,
 			name: unsafe { std::mem::zeroed() }

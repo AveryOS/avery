@@ -6,6 +6,7 @@ use util::FixVec;
 use memory;
 use memory::{Page, PhysicalPage, Addr, physical};
 use spin::Mutex;
+use std::cell::RefCell;
 
 pub use arch::{PAGE_SIZE, PHYS_PAGE_SIZE};
 
@@ -196,13 +197,6 @@ pub fn get_physical_page(virtual_address: Page) -> PhysicalPage {
 
 extern {
 	static mut ptl4_static: Table;
-	static mut ptl3_static: Table;
-	static mut ptl2_kernel: Table;
-
-	static mut ptl2_dynamic: Table;
-	static mut ptl1_kernel: Table;
-	static mut ptl1_physical: Table;
-	static mut ptl1_frame: Table;
 }
 
 fn decode_address(pointer: Page) -> (usize, usize, usize, usize) {
@@ -257,59 +251,74 @@ fn page_table_entry(page: PhysicalPage, flags: Addr) -> TableEntry {
 	TableEntry(page.addr() | flags)
 }
 
-fn map_page_table(pt: &mut Table, start_page_offset: usize, end_page_offset: usize, base: Addr, mut flags: Addr) {
-	assert_page_aligned!(base);
-
-	flags |= PRESENT_BIT;
-	let start_index = align_down(start_page_offset, PAGE_SIZE) / PAGE_SIZE;
-	let end_index = align_up(end_page_offset, PAGE_SIZE) / PAGE_SIZE;
-
-	//println!("kernel-base {:x}, stop: {:x} flags {:x}", KERNEL_LOCATION + start_index * PAGE_SIZE, KERNEL_LOCATION + end_index * PAGE_SIZE, flags);
-
-	//println!("base {:x}, start_index: {} - end_index: {} - start_page_offset: {:x} - end_page_offset: {:x}", base, start_index, end_index, start_page_offset, end_page_offset);
-
-	assert!(start_index < TABLE_ENTRIES);
-	assert!(start_index < end_index);
-	assert!(end_index < TABLE_ENTRIES);
-
-	for i in start_index..end_index {
-		pt[i] = page_table_entry(PhysicalPage::new(base + (i - start_index) as Addr * PHYS_PAGE_SIZE), flags);
-	}
-}
-
-fn table_entry_from_data(table: &'static Table) -> TableEntry {
-	page_table_entry(Page::new(offset(table)).get_physical(), PRESENT_BIT | WRITE_BIT)
-}
-
 pub unsafe fn get_pml4_physical() -> PhysicalPage {
 	Page::new(offset(&ptl4_static)).get_physical()
 }
 
 pub unsafe fn initialize_initial(st: &memory::initial::State)
 {
-	ptl4_static[511] = table_entry_from_data(&ptl3_static);
-	ptl4_static[510] = table_entry_from_data(&ptl4_static); // map ptl4 to itself
+	extern {
+		static mut ptables: [Table; 32];
+		static low_end: void;
+		static kernel_start: void;
+	}
 
-	ptl3_static[509] = table_entry_from_data(&ptl4_static); // map ptl3 to ptl4
-	ptl3_static[510] = table_entry_from_data(&ptl2_kernel);
-	ptl3_static[511] = table_entry_from_data(&ptl2_dynamic);
+	let high_offset = offset(&kernel_start) + offset(&low_end);
 
-	ptl2_kernel[0] = table_entry_from_data(&ptl1_kernel);
-	ptl2_kernel[511] = table_entry_from_data(&ptl4_static); // map ptl2 to ptl4
+	let table_index = RefCell::new(0);
 
-	ptl2_dynamic[0] = table_entry_from_data(&ptl1_physical);
-	ptl2_dynamic[1] = table_entry_from_data(&ptl1_frame);
+	let alloc_table = || -> &'static mut Table {
+		let r = &mut ptables[*table_index.borrow()];
+		*table_index.borrow_mut() += 1;
+		r
+	};
+
+	let get_table = |table: &mut Table, index: usize| -> &'static mut Table {
+		if !entry_present(table[index]) {
+			table[index] = page_table_entry(PhysicalPage::new((alloc_table() as *mut Table as usize - high_offset) as Addr), PRESENT_BIT | WRITE_BIT);
+		}
+
+		&mut *((physical_page_from_table_entry(table[index]).addr() as usize + high_offset) as *mut Table)
+	};
+
+	let set_entry = |pointer: Page, entry: TableEntry| {
+		let (ptl4_index, ptl3_index, ptl2_index, ptl1_index) = decode_address(pointer);
+
+		let ptl3 = get_table(&mut ptl4_static, ptl4_index);
+		let ptl2 = get_table(ptl3, ptl3_index);
+		let ptl1 = get_table(ptl2, ptl2_index);
+
+		println!("Setting {:#x}  to {:#x}", pointer.ptr(), physical_page_from_table_entry(entry).addr());
+
+		ptl1[ptl1_index] = entry;
+	};
+
+	let map = |virtual_start: usize, size: usize, base: Addr, mut flags: Addr| {
+		assert_page_aligned!(base);
+		assert_page_aligned!(virtual_start);
+
+		flags |= PRESENT_BIT;
+
+		let pages = align_up(size, PAGE_SIZE) / PAGE_SIZE;
+
+		for i in 0..pages {
+			set_entry(Page::new(virtual_start + i * PAGE_SIZE), page_table_entry(PhysicalPage::new(base + (i as Addr) * PHYS_PAGE_SIZE), flags));
+		}
+	};
+
+	// map ptl4 to itself
+	ptl4_static[510] = page_table_entry(PhysicalPage::new((offset(&ptl4_static) - high_offset) as Addr), PRESENT_BIT | WRITE_BIT);
 
 	// Map the physical memory allocator
 
-	map_page_table(&mut ptl1_physical, 0, st.overhead, (*st.entry).base, WRITE_BIT | NX_BIT);
+	map(PHYSICAL_ALLOCATOR_MEMORY, st.overhead, (*st.entry).base, WRITE_BIT | NX_BIT);
 
 	// Map framebuffer to virtual memory
 
 	let (fb, fb_size) = console::get_buffer_info();
 
 	assert!(fb_size < PTL1_SIZE); // Framebuffer too large
-	map_page_table(&mut ptl1_frame, 0, fb_size, fb, WRITE_BIT | NX_BIT);
+	map(FRAMEBUFFER_START, fb_size, fb, WRITE_BIT | NX_BIT);
 
 	// Map kernel segments
 
@@ -323,14 +332,18 @@ pub unsafe fn initialize_initial(st: &memory::initial::State)
 			params::SegmentKind::ReadOnlyData => (),
 		}
 
-		let virtual_offset = hole.virtual_base - KERNEL_LOCATION;
-
 		println!("Segment {:?} {:#x} - {:#x} @ {:#x} - {:#x}", hole.kind, hole.virtual_base, hole.virtual_base + (hole.end - hole.base) as usize, hole.base, hole.end);
 
-		map_page_table(&mut ptl1_kernel, virtual_offset, virtual_offset + (hole.end - hole.base) as usize, hole.base, flags);
+		map(hole.virtual_base, (hole.end - hole.base) as usize, hole.base, flags);
 	}
 
+	println!("mapping...");
+
+	load_pml4(get_pml4_physical());
+
 	KERNEL_MAPPED = true;
+
+	console::set_buffer(FRAMEBUFFER_START);
 
 	extern {
 		static stack_start: void;
@@ -341,8 +354,4 @@ pub unsafe fn initialize_initial(st: &memory::initial::State)
 	*get_page_entry(&mut *LOCK.lock(), Page::new(offset(&stack_start))) = NULL_ENTRY;
 
 	println!("BSP Stack is {:#x} - {:#x}", offset(&stack_start), offset(&stack_end));
-
-	load_pml4(get_pml4_physical());
-
-	console::set_buffer(FRAMEBUFFER_START);
 }
