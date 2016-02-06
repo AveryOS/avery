@@ -267,9 +267,11 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 				opts = ["-DLLVM_CONFIG_PATH=#{File.join(src, "../../llvm/install/bin/llvm-config")}",
 					"-DFREESTANDING=On",
 					"-DCMAKE_SYSTEM_NAME=Generic",
-					#"-DCMAKE_SIZEOF_VOID_P=#{s}",
+					"-DCMAKE_SIZEOF_VOID_P=#{s}",
 					"-DCMAKE_SYSROOT=#{hostpath("fake-sysroot")}",
 					"-DCMAKE_ASM_COMPILER=clang",
+					"-DCMAKE_ASM_FLAGS=--target=#{target} -D__USER_LABEL_PREFIX__= -D__ELF__",
+					"-DCMAKE_AR=#{which "x86_64-elf-ar"}",
 					"-DCMAKE_C_COMPILER=clang",
 					"-DCMAKE_CXX_COMPILER=clang++",
 					"-DCMAKE_C_COMPILER_TARGET=#{target}",
@@ -287,8 +289,8 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 			end
 		end
 
-		#build_rt.("x86_64-pc-avery", 8)
-		#build_rt.("x86_64-generic-generic", 8) # Builds i386 too
+		build_rt.("x86_64-pc-avery", 8)
+		build_rt.("x86_64-generic-generic", 8) # Builds i386 too
 		#build_rt.("i386-generic-generic", 4)
 
 		build_from_git.("compiler-rt", "http://llvm.org/git/compiler-rt.git") do |src, prefix|

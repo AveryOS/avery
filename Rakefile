@@ -199,7 +199,7 @@ build_kernel = proc do
 		compiler_rt = 'vendor/compiler-rt/install-x86_64-generic-generic/lib/generic/libclang_rt.builtins-x86_64.a'
 
 		# Finally link#compiler_rt
-		run 'x86_64-elf-ld', '-z', 'max-page-size=0x1000', '-T', build.output(File.join(gen_folder, linker_script)), *objects, '-o', kernel_binary
+		run 'x86_64-elf-ld', '-z', 'max-page-size=0x1000', '-T', build.output(File.join(gen_folder, linker_script)), *objects, compiler_rt, '-o', kernel_binary
 
 		# Copy kernel into emulation environment
 		case type
@@ -220,7 +220,7 @@ task :deps => :deps_other do
 	build_core.('x86_32-avery-kernel')
 	build_core.('x86_64-avery-kernel')
 
-	cargo 'kernel/arch/x64/multiboot', %w{--target x86_32-avery-kernel}, %w{-C lto --emit=obj=build/bootstrap-32.o -O}
+	cargo 'kernel/arch/x64/multiboot', %w{--target x86_32-avery-kernel}, (%w{-C lto --emit=obj=build/bootstrap-32.o} + (RELEASE_BUILD ? [] : []))
 	
 	compiler_rt = 'vendor/compiler-rt/install-x86_64-generic-generic/lib/generic/libclang_rt.builtins-i386.a'
 
@@ -228,10 +228,10 @@ task :deps => :deps_other do
 	build.run do
 		build.process kernel_object_bootstrap, "build/bootstrap-32.o" do |o, i|
 			# Link in compiler-rt
-			#run 'x86_64-elf-ld', '-melf_i386', '-r', i, compiler_rt, '-o', "build/bootstrap-32rt.o"
+			run 'x86_64-elf-ld', '-melf_i386', '-r', i, compiler_rt, '-o', "build/bootstrap-32rt.o"
 
 			# Place 32-bit bootstrap code into a 64-bit ELF
-			run 'x86_64-elf-objcopy', '-O', 'elf64-x86-64', "build/bootstrap-32.o", kernel_object_bootstrap
+			run 'x86_64-elf-objcopy', '-O', 'elf64-x86-64', "build/bootstrap-32rt.o", kernel_object_bootstrap
 
 			# Strip all but the entry symbol `setup_long_mode` so they don't conflict with 64-bit kernel symbols
 			run 'x86_64-elf-objcopy', '--strip-debug', '-G', 'setup_long_mode', kernel_object_bootstrap

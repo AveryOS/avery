@@ -121,7 +121,7 @@ const BIOS_START: usize = 0xE0000;
 const BIOS_END: usize = 0x100000;
 
 fn checksum(mem: &[u8]) -> u8 {
-	mem.iter().fold(0, |acc, &b| acc + b)
+	mem.iter().fold(0, |acc, &b| acc.wrapping_add(b))
 }
 
 unsafe fn assert_valid(table: *const SDT) {
