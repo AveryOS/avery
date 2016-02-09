@@ -50,12 +50,6 @@ build_unix_pkg = proc do |src, opts, &proc|
 			end
 		end
 
-		# Copy dependencies from MSYS
-		if opts[:unix] && File.exists?('/usr/bin/msys-2.0.dll')
-			mkdirs("#{bin_path}/bin")
-			run 'cp', '/usr/bin/msys-2.0.dll', "#{bin_path}/bin/msys-2.0.dll"
-		end
-
 		run 'touch', "built"
 	end
 
@@ -208,7 +202,8 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 		checkout_git.("llvm/src/tools/clang", "https://github.com/AveryOS/clang.git", {branch: "avery"})
 
 		build_from_git.("llvm", "https://github.com/AveryOS/llvm.git", {branch: "avery", ninja: true}) do |src, prefix|
-			opts = %W{-DLLVM_TARGETS_TO_BUILD=X86 -DCMAKE_BUILD_TYPE=RelWithDebInfo  -DBUILD_SHARED_LIBS=On -DCMAKE_INSTALL_PREFIX=#{prefix}}
+			#-DLLVM_ENABLE_ASSERTIONS=On  crashes on GCC 5.x + Release on Windows
+			opts = %W{-DLLVM_TARGETS_TO_BUILD=X86 -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_SHARED_LIBS=On -DCMAKE_INSTALL_PREFIX=#{prefix}}
 			opts += ['-G',  'Ninja', '-DLLVM_PARALLEL_LINK_JOBS=1'] if NINJA
 			opts += %w{-DCMAKE_CXX_COMPILER=g++ -DCMAKE_C_COMPILER=gcc} if ON_WINDOWS_MINGW
 			run "cmake", src, *opts
@@ -298,8 +293,6 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 			opts += ['-G',  'MSYS Makefiles'] if ON_WINDOWS_MINGW
 			run "cmake", src, *opts
 		end if nil
-
-		#ENV['VERBOSE'] = '1'
 
 		# clang is not the host compiler, force use of gcc
 		env = {'CC' => 'gcc', 'CXX' => 'g++'}
