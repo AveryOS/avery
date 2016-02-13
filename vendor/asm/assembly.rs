@@ -468,9 +468,9 @@ fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree]) 
 
     MacEager::expr(P(Expr {
         id: ast::DUMMY_NODE_ID,
-        node: ast::ExprInlineAsm(ast::InlineAsm {
+        node: ast::ExprKind::InlineAsm(ast::InlineAsm {
             asm: intern_and_get_ident(&out_str),
-            asm_str_style: ast::CookedStr,
+            asm_str_style: ast::StrStyle::Cooked,
             clobbers: data.clobbers.iter().map(|s| intern_and_get_ident(&s)).collect(),
             inputs: inputs,
             outputs: outputs,
