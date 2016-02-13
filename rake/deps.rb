@@ -215,32 +215,41 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 
 		# autotools for picky newlib
 
-		build_from_url.("ftp://ftp.gnu.org/gnu/autoconf/", "autoconf", "2.65", {unix: true, ext: "gz"}) do |src, prefix|
+		build_from_url.("ftp://ftp.gnu.org/gnu/autoconf/", "autoconf", "2.68", {unix: true, ext: "gz"}) do |src, prefix|
 			update_cfg.(src)
+			update_cfg.(File.join(src, 'build-aux'))
 			run File.join(src, 'configure'), "--prefix=#{prefix}"
-		end if extra
+		end
 
 		build_from_url.("ftp://ftp.gnu.org/gnu/automake/", "automake", "1.12", {unix: true, ext: "gz"}) do |src, prefix|
 			update_cfg.(src)
 			update_cfg.(File.join(src, 'lib'))
 			run File.join(src, 'configure'), "--prefix=#{prefix}"
-		end if extra
+		end
 
 		build_from_git.("binutils", "https://github.com/AveryOS/binutils.git", {branch: "avery", unix: true}) do |src, prefix|
 			run File.join(src, 'configure'), "--prefix=#{prefix}", *%w{--target=x86_64-pc-avery --with-sysroot --disable-nls --disable-werror --disable-gdb --disable-sim --disable-readline --disable-libdecnumber}
-		end if extra # binutils is buggy with mingw-w64
+		end # binutils is buggy with mingw-w64
 
-		build_from_git.("newlib", "https://github.com/AveryOS/newlib.git", {branch: "avery"}) do |src, prefix|
-			run File.join(src, 'configure'), "--prefix=#{prefix}", "--target=x86_64-pc-avery", 'CC_FOR_TARGET=clang -fno-integrated-as -ffreestanding --target=x86_64-pc-avery -ccc-gcc-name x86_64-pc-avery-gcc'
-		end if extra
+		env = {'CFLAGS' => '-fPIC'}
+		build_from_git.("newlib", "https://github.com/AveryOS/newlib.git", {branch: "avery", env: env}) do |src, prefix|
+			Dir.chdir(File.join(src, "newlib/libc/sys")) do
+				run "autoconf"
+				Dir.chdir("avery") do
+					run "autoreconf"
+				end
+			end
+			# -ccc-gcc-name x86_64-pc-avery-gcc
+			run File.join(src, 'configure'), "--prefix=#{prefix}", "--target=x86_64-pc-avery", 'CC_FOR_TARGET=clang -fno-integrated-as -ffreestanding --target=x86_64-pc-avery'
+		end
 
 		# C++ isn't working yet
 		#run "rm", "llvm/install/bin/clang++#{EXE_POST}"
 
 		if real
-			run "rm", "-rf", "sysroot"
-			mkdirs('sysroot')
-			run 'cp', '-r', 'newlib/install/x86_64-pc-avery/.', "sysroot" if Dir.exists?("newlib/install")
+			run "rm", "-rf", "avery-sysroot"
+			mkdirs('avery-sysroot')
+			run 'cp', '-r', 'newlib/install/x86_64-pc-avery/.', "avery-sysroot"
 		end
 
 		# CMAKE_STAGING_PREFIX, CMAKE_INSTALL_PREFIX
@@ -253,7 +262,8 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 
 		checkout_git.("compiler-rt/src", "https://github.com/AveryOS/compiler-rt.git", {branch: "avery"})
 
-		build_rt = proc do |target, s, binutils|
+		build_rt = proc do |target, s, binutils, flags|
+			next if !real
 			next if Dir.exists?("compiler-rt/install-#{target}")
 			mkdirs("compiler-rt/build-#{target}")
 			Dir.chdir("compiler-rt/build-#{target}") do
@@ -273,8 +283,8 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 					"-DCMAKE_CXX_COMPILER_TARGET=#{target}",
 					"-DCMAKE_STAGING_PREFIX=#{prefix}",
 					"-DCMAKE_INSTALL_PREFIX=#{prefix}",
-					"-DCMAKE_C_FLAGS=-ffreestanding -O2 -nostdlib -B #{hostpath("../../#{binutils}")}",
-					"-DCMAKE_CXX_FLAGS=-ffreestanding -O2 -nostdlib -B #{hostpath("../../#{binutils}")}",
+					"-DCMAKE_C_FLAGS=-ffreestanding -O2 -nostdlib #{flags} -B #{hostpath("../../#{binutils}")}",
+					"-DCMAKE_CXX_FLAGS=-ffreestanding -O2 -nostdlib #{flags} -B #{hostpath("../../#{binutils}")}",
 					"-DCOMPILER_RT_BUILD_SANITIZERS=Off",
 					"-DCOMPILER_RT_DEFAULT_TARGET_TRIPLE=#{target}"]
 				opts += ['-G',  'MSYS Makefiles'] if ON_WINDOWS_MINGW
@@ -284,9 +294,12 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 			end
 		end
 
-		build_rt.("x86_64-pc-avery", 8, "binutils/install/x86_64-pc-avery/bin") if extra
-		build_rt.("x86_64-generic-generic", 8, "elf-binutils/install/x86_64-elf/bin") # Builds i386 too
+		build_rt.("x86_64-pc-avery", 8, "binutils/install/x86_64-pc-avery/bin", "-fPIC")
+		build_rt.("x86_64-generic-generic", 8, "elf-binutils/install/x86_64-elf/bin", "") # Builds i386 too
 		#build_rt.("i386-generic-generic", 4)
+
+		# place compiler-rt in lib/rustlib/x86_64-pc-avery/lib - rustc links to it // clang links to it instead
+		run 'cp', 'compiler-rt/install-x86_64-pc-avery/lib/generic/libclang_rt.builtins-x86_64.a', "avery-sysroot/lib/libcompiler_rt.a" if real && extra
 
 		build_from_git.("compiler-rt", "http://llvm.org/git/compiler-rt.git") do |src, prefix|
 			opts = ["-DLLVM_CONFIG_PATH=#{File.join(src, "../../llvm/install/bin/llvm-config")}", "-DCMAKE_TOOLCHAIN_FILE=../../toolchain.txt", "-DCMAKE_STAGING_PREFIX=#{prefix}", "-DCMAKE_INSTALL_PREFIX=#{prefix}", "-DCOMPILER_RT_BUILD_SANITIZERS=Off"]
@@ -297,8 +310,10 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 		# clang is not the host compiler, force use of gcc
 		env = {'CC' => 'gcc', 'CXX' => 'g++'}
 		build_from_git.("rust", "https://github.com/AveryOS/rust.git", {branch: "avery", env: env}) do |src, prefix|
-			run File.join(src, 'configure'), "--enable-debuginfo", "--prefix=#{prefix}", "--llvm-root=#{File.join(src, "../../llvm/build")}", "--disable-docs"#, "--target-sysroot=#{File.join(Dir.pwd, "../../sysroot")}", "--target=x86_64-pc-avery", "--disable-jemalloc"
+			run File.join(src, 'configure'), "--enable-debuginfo", "--prefix=#{prefix}", "--llvm-root=#{File.join(src, "../../llvm/build")}", "--disable-docs", "--target=x86_64-pc-avery", "--disable-jemalloc"
 		end
+
+		run 'cp', '-r', 'rust/install/lib/rustlib/x86_64-pc-avery', "avery-sysroot/lib/rustlib" if real
 
 		env = if which 'brew'
 			prefix = `brew --prefix openssl`.strip
@@ -317,9 +332,6 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 			end
 			run File.join(src, 'configure'), "--prefix=#{prefix}", "--local-rust-root=#{path("vendor/rust/install")}"
 		end
-
-		# place compiler-rt in lib/rustlib/x86_64-pc-avery/lib - rustc links to it // clang links to it instead
-		#run 'cp', '-r', 'libcompiler-rt.a', "sysroot/lib" if real && File.exists?("libcompiler-rt.a")
 
 		env = {'LIBCLANG_PATH' => path("vendor/llvm/install/#{ON_WINDOWS ? 'bin' : 'lib'}")}
 		build_from_git.("bindgen", "https://github.com/crabtw/rust-bindgen.git", {cargo: true, env: env}) if extra

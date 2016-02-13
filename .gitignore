@@ -7,7 +7,7 @@
 /vendor/rust
 /vendor/elf-binutils
 /vendor/mtools
-/vendor/sysroot
+/vendor/avery-sysroot
 /vendor/libcxx
 /vendor/compiler-rt
 /vendor/autoconf

@@ -1,0 +1,7 @@
+[package]
+name = "hello"
+version = "0.1.0"
+
+[[bin]]
+name = "hello"
+path = "hello.rs"

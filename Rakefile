@@ -32,6 +32,7 @@ append_path(File.expand_path('../vendor/binutils/install/bin', __FILE__))
 append_path(File.expand_path('../vendor/cargo/install/bin', __FILE__))
 append_path(File.expand_path("../vendor/rust/install/bin", __FILE__))
 append_path(File.expand_path("../vendor/autoconf/install/bin", __FILE__))
+append_path(File.expand_path("../vendor/automake/install/bin", __FILE__))
 
 sos = path("vendor/llvm/install/lib") + ":" + path("vendor/rust/install/lib")
 ENV['DYLD_LIBRARY_PATH'] = sos
@@ -324,14 +325,11 @@ task :clean do
 	EXTERNAL_BUILDS.(:clean, false, true)
 end
 
-task :user do
-	ENV['RUSTFLAGS'] = (['--sysroot', hostpath('vendor/sysroot')] + %w{-g -Z no-landing-pads -Z print-link-args}).join(" ") # Cargo uses this. How to pass spaces here?
-
-	cargo 'vendor/rust/src/src/libcore', %w{--target x86_64-pc-avery}
-	mkdirs("vendor/sysroot/lib/rustlib/x86_64-pc-avery/lib")
-	FileUtils.cp "build/cargo/target/x86_64-pc-avery/release/libcore.rlib", "vendor/sysroot/lib/rustlib/x86_64-pc-avery/lib"
+task :user => :extra do
+	ENV['RUSTFLAGS'] = nil
 	
 	cargo 'user', %w{--target x86_64-pc-avery}
+	cargo 'user/hello', %w{--target x86_64-pc-avery}
 end
 
 task :sh do
