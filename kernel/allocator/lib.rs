@@ -1,0 +1,5 @@
+#![crate_name = "allocator"]
+#![crate_type = "rlib"]
+#![no_std]
+#![feature(allocator)]
+#![allocator]

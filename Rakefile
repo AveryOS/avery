@@ -41,11 +41,12 @@ ENV['LD_LIBRARY_PATH'] = sos
 # rustc build needs LLVM in PATH on Windows
 CLEANENV = ENV.to_h
 
-ENV['CARGO_HOME'] = path('build/cargo/home')
-ENV['CARGO_TARGET_DIR'] = File.expand_path('../build/cargo/target', __FILE__)
-ENV['RUST_TARGET_PATH'] = File.expand_path('../targets', __FILE__)
-ENV['RUST_BACKTRACE'] = '1'
-UNIX_EMU = [false]
+def new_env(k, v)
+	old = ENV[k]
+	ENV[k] = v
+	yield
+	ENV[k] = old
+end
 
 def hostpath(p)
 	if ENV['MSYSTEM']
@@ -54,6 +55,12 @@ def hostpath(p)
 		File.expand_path(p)
 	end
 end
+
+ENV['CARGO_HOME'] = path('build/cargo/home')
+ENV['CARGO_TARGET_DIR'] = File.expand_path('../build/cargo/target', __FILE__)
+ENV['RUST_TARGET_PATH'] = File.expand_path('../targets', __FILE__)
+ENV['RUST_BACKTRACE'] = '1'
+UNIX_EMU = [false]
 
 def which(cmd)
 	exts = ENV['PATHEXT'] ? ENV['PATHEXT'].split(';') : ['']
@@ -118,14 +125,19 @@ end
 RELEASE_BUILD = false
 CARGO_BUILD = RELEASE_BUILD ? 'release' : 'debug'
 
-def cargo(path, cargoflags, flags = [])
+RUSTFLAGS = ['--sysroot', hostpath('build/sysroot')] + %w{-g -Z no-landing-pads -C target-feature=-mmx,-sse,-sse2}
+ENV['RUSTFLAGS_HOST'] = "-L #{hostpath("vendor/llvm/install//#{ON_WINDOWS ? "bin" : "lib"}")}" # Workaround bug with LLVM linking
+
+def cargo(path, target, cargoflags = [], flags = [])
+	cargoflags += ['--target', target]
+	if target == 'x86_64-pc-avery'
+		ENV['RUSTFLAGS'] = nil
+	else
+		ENV['RUSTFLAGS'] = RUSTFLAGS.join(" ") # Cargo uses this. How to pass spaces here?
+	end
 	run 'cargo', 'rustc', *(RELEASE_BUILD ? ['--release'] : []), '--manifest-path', File.join(path, 'Cargo.toml'), *cargoflags, '--', *flags
 end
 
-# We need to pass along sysroot here so rustc won't try to use host crates. The sysroot folder doesn't need to exist.
-RUSTFLAGS = ['--sysroot', hostpath('build/sysroot')] + %w{-g -Z no-landing-pads -C target-feature=-mmx,-sse,-sse2}
-ENV['RUSTFLAGS'] = RUSTFLAGS.join(" ") # Cargo uses this. How to pass spaces here?
-ENV['RUSTFLAGS_HOST'] = "-L #{hostpath("vendor/llvm/install//#{ON_WINDOWS ? "bin" : "lib"}")}" # Workaround bug with LLVM linking
 kernel_object_bootstrap = "build/bootstrap.o"
 
 type = :multiboot
@@ -156,7 +168,7 @@ build_kernel = proc do
 		flags = ['-C', 'lto', "--emit=llvm-ir,obj=#{kernel_object}"]
 		flags += ['--cfg', 'multiboot'] if type == :multiboot
 		
-		cargo 'kernel', %w{--target x86_64-avery-kernel}, flags
+		cargo 'kernel', 'x86_64-avery-kernel', [], flags
 	
 		# Preprocess files
 
@@ -200,7 +212,10 @@ build_kernel = proc do
 		compiler_rt = 'vendor/compiler-rt/install-x86_64-generic-generic/lib/generic/libclang_rt.builtins-x86_64.a'
 
 		# Finally link#compiler_rt
-		run 'x86_64-elf-ld', '-z', 'max-page-size=0x1000', '-T', build.output(File.join(gen_folder, linker_script)), *objects, compiler_rt, '-o', kernel_binary
+		run 'x86_64-elf-ld', '-z', 'max-page-size=0x1000',
+			'-T', build.output(File.join(gen_folder, linker_script)),
+			*objects, compiler_rt,
+			'-o', kernel_binary
 
 		# Copy kernel into emulation environment
 		case type
@@ -212,16 +227,21 @@ build_kernel = proc do
 	end
 end
 
-task :deps => :deps_other do
-	build_core = proc do |target|
-		cargo 'vendor/rust/src/src/libcore', %W{--features disable_float --target #{target}}
-		mkdirs("build/sysroot/lib/rustlib/#{target}/lib")
-		FileUtils.cp "build/cargo/target/#{target}/#{CARGO_BUILD}/libcore.rlib", "build/sysroot/lib/rustlib/#{target}/lib"
-	end
-	build_core.('x86_32-avery-kernel')
-	build_core.('x86_64-avery-kernel')
+task :deps => [:user, :deps_other] do
+	new_env('CARGO_TARGET_DIR', 'build/cargo/sysroot-target') do
+		run "rm", "-rf", "build/sysroot"
 
-	cargo 'kernel/arch/x64/multiboot', %w{--target x86_32-avery-kernel}, (%w{-C lto --emit=obj=build/bootstrap-32.o} + (RELEASE_BUILD ? [] : []))
+		build_sysroot = proc do |target|
+			cargo "sysroot", target
+			mkdirs("build/sysroot/lib/rustlib/#{target}/lib")
+			run 'cp', '-r', "build/cargo/sysroot-target/#{target}/#{CARGO_BUILD}/deps/.", "build/sysroot/lib/rustlib/#{target}/lib"
+		end
+
+		build_sysroot.('x86_32-avery-kernel')
+		build_sysroot.('x86_64-avery-kernel')
+	end
+
+	cargo 'kernel/arch/x64/multiboot', 'x86_32-avery-kernel', [], (%w{-C lto --emit=obj=build/bootstrap-32.o})
 	
 	compiler_rt = 'vendor/compiler-rt/install-x86_64-generic-generic/lib/generic/libclang_rt.builtins-i386.a'
 
@@ -325,11 +345,21 @@ task :clean do
 	EXTERNAL_BUILDS.(:clean, false, true)
 end
 
-task :user => :extra do
+task :user => :deps_other do
 	ENV['RUSTFLAGS'] = nil
 	
-	cargo 'user', %w{--target x86_64-pc-avery}
-	cargo 'user/hello', %w{--target x86_64-pc-avery}
+	cargo 'user', 'x86_64-pc-avery'
+	cargo 'user/hello', 'x86_64-pc-avery'
+
+	mkdirs("build/user")
+	FileUtils.cp "build/cargo/target/x86_64-pc-avery/#{CARGO_BUILD}/hello", "build/user"
+
+	build = Build.new('build', 'info.yml')
+	build.run do
+		build.process  "build/user/hello.o", "build/user/hello" do |o, i|
+			run 'x86_64-elf-objcopy', '-I', 'binary', '-B', 'i386', '-O', 'elf64-x86-64', i, o
+		end
+	end
 end
 
 task :sh do

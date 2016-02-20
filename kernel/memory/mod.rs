@@ -3,6 +3,8 @@ use std::mem;
 use std::slice;
 use spin::Mutex;
 
+pub mod rust;
+
 pub use arch::Addr;
 pub use self::allocator::Block;
 pub use self::allocator::Kind;

@@ -1,6 +1,6 @@
 #![allow(improper_ctypes, dead_code)]
 #![feature(lang_items,
-		   plugin, asm, core_intrinsics, linkage, const_fn)]
+		   plugin, asm, linkage, const_fn)]
 #![no_std]
 #![crate_type = "bin"]
 
@@ -9,7 +9,7 @@
 #[lang = "panic_fmt"] fn panic_fmt() {}
 
 #[lang = "start"]
-extern fn start(main: *const u8, argc: isize, argv: *const *const u8) -> isize {
+extern fn start(_main: *const u8, _argc: isize, _argv: *const *const u8) -> isize {
 	0
 }
 

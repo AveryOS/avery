@@ -8,5 +8,7 @@ crate-type = ["staticlib"]
 
 [dependencies]
 rlibc = "0.1.5"
+elfloader = { path = "../verifier/rust-elfloader" }
 assembly = { path = "../vendor/asm" }
 std = { path = "std" }
+allocator = { path = "allocator" }

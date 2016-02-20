@@ -156,6 +156,9 @@ pub unsafe fn initialize_basic() {
 }
 
 pub unsafe fn initialize() {
+	use elfloader::{self, elf};
+	use std::slice;
+
 	cpu::map_local_page_tables(cpu::bsp());
 
 	let pit_irq = IRQ::new(0, true, false);
@@ -165,4 +168,21 @@ pub unsafe fn initialize() {
 	pit::initialize(setup.pit_irq);
 	apic::calibrate();
 	cpu::boot_cpus(setup.cpus);
+
+	extern {
+		static user_image_start: u8;
+		static user_image_end: u8;
+	}
+
+	let user = slice::from_raw_parts(&user_image_start, offset(&user_image_end) - offset(&user_image_start));
+
+	let bin = elfloader::ElfBinary::new("user_image", user).unwrap();
+
+	for p in bin.program_headers() {
+		println!("matching program header {} EXEC:{}", p, p.flags.0 & elf::PF_X.0 != 0);
+	}
+
+	for h in bin.section_headers() {
+		println!("section_header {} {}", bin.section_name(h), h);
+	}
 }

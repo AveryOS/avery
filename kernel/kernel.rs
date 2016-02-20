@@ -1,12 +1,15 @@
 #![allow(improper_ctypes, dead_code)]
 #![feature(lang_items,
-		   plugin, asm, core_intrinsics, linkage, const_fn)]
+		   plugin, asm, core_intrinsics, linkage, const_fn,
+		   allocator)]
 #![plugin(assembly)]
 #![crate_type = "staticlib"]
 
 extern crate core;
+extern crate allocator;
 
 extern crate rlibc;
+extern crate elfloader;
 
 #[macro_use]
 mod util;
@@ -23,7 +26,7 @@ pub mod arch;
 
 mod cpu;
 
-mod memory;
+pub mod memory;
 
 fn init(info: &mut params::Info) {
 	unsafe {

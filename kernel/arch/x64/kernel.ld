@@ -60,6 +60,10 @@ SECTIONS
 
 		raw_bitmap_font = .;
 		*(.font)
+
+		user_image_start = .;
+		build/user/hello.o(*)
+		user_image_end = .;
 	}
 
 % ['ranges', 'abbrev', 'info', 'line', 'str', 'loc'].each do |s|

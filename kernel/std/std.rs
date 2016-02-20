@@ -1,7 +1,8 @@
 #![crate_name = "std"]
 #![crate_type = "rlib"]
 #![feature(zero_one, core_intrinsics, raw, num_bits_bytes, lang_items,
-	macro_reexport, allow_internal_unstable, core_panic)]
+	macro_reexport, allow_internal_unstable, core_panic,
+	collections, alloc, slice_concat_ext)]
 #![no_std]
 
 // We want to reexport a few macros from core but libcore has already been
@@ -12,10 +13,25 @@
 				 try, panic)]
 extern crate core as __core;
 
+#[macro_use]
+#[macro_reexport(vec, format)]
+extern crate collections as core_collections;
+
+extern crate alloc;
+
+pub use core_collections::borrow;
+pub use core_collections::fmt;
+pub use core_collections::slice;
+pub use core_collections::str;
+pub use core_collections::string;
+pub use core_collections::vec;
+
+pub use alloc::boxed;
+pub use alloc::rc;
+
 pub use core::ptr;
 pub use core::sync;
 pub use core::any;
-pub use core::str;
 pub use core::cell;
 pub use core::clone;
 pub use core::cmp;
@@ -25,11 +41,9 @@ pub use core::num;
 pub use core::hash;
 pub use core::intrinsics;
 pub use core::iter;
-pub use core::fmt;
 pub use core::marker;
 pub use core::mem;
 pub use core::ops;
-pub use core::slice;
 pub use core::raw;
 pub use core::result;
 pub use core::option;
@@ -38,17 +52,39 @@ pub use core::panicking;
 #[allow(non_camel_case_types, dead_code)]
 pub mod prelude {
 	pub mod v1 {
+		// Reexported core operators
+		pub use marker::{Copy, Send, Sized, Sync};
+		pub use ops::{Drop, Fn, FnMut, FnOnce};
+
+		// Reexported functions
+		pub use mem::drop;
+
+		// Reexported types and traits
+		pub use boxed::Box;
+		pub use borrow::ToOwned;
+		pub use clone::Clone;
+		pub use cmp::{PartialEq, PartialOrd, Eq, Ord};
+		pub use convert::{AsRef, AsMut, Into, From};
+		pub use default::Default;
+		pub use iter::{Iterator, Extend, IntoIterator};
+		pub use iter::{DoubleEndedIterator, ExactSizeIterator};
+		pub use option::Option::{self, Some, None};
+		pub use result::Result::{self, Ok, Err};
+		pub use slice::SliceConcatExt;
+		pub use string::{String, ToString};
+		pub use vec::Vec;
+
 		pub use core::intrinsics::{volatile_store, volatile_load};
 
 		use core::ops::{Add, Sub, BitAnd, Not, Div};
 		use core::num::One;
 
-		pub use core::prelude::v1::*;
+		//pub use core::prelude::v1::*;
 
 		pub use core::ptr::{null, null_mut};
 		pub use core::mem::{size_of, size_of_val, uninitialized, transmute};
 
-		pub const PTR_BYTES: usize = ::core::usize::BYTES;
+		pub const PTR_BYTES: usize = 8;
 
 		#[allow(missing_copy_implementations)]
 		pub struct void {

@@ -299,7 +299,7 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 		#build_rt.("i386-generic-generic", 4)
 
 		# place compiler-rt in lib/rustlib/x86_64-pc-avery/lib - rustc links to it // clang links to it instead
-		run 'cp', 'compiler-rt/install-x86_64-pc-avery/lib/generic/libclang_rt.builtins-x86_64.a', "avery-sysroot/lib/libcompiler_rt.a" if real && extra
+		run 'cp', 'compiler-rt/install-x86_64-pc-avery/lib/generic/libclang_rt.builtins-x86_64.a', "avery-sysroot/lib/libcompiler_rt.a" if real
 
 		build_from_git.("compiler-rt", "http://llvm.org/git/compiler-rt.git") do |src, prefix|
 			opts = ["-DLLVM_CONFIG_PATH=#{File.join(src, "../../llvm/install/bin/llvm-config")}", "-DCMAKE_TOOLCHAIN_FILE=../../toolchain.txt", "-DCMAKE_STAGING_PREFIX=#{prefix}", "-DCMAKE_INSTALL_PREFIX=#{prefix}", "-DCOMPILER_RT_BUILD_SANITIZERS=Off"]
