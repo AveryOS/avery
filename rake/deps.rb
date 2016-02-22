@@ -198,12 +198,12 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 			run File.join(src, 'configure'), "--prefix=#{prefix}", *opts
 		end # mtools doesn't build with mingw-w64
 
-		checkout_git.("llvm/src", "https://github.com/AveryOS/llvm.git", {branch: "avery"})
-		checkout_git.("llvm/src/tools/clang", "https://github.com/AveryOS/clang.git", {branch: "avery"})
+		checkout_git.("llvm/clang", "https://github.com/AveryOS/clang.git", {branch: "avery"})
 
 		build_from_git.("llvm", "https://github.com/AveryOS/llvm.git", {branch: "avery", ninja: true}) do |src, prefix|
 			#-DLLVM_ENABLE_ASSERTIONS=On  crashes on GCC 5.x + Release on Windows
-			opts = %W{-DLLVM_TARGETS_TO_BUILD=X86 -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_SHARED_LIBS=On -DCMAKE_INSTALL_PREFIX=#{prefix}}
+			#-DCMAKE_BUILD_TYPE=RelWithDebInfo
+			opts = %W{-DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_EXTERNAL_CLANG_SOURCE_DIR=#{hostpath(File.join(src, '../clang'))} -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=On -DCMAKE_INSTALL_PREFIX=#{prefix}}
 			opts += ['-G',  'Ninja', '-DLLVM_PARALLEL_LINK_JOBS=1'] if NINJA
 			opts += %w{-DCMAKE_CXX_COMPILER=g++ -DCMAKE_C_COMPILER=gcc} if ON_WINDOWS_MINGW
 			run "cmake", src, *opts
@@ -300,12 +300,6 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 
 		# place compiler-rt in lib/rustlib/x86_64-pc-avery/lib - rustc links to it // clang links to it instead
 		run 'cp', 'compiler-rt/install-x86_64-pc-avery/lib/generic/libclang_rt.builtins-x86_64.a', "avery-sysroot/lib/libcompiler_rt.a" if real
-
-		build_from_git.("compiler-rt", "http://llvm.org/git/compiler-rt.git") do |src, prefix|
-			opts = ["-DLLVM_CONFIG_PATH=#{File.join(src, "../../llvm/install/bin/llvm-config")}", "-DCMAKE_TOOLCHAIN_FILE=../../toolchain.txt", "-DCMAKE_STAGING_PREFIX=#{prefix}", "-DCMAKE_INSTALL_PREFIX=#{prefix}", "-DCOMPILER_RT_BUILD_SANITIZERS=Off"]
-			opts += ['-G',  'MSYS Makefiles'] if ON_WINDOWS_MINGW
-			run "cmake", src, *opts
-		end if nil
 
 		# clang is not the host compiler, force use of gcc
 		env = {'CC' => 'gcc', 'CXX' => 'g++'}

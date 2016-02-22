@@ -1,3 +1,24 @@
 [submodule "verifier/rust-elfloader"]
 	path = verifier/rust-elfloader
 	url = https://github.com/AveryOS/rust-elfloader.git
+[submodule "vendor/llvm/src"]
+	path = vendor/llvm/src
+	url = https://github.com/AveryOS/llvm.git
+[submodule "vendor/llvm/clang"]
+	path = vendor/llvm/clang
+	url = https://github.com/AveryOS/clang.git
+[submodule "vendor/binutils/src"]
+	path = vendor/binutils/src
+	url = https://github.com/AveryOS/binutils.git
+[submodule "vendor/newlib/src"]
+	path = vendor/newlib/src
+	url = https://github.com/AveryOS/newlib.git
+[submodule "vendor/compiler-rt/src"]
+	path = vendor/compiler-rt/src
+	url = https://github.com/AveryOS/compiler-rt.git
+[submodule "vendor/rust/src"]
+	path = vendor/rust/src
+	url = https://github.com/AveryOS/rust.git
+[submodule "vendor/cargo/src"]
+	path = vendor/cargo/src
+	url = https://github.com/AveryOS/cargo.git
