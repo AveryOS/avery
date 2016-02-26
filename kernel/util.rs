@@ -1,4 +1,59 @@
 use std;
+use core::cell::UnsafeCell;
+use core::marker::Sync;
+
+pub struct IndexList<T> {
+	list: UnsafeCell<Option<Vec<Option<T>>>>,
+}
+
+unsafe impl<T> Sync for IndexList<T> {}
+
+impl<T> IndexList<T> {
+	pub const fn new() -> Self {
+		IndexList {
+			list: UnsafeCell::new(None)
+		}
+	}
+
+	fn list_mut(&mut self) -> &mut Vec<Option<T>> {
+		let mut list = unsafe { &mut *self.list.get() };
+		if let None = *list {
+			*list = Some(Vec::new())
+		}
+		list.as_mut().unwrap()
+	}
+
+	fn list(&self) -> &Vec<Option<T>> {
+		let mut list = unsafe { &mut *self.list.get() };
+		if let None = *list {
+			*list = Some(Vec::new())
+		}
+		unsafe { &*self.list.get() }.as_ref().unwrap()
+	}
+
+	fn alloc(&mut self) -> (usize, &mut Option<T>) {
+		let mut list = self.list_mut();
+
+		if let Some(i) = list.iter_mut().position(|e| e.is_none()) {
+			return (i, &mut list[i])
+		}
+
+		list.push(None);
+		(list.len() - 1, list.last_mut().unwrap())
+	}
+
+	fn get(&mut self, i: usize) -> Option<&T> {
+		self.list()[i].as_ref()
+	}
+
+	fn get_mut(&mut self, i: usize) -> Option<&mut T> {
+		self.list_mut()[i].as_mut()
+	}
+
+	fn free(&mut self, i: usize) {
+		self.list_mut()[i] = None
+	}
+}
 
 pub trait FixVec<T> {
 	fn mut_raw_data(&mut self) -> &mut [T];

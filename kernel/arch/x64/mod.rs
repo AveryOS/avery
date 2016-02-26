@@ -140,6 +140,28 @@ pub mod interrupts;
 pub mod cpu;
 pub mod memory;
 
+pub mod process {
+	use arch;
+	use memory::PhysicalPage;
+
+	pub struct Info {
+		ptl4_i: usize,
+		ptl3: PhysicalPage,
+		base: usize,
+	}
+
+	impl Info {
+		pub fn new() -> Info {
+			let (i, p) = arch::memory::new_process();
+			Info {
+				ptl4_i: i,
+				ptl3: p,
+				base: 0
+			}
+		}
+	}
+}
+
 pub unsafe fn initialize_basic() {
 	asm! {
 		[use rax]

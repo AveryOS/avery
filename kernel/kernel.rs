@@ -1,5 +1,5 @@
 #![allow(improper_ctypes, dead_code)]
-#![feature(lang_items,
+#![feature(lang_items, alloc, collections,
 		   plugin, asm, core_intrinsics, linkage, const_fn,
 		   allocator)]
 #![plugin(assembly)]
@@ -10,6 +10,8 @@ extern crate allocator;
 
 extern crate rlibc;
 extern crate elfloader;
+extern crate alloc;
+extern crate collections;
 
 #[macro_use]
 mod util;
@@ -18,6 +20,8 @@ mod util;
 mod console;
 
 mod params;
+
+mod process;
 
 mod spin;
 

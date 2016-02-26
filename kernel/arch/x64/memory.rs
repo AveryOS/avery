@@ -133,6 +133,27 @@ fn entry_present(entry: TableEntry) -> bool {
 	entry.0 & PRESENT_BIT != 0
 }
 
+pub fn new_process() -> (usize, PhysicalPage) {
+	unsafe {
+		let ptl4_index = 0;
+		let ptl3 = memory::physical::allocate_page();
+
+		let ops = &mut *LOCK.lock();
+		
+		ptl4_static[ptl4_index] = page_table_entry(ptl3, PRESENT_BIT | WRITE_BIT);
+
+		invalidate_all();
+
+		let ptl3t = &mut *((MAPPED_PML3TS + ptl4_index * PAGE_SIZE) as *mut Table);
+
+		for v in ptl3t.iter_mut() {
+			*v = NULL_ENTRY;
+		}
+
+		(ptl4_index, ptl3)
+	}
+}
+
 pub fn ensure_page_entry<'s>(_: &'s mut Ops, pointer: Page) -> &'s mut TableEntry {
 	unsafe {
 		let (ptl4_index, ptl3_index, ptl2_index, ptl1_index) = decode_address(pointer);
@@ -177,6 +198,17 @@ unsafe fn invalidate_page(page: Page) {
 		[page.ptr() => %rdi, use memory]
 
 		invlpg [rdi]
+	}
+}
+
+pub fn invalidate_all() {
+	unsafe {
+		asm! {
+			[use rax, use memory]
+
+			mov rax, cr3;
+			mov cr3, rax;
+		}
 	}
 }
 
