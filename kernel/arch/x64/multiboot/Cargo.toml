@@ -7,5 +7,6 @@ path = "bootstrap.rs"
 crate-type = ["staticlib"]
 
 [dependencies]
+clippy = "*"
 rlibc = "0.1.5"
 assembly = { path = "../../../../vendor/asm" }

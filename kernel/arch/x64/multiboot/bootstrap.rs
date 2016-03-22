@@ -2,6 +2,7 @@
 #![crate_type = "staticlib"]
 #![feature(asm, lang_items, plugin)]
 #![plugin(assembly)]
+#![plugin(clippy)]
 
 extern crate rlibc;
 

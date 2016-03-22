@@ -2,6 +2,7 @@
 require_relative 'rake/build'
 require_relative 'rake/lokar'
 
+CURRENT_DIR = Rake.original_dir
 AVERY_DIR = File.expand_path('../', __FILE__)
 Dir.chdir(AVERY_DIR)
 
@@ -79,7 +80,7 @@ def mkdirs(target)
 	FileUtils.makedirs(target)
 end
 
-def run(*cmd)
+def run_stay(*cmd)
 	puts cmd.map { |c| c.shellescape }.join(" ")
 
 	# Run commands in the MSYS shell
@@ -91,6 +92,10 @@ def run(*cmd)
 	else
 		 system([cmd.first, cmd.first], *cmd[1..-1])
 	end
+end
+
+def run(*cmd)
+  run_stay(*cmd)
 	raise "Command #{cmd.join(" ")} failed with error code #{$?}" if $? != 0
 end
 
@@ -167,9 +172,9 @@ build_kernel = proc do
 		# Build the kernel object
 		flags = ['-C', 'lto', "--emit=llvm-ir,obj=#{kernel_object}"]
 		flags += ['--cfg', 'multiboot'] if type == :multiboot
-		
+
 		cargo 'kernel', 'x86_64-avery-kernel', [], flags
-	
+
 		# Preprocess files
 
 		gen_folder = "gen/#{type}"
@@ -242,7 +247,7 @@ task :deps => [:user, :deps_other] do
 	end
 
 	cargo 'kernel/arch/x64/multiboot', 'x86_32-avery-kernel', [], (%w{-C lto --emit=obj=build/bootstrap-32.o})
-	
+
 	compiler_rt = 'vendor/compiler-rt/install-x86_64-generic-generic/lib/generic/libclang_rt.builtins-i386.a'
 
 	build = Build.new('build', 'info.yml')
@@ -347,7 +352,7 @@ end
 
 task :user => :deps_other do
 	ENV['RUSTFLAGS'] = nil
-	
+
 	cargo 'user', 'x86_64-pc-avery'
 	cargo 'user/hello', 'x86_64-pc-avery'
 
@@ -362,7 +367,81 @@ task :user => :deps_other do
 	end
 end
 
+task :rebase do
+  Dir.chdir(CURRENT_DIR)
+  path = Pathname.new(CURRENT_DIR).relative_path_from(Pathname.new(AVERY_DIR)).to_s
+  puts "Rebasing in #{path}.."
+  remote = {
+    'vendor/compiler-rt/src' => 'http://llvm.org/git/compiler-rt.git'
+  }[path]
+  remote_branch = {
+    
+  }[path] || "master"
+  raise "No remote for path #{path}" unless remote
+  git_remote = `git remote get-url upstream`.strip
+  if git_remote == ''
+    run *%W{git remote add upstream #{remote}}
+  elsif git_remote != remote
+    raise "Git remote mismatch for #{path}. Local is #{git_remote}. Required is #{remote}"
+  end
+  local_master = `git rev-parse master`.strip
+  local_master = nil if $?.exitstatus != 0
+  unless local_master
+    local = `git rev-parse avery`.strip
+    remote = `git rev-parse origin/avery`.strip
+    if local == remote
+      run *%w{git checkout -b master origin/master}
+    else
+      raise "master branch doesn't exist. Don't know the start of the rebase"
+    end
+  end
+  run *%w{git fetch upstream}
+  run *%w{git checkout avery}
+  run_stay *%W{git rebase -i --onto upstream/#{remote_branch} master avery}
+  if $? != 0
+    loop do
+      action = loop do
+        puts "Continue (c) or abort (a)?"
+        case STDIN.gets.strip
+          when "c"
+              break true
+          when "a"
+              break false
+        end
+      end
+
+      if action
+        puts "Continuing.."
+        run *%w{git rebase --continue}
+        break if $? == 0
+      else
+        puts "Aborting.."
+        run *%w{git rebase --abort}
+        raise "Rebase aborted"
+      end
+    end
+  end
+  run *%w{git checkout master}
+  run *%W{git reset --hard upstream/#{remote_branch}}
+  run *%w{git checkout avery}
+
+  action = loop do
+    puts "Push changes? y/n?"
+    case STDIN.gets.strip
+      when "y"
+          break true
+      when "n"
+          break false
+    end
+  end
+  if action
+    run *%w{git push origin master}
+    run *%w{git push origin avery -f}
+  end
+end
+
 task :sh do
+  Dir.chdir(CURRENT_DIR)
 	run 'bash'
 end
 

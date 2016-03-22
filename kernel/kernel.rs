@@ -3,6 +3,7 @@
 		   plugin, asm, core_intrinsics, linkage, const_fn,
 		   allocator)]
 #![plugin(assembly)]
+#![plugin(clippy)]
 #![crate_type = "staticlib"]
 
 extern crate core;
