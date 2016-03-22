@@ -264,7 +264,7 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 					"-DCMAKE_SIZEOF_VOID_P=#{s}",
 					"-DCMAKE_SYSROOT=#{hostpath("fake-sysroot")}",
 					"-DCMAKE_ASM_COMPILER=clang",
-					"-DCMAKE_ASM_FLAGS=--target=#{target} -B #{hostpath("../../#{binutils}")} -D__USER_LABEL_PREFIX__= -D__ELF__",
+					"-DCMAKE_ASM_FLAGS=--target=#{target} -B #{hostpath("../../#{binutils}")}",
 					"-DCMAKE_AR=#{which "x86_64-elf-ar"}",
 					"-DCMAKE_C_COMPILER=clang",
 					"-DCMAKE_CXX_COMPILER=clang++",
@@ -272,8 +272,8 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 					"-DCMAKE_CXX_COMPILER_TARGET=#{target}",
 					"-DCMAKE_STAGING_PREFIX=#{prefix}",
 					"-DCMAKE_INSTALL_PREFIX=#{prefix}",
-					"-DCMAKE_C_FLAGS=-ffreestanding -O2 -nostdlib #{flags} -B #{hostpath("../../#{binutils}")}",
-					"-DCMAKE_CXX_FLAGS=-ffreestanding -O2 -nostdlib #{flags} -B #{hostpath("../../#{binutils}")}",
+					"-DCMAKE_C_FLAGS=-ffreestanding -O2 -nostdlib #{flags} -B #{hostpath("../../#{binutils}/ld#{EXE_POST}")}",
+					"-DCMAKE_CXX_FLAGS=-ffreestanding -O2 -nostdlib #{flags} -B #{hostpath("../../#{binutils}/ld#{EXE_POST}")}",
 					"-DCOMPILER_RT_BUILD_SANITIZERS=Off",
 					"-DCOMPILER_RT_DEFAULT_TARGET_TRIPLE=#{target}"]
 				opts += ['-G',  'MSYS Makefiles'] if ON_WINDOWS_MINGW
@@ -321,7 +321,7 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 
 		# clang is not the host compiler, force use of gcc
 		env = {'CC' => 'gcc', 'CXX' => 'g++'}
-		build_from_git.("rust", "https://github.com/AveryOS/rust.git", {branch: "avery", env: env}) do |src, prefix|
+		build_submodule.("rust", {env: env}) do |src, prefix|
 			run File.join(src, 'configure'), "--enable-debuginfo", "--prefix=#{prefix}", "--llvm-root=#{File.join(src, "../../llvm/build")}", "--disable-docs", "--target=x86_64-pc-avery", "--disable-jemalloc"
 		end
 
