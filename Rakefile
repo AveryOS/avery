@@ -7,7 +7,7 @@ AVERY_DIR = File.expand_path('../', __FILE__)
 Dir.chdir(AVERY_DIR)
 
 def path(p)
-  File.expand_path(File.join('..', p), __FILE__)
+	File.expand_path(File.join('..', p), __FILE__)
 end
 
 def so_append_path(path)
@@ -51,7 +51,7 @@ end
 
 def hostpath(p)
 	if ENV['MSYSTEM']
-		File.expand_path(p).sub('/', '').sub('/', ':/')
+		`cygpath -wm #{File.expand_path(p).shellescape}`.chomp
 	else
 		File.expand_path(p)
 	end
@@ -95,7 +95,7 @@ def run_stay(*cmd)
 end
 
 def run(*cmd)
-  run_stay(*cmd)
+	run_stay(*cmd)
 	raise "Command #{cmd.join(" ")} failed with error code #{$?}" if $? != 0
 end
 
@@ -368,80 +368,80 @@ task :user => :deps_other do
 end
 
 task :rebase do
-  Dir.chdir(CURRENT_DIR)
-  path = Pathname.new(CURRENT_DIR).relative_path_from(Pathname.new(AVERY_DIR)).to_s
-  puts "Rebasing in #{path}.."
-  remote = {
-    'vendor/compiler-rt/src' => 'http://llvm.org/git/compiler-rt.git'
-  }[path]
-  remote_branch = {
-    
-  }[path] || "master"
-  raise "No remote for path #{path}" unless remote
-  git_remote = `git remote get-url upstream`.strip
-  if git_remote == ''
-    run *%W{git remote add upstream #{remote}}
-  elsif git_remote != remote
-    raise "Git remote mismatch for #{path}. Local is #{git_remote}. Required is #{remote}"
-  end
-  local_master = `git rev-parse master`.strip
-  local_master = nil if $?.exitstatus != 0
-  unless local_master
-    local = `git rev-parse avery`.strip
-    remote = `git rev-parse origin/avery`.strip
-    if local == remote
-      run *%w{git checkout -b master origin/master}
-    else
-      raise "master branch doesn't exist. Don't know the start of the rebase"
-    end
-  end
-  run *%w{git fetch upstream}
-  run *%w{git checkout avery}
-  run_stay *%W{git rebase -i --onto upstream/#{remote_branch} master avery}
-  if $? != 0
-    loop do
-      action = loop do
-        puts "Continue (c) or abort (a)?"
-        case STDIN.gets.strip
-          when "c"
-              break true
-          when "a"
-              break false
-        end
-      end
+	Dir.chdir(CURRENT_DIR)
+	path = Pathname.new(CURRENT_DIR).relative_path_from(Pathname.new(AVERY_DIR)).to_s
+	puts "Rebasing in #{path}.."
+	remote = {
+		'vendor/compiler-rt/src' => 'http://llvm.org/git/compiler-rt.git'
+	}[path]
+	remote_branch = {
 
-      if action
-        puts "Continuing.."
-        run *%w{git rebase --continue}
-        break if $? == 0
-      else
-        puts "Aborting.."
-        run *%w{git rebase --abort}
-        raise "Rebase aborted"
-      end
-    end
-  end
-  run *%w{git checkout master}
-  run *%W{git reset --hard upstream/#{remote_branch}}
-  run *%w{git checkout avery}
+	}[path] || "master"
+	raise "No remote for path #{path}" unless remote
+	git_remote = `git remote get-url upstream`.strip
+	if git_remote == ''
+		run *%W{git remote add upstream #{remote}}
+	elsif git_remote != remote
+		raise "Git remote mismatch for #{path}. Local is #{git_remote}. Required is #{remote}"
+	end
+	local_master = `git rev-parse master`.strip
+	local_master = nil if $?.exitstatus != 0
+	unless local_master
+		local = `git rev-parse avery`.strip
+		remote = `git rev-parse origin/avery`.strip
+		if local == remote
+			run *%w{git checkout -b master origin/master}
+		else
+			raise "master branch doesn't exist. Don't know the start of the rebase"
+		end
+	end
+	run *%w{git fetch upstream}
+	run *%w{git checkout avery}
+	run_stay *%W{git rebase -i --onto upstream/#{remote_branch} master avery}
+	if $? != 0
+		loop do
+			action = loop do
+				puts "Continue (c) or abort (a)?"
+				case STDIN.gets.strip
+					when "c"
+							break true
+					when "a"
+							break false
+				end
+			end
 
-  action = loop do
-    puts "Push changes? y/n?"
-    case STDIN.gets.strip
-      when "y"
-          break true
-      when "n"
-          break false
-    end
-  end
-  if action
-    run *%w{git push origin master}
-    run *%w{git push origin avery -f}
-  end
+			if action
+				puts "Continuing.."
+				run *%w{git rebase --continue}
+				break if $? == 0
+			else
+				puts "Aborting.."
+				run *%w{git rebase --abort}
+				raise "Rebase aborted"
+			end
+		end
+	end
+	run *%w{git checkout master}
+	run *%W{git reset --hard upstream/#{remote_branch}}
+	run *%w{git checkout avery}
+
+	action = loop do
+		puts "Push changes? y/n?"
+		case STDIN.gets.strip
+			when "y"
+					break true
+			when "n"
+					break false
+		end
+	end
+	if action
+		run *%w{git push origin master}
+		run *%w{git push origin avery -f}
+	end
 end
 
 task :sh do
-  Dir.chdir(CURRENT_DIR)
+	Dir.chdir(CURRENT_DIR)
 	run 'bash'
 end
 
