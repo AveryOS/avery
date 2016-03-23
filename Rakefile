@@ -367,23 +367,31 @@ task :user => :deps_other do
 	end
 end
 
-task :rebase do
+UPSTREAMS = {
+	'vendor/compiler-rt/src' => 'http://llvm.org/git/compiler-rt.git',
+	'vendor/cargo/src' => 'https://github.com/rust-lang/cargo.git',
+}
+
+task :upstreams do
+	UPSTREAMS.each do |(path, url)|
+		Dir.chdir(path) do
+			git_remote = `git remote get-url upstream`.strip
+			if git_remote == ''
+				run *%W{git remote add upstream #{url}}
+			elsif git_remote != url
+				raise "Git remote mismatch for #{path}. Local is #{git_remote}. Required is #{url}"
+			end
+		end
+	end
+end
+
+task :rebase => :upstreams do
 	Dir.chdir(CURRENT_DIR)
 	path = Pathname.new(CURRENT_DIR).relative_path_from(Pathname.new(AVERY_DIR)).to_s
 	puts "Rebasing in #{path}.."
-	remote = {
-		'vendor/compiler-rt/src' => 'http://llvm.org/git/compiler-rt.git'
-	}[path]
 	remote_branch = {
-
 	}[path] || "master"
-	raise "No remote for path #{path}" unless remote
-	git_remote = `git remote get-url upstream`.strip
-	if git_remote == ''
-		run *%W{git remote add upstream #{remote}}
-	elsif git_remote != remote
-		raise "Git remote mismatch for #{path}. Local is #{git_remote}. Required is #{remote}"
-	end
+	raise "No remote for path #{path}" unless UPSTREAMS[path]
 	local_master = `git rev-parse master`.strip
 	local_master = nil if $?.exitstatus != 0
 	unless local_master

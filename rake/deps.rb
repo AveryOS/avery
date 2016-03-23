@@ -322,7 +322,7 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 		# clang is not the host compiler, force use of gcc
 		env = {'CC' => 'gcc', 'CXX' => 'g++'}
 		build_submodule.("rust", {env: env}) do |src, prefix|
-			run File.join(src, 'configure'), "--enable-debuginfo", "--prefix=#{prefix}", "--llvm-root=#{File.join(src, "../../llvm/build")}", "--disable-docs", "--target=x86_64-pc-avery", "--disable-jemalloc"
+			run File.join(src, 'configure'), "--prefix=#{prefix}", "--llvm-root=#{File.join(src, "../../llvm/build")}", "--disable-docs", "--target=x86_64-pc-avery", "--disable-jemalloc"
 		end
 
 		run 'cp', '-r', 'rust/install/lib/rustlib/x86_64-pc-avery', "avery-sysroot/lib/rustlib" if real

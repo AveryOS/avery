@@ -151,13 +151,13 @@ pub mod process {
 	}
 
 	impl Info {
-		pub fn new() -> Info {
+		pub fn new() -> (Info, usize) {
 			let (i, p) = arch::memory::new_process();
-			Info {
+			(Info {
 				ptl4_i: i,
 				ptl3: p,
 				base: 0
-			}
+			}, arch::memory::PTL3_SIZE)
 		}
 	}
 }

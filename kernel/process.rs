@@ -7,6 +7,7 @@ pub struct Id(usize);
 
 pub static IDS: IndexList<Arc<Info>> = IndexList::new();
 
+#[derive(Copy, Clone)]
 pub struct AddressRange {
 	start: usize,
 	end: usize,
@@ -18,14 +19,40 @@ pub struct AddressSpace {
 	ranges: Vec<AddressRange>,
 }
 
+impl AddressSpace {
+	fn alloc_at(pos: usize, size: size) -> Option<AddressRange> {
+		if pos + size >= self.end {
+			return None
+		}
+		if !ranges.iter().all(|range| (pos >= range.start + range.end) || (pos + size <= range.start) ) {
+			return None
+		}
+		let range = AddressRange {
+			start: pos,
+			end: pos + size,
+		};
+		match ranges.binary_search_by(|e| range.start.cmp(e.start)) {
+			Ok(e) => panic!(),
+			Err(i) => ranges.insert(range),
+		}
+		Some(range)
+	}
+}
+
 pub struct Info {
-	arch: arch::process::Info
+	arch: arch::process::Info,
+	space: AddressSpace,
 }
 
 pub fn new() -> Arc<Info> {
-	let arch = arch::process::Info::new();
-
+	let (arch, size) = arch::process::Info::new();
+	let space = AddressSpace {
+		start: 0,
+		end: size,
+		ranges: Vec::new(),
+	};
 	Arc::new(Info {
 		arch: arch,
+		space: space,
 	})
 }
