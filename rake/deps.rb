@@ -61,8 +61,9 @@ build_unix_pkg = proc do |src, rev, opts, config, &gen_src|
 				run "cargo", "install", "--path=#{File.join("..", src)}", "--root=#{File.join("..", 'install')}"
 			else
 				if opts[:ninja] && NINJA
-					run "ninja"
-					run "ninja", "install"
+					p = ENV['TRAVIS'] ? ['-j1'] : []
+					run "ninja", *p
+					run "ninja", "install", *p
 				else
 					old_unix = UNIX_EMU[0]
 					UNIX_EMU[0] = opts[:unix]
