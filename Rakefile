@@ -135,7 +135,7 @@ RELEASE_BUILD = false
 CARGO_BUILD = RELEASE_BUILD ? 'release' : 'debug'
 
 RUSTFLAGS = ['--sysroot', hostpath('build/sysroot')] + %w{-g -Z no-landing-pads -C target-feature=-mmx,-sse,-sse2}
-ENV['RUSTFLAGS_HOST'] = "-L #{hostpath("vendor/llvm/install//#{ON_WINDOWS ? "bin" : "lib"}")}" # Workaround bug with LLVM linking
+ENV['RUSTFLAGS_HOST'] = "-L #{hostpath("vendor/llvm/install/#{ON_WINDOWS ? "bin" : "lib"}")}" # Workaround bug with LLVM linking
 
 def cargo(path, target, cargoflags = [], flags = [])
 	cargoflags += ['--target', target]
@@ -389,9 +389,11 @@ task :user => :deps_other do
 end
 
 UPSTREAMS = {
+	'vendor/llvm/clang' => 'http://llvm.org/git/clang.git',
+	'vendor/llvm/src' => 'http://llvm.org/git/llvm.git',
+	'vendor/compiler-rt/src' => 'http://llvm.org/git/compiler-rt.git',
 	'vendor/rust/src/src/liblibc' => 'https://github.com/rust-lang/libc.git',
 	'vendor/rust/src' => 'https://github.com/rust-lang/rust.git',
-	'vendor/compiler-rt/src' => 'http://llvm.org/git/compiler-rt.git',
 	'vendor/cargo/src' => 'https://github.com/rust-lang/cargo.git',
 }
 
@@ -413,6 +415,8 @@ task :rebase => :upstreams do
 	path = Pathname.new(CURRENT_DIR).relative_path_from(Pathname.new(AVERY_DIR)).to_s
 	puts "Rebasing in #{path}.."
 	remote_branch = {
+		'vendor/llvm/clang' => 'release_38',
+		'vendor/llvm/src' => 'release_38',
 	}[path] || "master"
 	raise "No remote for path #{path}" unless UPSTREAMS[path]
 	local_master = `git rev-parse master`.strip
