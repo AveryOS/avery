@@ -4,7 +4,7 @@ build_type = :build
 # Build a unix like package at src
 build_unix_pkg = proc do |src, opts, &proc|
 	if build_type == :clean
-		FileUtils.rm_rf(["built", "configured", "build", "install"])
+		FileUtils.rm_rf(["meta/built", "meta/configured", "build", "install"])
 		FileUtils.rm_rf(["#{src}/target"]) if opts[:cargo]
 	end
 
@@ -19,18 +19,20 @@ build_unix_pkg = proc do |src, opts, &proc|
 	build_dir = opts[:intree] ? src : "build"
 
 	mkdirs(build_dir)
+	mkdirs("meta")
 
-	unless File.exists?("configured")
+	unless File.exists?("meta/configured")
 		Dir.chdir(build_dir) do
 			old_unix = UNIX_EMU[0]
 			UNIX_EMU[0] = opts[:unix]
 			proc.call(File.join("..", src), prefix)
 			UNIX_EMU[0] = old_unix
 		end
-		run 'touch', "configured"
+		run 'touch', "meta/configured"
 	end if proc
 
-	unless File.exists?("built")
+	built = File.exists?("meta/built")
+	unless built
 		bin_path = "install"
 
 		Dir.chdir(build_dir) do
@@ -50,10 +52,18 @@ build_unix_pkg = proc do |src, opts, &proc|
 			end
 		end
 
-		run 'touch', "built"
+		run 'touch', "meta/built"
 	end
 
 	ENV.replace(old_env)
+	built
+end
+
+travis_exit = proc do |built|
+	if ENV['TRAVIS'] && !built
+		puts "Exiting so Travis can cache the result"
+		exit
+	end
 end
 
 # Build a unix like package from url
@@ -85,8 +95,7 @@ build_from_url = proc do |url, name, ver, opts = {}, &proc|
 				run 'tar', "-#{uncompress}xf", tar
 			end
 		end
-
-		build_unix_pkg.(src, opts, &proc)
+		travis_exit.(build_unix_pkg.(src, opts, &proc))
 	end
 end
 
@@ -150,7 +159,8 @@ end
 build_submodule = proc do |name, opts = {}, &proc|
 	mkdirs(name)
 	Dir.chdir(name) do
-		revision = File.read("revision").strip if File.exists?("revision")
+		mkdirs("meta")
+		revision = File.read("meta/revision").strip if File.exists?("meta/revision")
 		current = Dir.chdir("src") { `git rev-parse --verify HEAD`.strip }
 		if revision && revision != current
 				puts "Cleaning #{name}... new revision #{current}"
@@ -158,10 +168,11 @@ build_submodule = proc do |name, opts = {}, &proc|
 				build_type = :clean
 				build_unix_pkg.("src", opts, &proc)
 				build_type = old
-				FileUtils.rm_rf(["revision"])
+				FileUtils.rm_rf(["meta/revision"])
 		end
-		build_unix_pkg.("src", opts, &proc)
-		open("revision", 'w') { |f| f.puts current } if revision != current
+		built = build_unix_pkg.("src", opts, &proc)
+		open("meta/revision", 'w') { |f| f.puts current } if revision != current
+		travis_exit.(built)
 	end
 end
 

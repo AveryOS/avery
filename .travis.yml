@@ -2,7 +2,26 @@ notifications:
   email: false
 language: ruby
 rvm:
-  - 2.2.0
-before_install:
-  - sudo add-apt-repository ppa:george-edison55/cmake-3.x
-  - sudo apt-get update
+  - 2.2.3
+sudo: required
+dist: trusty
+cache:
+  directories:
+  - vendor/autoconf/install
+  - vendor/autoconf/meta
+  - vendor/automake/install
+  - vendor/automake/meta
+  - vendor/binutils/install
+  - vendor/binutils/meta
+  - vendor/elf-binutils/install
+  - vendor/elf-binutils/meta
+  - vendor/mtools/install
+  - vendor/mtools/meta
+  - vendor/newlib/install
+  - vendor/newlib/meta
+  - vendor/llvm/install
+  - vendor/llvm/meta
+  - vendor/rust/install
+  - vendor/rust/meta
+  - vendor/cargo/install
+  - vendor/cargo/meta
