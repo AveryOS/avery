@@ -1,13 +1,20 @@
 notifications:
   email: false
+addons:
+ apt:
+   sources:
+   - ubuntu-toolchain-r-test
+   packages:
+   - gcc-4.8
+   - g++-4.8
+   - ninja-build
+   - texinfo
+env:
+  CC: gcc-4.8
+  CXX: g++-4.8
 language: ruby
-git:
-  submodules: false
-  depth: 10
 rvm:
   - 2.2.3
-sudo: required
-dist: trusty
 cache:
   timeout: 2000
   directories:
@@ -29,6 +36,5 @@ cache:
   - vendor/rust/meta
   - vendor/cargo/install
   - vendor/cargo/meta
-
-before_script:
-  - cat .gitmodules | grep -Po '".*"' | sed 's/.\(.\+\).$/\1/' | while sleep 0.1 && read line; do git submodule update --init $line & done
+  - vendor/cmake/install
+  - vendor/cmake/meta

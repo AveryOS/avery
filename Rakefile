@@ -26,6 +26,7 @@ def append_path(path)
 	end
 end
 
+append_path(File.expand_path('../vendor/cmake/install/bin', __FILE__))
 append_path(File.expand_path('../vendor/elf-binutils/install/bin', __FILE__))
 append_path(File.expand_path('../vendor/mtools/install/bin', __FILE__))
 append_path(File.expand_path('../vendor/llvm/install/bin', __FILE__))

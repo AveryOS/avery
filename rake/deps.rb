@@ -201,6 +201,10 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 	#run *%w{git submodule update}
 
 	Dir.chdir('vendor/') do
+		build_from_url.("https://cmake.org/files/v3.5/", "cmake", "3.5.0", {ext: "gz"}) do |src, prefix|
+			run File.join(src, 'configure'), "--prefix=#{prefix}"
+		end unless `cmake --version`.include?('3')
+
 		build_from_url.("ftp://ftp.gnu.org/gnu/binutils/", "binutils", "2.26", {unix: true, path: 'elf-binutils'}) do |src, prefix|
 			run File.join(src, 'configure'), "--prefix=#{prefix}", *%w{--target=x86_64-elf --with-sysroot --disable-nls --disable-werror}
 		end # binutils is buggy with mingw-w64
@@ -316,7 +320,7 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 		run 'cp', 'compiler-rt/install-x86_64-pc-avery/lib/generic/libclang_rt.builtins-x86_64.a', "avery-sysroot/lib/libcompiler_rt.a" if real
 
 		# clang is not the host compiler, force use of gcc
-		env = {'CC' => 'gcc', 'CXX' => 'g++'}
+		env = {'CC' => 'gcc', 'CXX' => 'g++'} unless ENV['CC']
 		build_submodule.("rust", {env: env}) do |src, prefix|
 			run File.join(src, 'configure'), "--prefix=#{prefix}", "--llvm-root=#{File.join(src, "../../llvm/build")}", "--disable-docs", "--target=x86_64-pc-avery", "--disable-jemalloc"
 		end
