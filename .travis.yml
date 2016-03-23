@@ -1,6 +1,8 @@
 notifications:
   email: false
 language: ruby
+git:
+  submodules: false
 rvm:
   - 2.2.3
 sudo: required
@@ -25,3 +27,6 @@ cache:
   - vendor/rust/meta
   - vendor/cargo/install
   - vendor/cargo/meta
+
+before_script:
+  - cat .gitmodules | grep -Po '".*"' | sed 's/.\(.\+\).$/\1/' | while sleep 0.1 && read line; do git submodule update --init $line & done
