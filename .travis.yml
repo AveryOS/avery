@@ -1,5 +1,6 @@
 notifications:
   email: false
+dist: trusty
 language: ruby
 rvm:
   - 2.2.0
