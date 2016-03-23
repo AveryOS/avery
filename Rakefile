@@ -385,6 +385,7 @@ task :user => :deps_other do
 end
 
 UPSTREAMS = {
+	'vendor/rust/src' => 'https://github.com/rust-lang/rust.git',
 	'vendor/compiler-rt/src' => 'http://llvm.org/git/compiler-rt.git',
 	'vendor/cargo/src' => 'https://github.com/rust-lang/cargo.git',
 }
@@ -437,11 +438,11 @@ task :rebase => :upstreams do
 
 			if action
 				puts "Continuing.."
-				run *%w{git rebase --continue}
+				run_stay *%w{git rebase --continue}
 				break if $? == 0
 			else
 				puts "Aborting.."
-				run *%w{git rebase --abort}
+				run_stay *%w{git rebase --abort}
 				raise "Rebase aborted"
 			end
 		end

@@ -1,6 +1,8 @@
 notifications:
   email: false
-dist: trusty
 language: ruby
 rvm:
   - 2.2.0
+before_install:
+  - sudo add-apt-repository ppa:george-edison55/cmake-3.x
+  - sudo apt-get update
