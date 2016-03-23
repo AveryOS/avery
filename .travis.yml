@@ -3,11 +3,13 @@ notifications:
 language: ruby
 git:
   submodules: false
+  depth: 10
 rvm:
   - 2.2.3
 sudo: required
 dist: trusty
 cache:
+  timeout: 2000
   directories:
   - vendor/autoconf/install
   - vendor/autoconf/meta
