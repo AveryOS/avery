@@ -1,0 +1,5 @@
+notifications:
+  email: false
+language: ruby
+rvm:
+  - 2.2.0

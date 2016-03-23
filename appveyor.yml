@@ -1,0 +1,12 @@
+version: avery-{build}
+
+environment:
+  MSYSTEM: MINGW64
+  PATH: C:\msys64\mingw64\bin;C:\msys64\usr\bin;%PATH%
+
+install:
+  - C:\msys64\usr\bin\bash -lc "pacman --needed --noconfirm -S ruby"
+  - C:\msys64\usr\bin\bash -lc "cd /c/projects/avery; rake deps_msys"
+
+build_script:
+  - C:\msys64\usr\bin\bash -lc "cd /c/projects/avery; rake"

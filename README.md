@@ -16,7 +16,7 @@
 ## Installing dependencies on Windows
   * Install and update [MSYS2](https://msys2.github.io/)
   * All commands must be run in a MSYS2 MINGW shell
-  * Run `rake deps_msys`
+  * Run `pacman -S ruby` and then run `rake deps_msys`
 
 ## Installing dependencies on OS X  
   * Install command line tools, `xcode-select --install`
