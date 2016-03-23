@@ -190,12 +190,13 @@ build_submodule = proc do |name, opts = {}, &proc|
 		subrev = `git submodule status src`.strip.split(" ")[0]
 		if subrev[0] == "-"
 			rev = subrev[1..-1]
+			needs_submodule = true
 		else
 			rev = Dir.chdir("src") { `git rev-parse --verify HEAD`.strip }
 		end
 		build_unix_pkg.("src", rev, opts, proc) do
 			(["src"] + (opts[:submodules] || [])).each do |s|
-				run *%w{git submodule update --init}, s
+				run *%w{git submodule update --init}, s if needs_submodule
 			end
 		end
 	end
