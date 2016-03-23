@@ -2,6 +2,9 @@ notifications:
   email: false
 git:
   submodules: false
+os:
+  - linux
+  - osx
 addons:
  apt:
    sources:
@@ -11,11 +14,11 @@ addons:
    - g++-4.8
    - ninja-build
    - texinfo
-env:
-  CC: gcc-4.8
-  CXX: g++-4.8
 language: ruby
 cache:
   timeout: 1000
   directories:
   - vendor/cache
+before install:
+  - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then export CC=gcc-4.8; export CXX=g++-4.8; fi
+  - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew update; brew install openssl ninja; fi
