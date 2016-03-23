@@ -1,5 +1,7 @@
 notifications:
   email: false
+git:
+  submodules: false
 addons:
  apt:
    sources:
@@ -13,28 +15,7 @@ env:
   CC: gcc-4.8
   CXX: g++-4.8
 language: ruby
-rvm:
-  - 2.2.3
 cache:
-  timeout: 2000
+  timeout: 1000
   directories:
-  - vendor/autoconf/install
-  - vendor/autoconf/meta
-  - vendor/automake/install
-  - vendor/automake/meta
-  - vendor/binutils/install
-  - vendor/binutils/meta
-  - vendor/elf-binutils/install
-  - vendor/elf-binutils/meta
-  - vendor/mtools/install
-  - vendor/mtools/meta
-  - vendor/newlib/install
-  - vendor/newlib/meta
-  - vendor/llvm/install
-  - vendor/llvm/meta
-  - vendor/rust/install
-  - vendor/rust/meta
-  - vendor/cargo/install
-  - vendor/cargo/meta
-  - vendor/cmake/install
-  - vendor/cmake/meta
+  - vendor/cache

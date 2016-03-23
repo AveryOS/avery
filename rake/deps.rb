@@ -2,15 +2,34 @@
 build_type = :build
 
 # Build a unix like package at src
-build_unix_pkg = proc do |src, opts, &proc|
-	if build_type == :clean
-		FileUtils.rm_rf(["meta/built", "meta/configured", "build", "install"])
+build_unix_pkg = proc do |src, rev, opts, config, &gen_src|
+	clean = proc do
+		FileUtils.rm_rf(["meta", "build", "install"])
 		FileUtils.rm_rf(["#{src}/target"]) if opts[:cargo]
+	end
+
+	if build_type == :clean
+		clean.()
 	end
 
 	next if build_type != :build
 
-	old_env = ENV.to_h
+	pathname = File.basename(Dir.pwd)
+
+	if ENV['TRAVIS']
+		run 'cp', '-r', "../cache/#{pathname}/install", '.' if Dir.exists?("../cache/#{pathname}/install")
+		run 'cp', '-r', "../cache/#{pathname}/meta", '.' if Dir.exists?("../cache/#{pathname}/install")
+	end
+
+	built_rev = File.read("meta/built").strip if File.exists?("meta/built")
+	if built_rev && built_rev != rev
+			puts "Cleaning #{pathname} #{"(rev #{built_rev})" if built_rev}... new revision #{rev}"
+			FileUtils.rm_rf(["meta/built"])
+			clean.() unless opts[:noclean]
+	end
+	puts "Building #{pathname} (rev #{rev})..."
+
+	old_env = ENV.to_hash
 	ENV.replace(CLEANENV.merge(opts[:env] || {}))
 
 	mkdirs("install")
@@ -18,21 +37,23 @@ build_unix_pkg = proc do |src, opts, &proc|
 
 	build_dir = opts[:intree] ? src : "build"
 
-	mkdirs(build_dir)
 	mkdirs("meta")
 
 	unless File.exists?("meta/configured")
+		gen_src.call() if gen_src
+		mkdirs(build_dir)
 		Dir.chdir(build_dir) do
 			old_unix = UNIX_EMU[0]
 			UNIX_EMU[0] = opts[:unix]
-			proc.call(File.join("..", src), prefix)
+			config.call(File.join("..", src), prefix)
 			UNIX_EMU[0] = old_unix
-		end
+		end if config
 		run 'touch', "meta/configured"
-	end if proc
+	end
 
 	built = File.exists?("meta/built")
 	unless built
+		mkdirs(build_dir)
 		bin_path = "install"
 
 		Dir.chdir(build_dir) do
@@ -52,15 +73,21 @@ build_unix_pkg = proc do |src, opts, &proc|
 			end
 		end
 
-		run 'touch', "meta/built"
+		open("meta/built", 'w') { |f| f.puts rev }
+
+		if ENV['TRAVIS']
+			mkdirs("../cache/#{pathname}")
+			run 'cp', '-r', 'install', "../cache/#{pathname}"
+			run 'cp', '-r', 'meta', "../cache/#{pathname}"
+		end
 	end
 
 	ENV.replace(old_env)
 	built
 end
 
-travis_exit = proc do |built|
-	if ENV['TRAVIS'] && !built
+travis_exit = proc do |prev|
+	if ENV['TRAVIS'] && File.exists?("#{prev}/build")
 		puts "Exiting so Travis can cache the result"
 		exit
 	end
@@ -76,7 +103,8 @@ build_from_url = proc do |url, name, ver, opts = {}, &proc|
 	Dir.chdir(path) do
 		if build_type == :clean
 			FileUtils.rm_rf(src)
-		else
+		end
+		build_unix_pkg.(src, src, opts, proc) do
 			if !File.exists?(src)
 				tar = "#{src}.tar.#{ext}"
 				unless File.exists?(tar)
@@ -95,7 +123,6 @@ build_from_url = proc do |url, name, ver, opts = {}, &proc|
 				run 'tar', "-#{uncompress}xf", tar
 			end
 		end
-		travis_exit.(build_unix_pkg.(src, opts, &proc))
 	end
 end
 
@@ -148,10 +175,11 @@ build_from_git = proc do |name, url, opts = {}, &proc|
 			puts "Cleaning #{name}"
 			old = build_type
 			build_type = :clean
-			build_unix_pkg.("src", opts, &proc)
+			build_unix_pkg.("src", opts, proc)
 			build_type = old
 		end
-		build_unix_pkg.("src", opts, &proc)
+		rev = Dir.chdir("src") { `git rev-parse --verify HEAD`.strip }
+		build_unix_pkg.("src", rev, opts, proc)
 	end
 end
 
@@ -159,20 +187,17 @@ end
 build_submodule = proc do |name, opts = {}, &proc|
 	mkdirs(name)
 	Dir.chdir(name) do
-		mkdirs("meta")
-		revision = File.read("meta/revision").strip if File.exists?("meta/revision")
-		current = Dir.chdir("src") { `git rev-parse --verify HEAD`.strip }
-		if revision && revision != current
-				puts "Cleaning #{name}... new revision #{current}"
-				old = build_type
-				build_type = :clean
-				build_unix_pkg.("src", opts, &proc)
-				build_type = old
-				FileUtils.rm_rf(["meta/revision"])
+		subrev = `git submodule status src`.strip.split(" ")[0]
+		if subrev[0] == "-"
+			rev = subrev[1..-1]
+		else
+			rev = Dir.chdir("src") { `git rev-parse --verify HEAD`.strip }
 		end
-		built = build_unix_pkg.("src", opts, &proc)
-		open("meta/revision", 'w') { |f| f.puts current } if revision != current
-		travis_exit.(built)
+		build_unix_pkg.("src", rev, opts, proc) do
+			(["src"] + (opts[:submodules] || [])).each do |s|
+				run *%w{git submodule update --init}, s
+			end
+		end
 	end
 end
 
@@ -220,7 +245,9 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 			run File.join(src, 'configure'), "--prefix=#{prefix}", *opts
 		end # mtools doesn't build with mingw-w64
 
-		build_submodule.("llvm", {ninja: true}) do |src, prefix|
+		travis_exit.('mtools')
+
+		build_submodule.("llvm", {ninja: true, noclean: true, submodules: ["clang"]}) do |src, prefix|
 			#-DLLVM_ENABLE_ASSERTIONS=On  crashes on GCC 5.x + Release on Windows
 			#-DCMAKE_BUILD_TYPE=RelWithDebInfo
 			opts = %W{-DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_EXTERNAL_CLANG_SOURCE_DIR=#{hostpath(File.join(src, '../clang'))} -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=On -DCMAKE_INSTALL_PREFIX=#{prefix}}
@@ -228,6 +255,8 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 			opts += %w{-DCMAKE_CXX_COMPILER=g++ -DCMAKE_C_COMPILER=gcc} if ON_WINDOWS_MINGW
 			run "cmake", src, *opts
 		end
+
+		travis_exit.('llvm')
 
 		build_from_url.("ftp://ftp.gnu.org/gnu/libiconv/", "libiconv", "1.14", {unix: true, ext: "gz"}) do |src, prefix|
 			run File.join(src, 'configure'), "--prefix=#{prefix}"
@@ -299,6 +328,8 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 			run File.join(src, 'configure'), "--prefix=#{prefix}", "--target=x86_64-pc-avery", 'CC_FOR_TARGET=clang -fno-integrated-as -ffreestanding --target=x86_64-pc-avery'
 		end
 
+		travis_exit.('newlib')
+
 		# C++ isn't working yet
 		#run "rm", "llvm/install/bin/clang++#{EXE_POST}"
 
@@ -324,6 +355,8 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 		build_submodule.("rust", {env: env}) do |src, prefix|
 			run File.join(src, 'configure'), "--prefix=#{prefix}", "--llvm-root=#{File.join(src, "../../llvm/build")}", "--disable-docs", "--target=x86_64-pc-avery", "--disable-jemalloc"
 		end
+
+		travis_exit.('rust')
 
 		run 'cp', '-r', 'rust/install/lib/rustlib/x86_64-pc-avery', "avery-sysroot/lib/rustlib" if real
 

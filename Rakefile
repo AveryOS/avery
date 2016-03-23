@@ -41,7 +41,7 @@ ENV['DYLD_LIBRARY_PATH'] = sos
 ENV['LD_LIBRARY_PATH'] = sos
 
 # rustc build needs LLVM in PATH on Windows
-CLEANENV = ENV.to_h
+CLEANENV = ENV.to_hash
 
 def new_env(k, v)
 	old = ENV[k]
@@ -346,7 +346,7 @@ end
 
 require_relative 'rake/deps'
 
-CORES = 4
+CORES = ENV['TRAVIS'] ? 2 : 4
 
 task :deps_other do
 	EXTERNAL_BUILDS.(:build, true, false)
