@@ -2,23 +2,23 @@ notifications:
   email: false
 git:
   submodules: false
-os:
-  - linux
-  - osx
-addons:
- apt:
-   sources:
-   - ubuntu-toolchain-r-test
-   packages:
-   - gcc-4.8
-   - g++-4.8
-   - ninja-build
-   - texinfo
+matrix:
+  include:
+    - os: linux
+      env:
+        CC: clang
+        CXX: clang++
+      addons:
+       apt:
+         sources:
+         - ubuntu-toolchain-r-test
+         packages:
+         - gcc-4.8
+         - g++-4.8
+         - ninja-build
+         - texinfo
 language: ruby
 cache:
   timeout: 1000
   directories:
   - vendor/cache
-before install:
-  - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then export CC=gcc-4.8; export CXX=g++-4.8; fi
-  - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew update; brew install openssl ninja; fi

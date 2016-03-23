@@ -26,6 +26,20 @@ def append_path(path)
 	end
 end
 
+def which(cmd)
+	exts = ENV['PATHEXT'] ? ENV['PATHEXT'].split(';') : ['']
+	ENV['PATH'].split(File::PATH_SEPARATOR).each do |path|
+		exts.each { |ext|
+			exe = File.join(path, "#{cmd}#{ext}")
+			return exe if File.executable?(exe) && !File.directory?(exe)
+		}
+	end
+	return nil
+end
+
+CC = (which(ENV['CC']) if ENV['CC'])
+CXX = (which(ENV['CXX']) if ENV['CXX'])
+
 append_path(File.expand_path('../vendor/cmake/install/bin', __FILE__))
 append_path(File.expand_path('../vendor/elf-binutils/install/bin', __FILE__))
 append_path(File.expand_path('../vendor/mtools/install/bin', __FILE__))
@@ -63,17 +77,6 @@ ENV['CARGO_TARGET_DIR'] = File.expand_path('../build/cargo/target', __FILE__)
 ENV['RUST_TARGET_PATH'] = File.expand_path('../targets', __FILE__)
 ENV['RUST_BACKTRACE'] = '1'
 UNIX_EMU = [false]
-
-def which(cmd)
-	exts = ENV['PATHEXT'] ? ENV['PATHEXT'].split(';') : ['']
-	ENV['PATH'].split(File::PATH_SEPARATOR).each do |path|
-		exts.each { |ext|
-			exe = File.join(path, "#{cmd}#{ext}")
-			return exe if File.executable?(exe) && !File.directory?(exe)
-		}
-	end
-	return nil
-end
 
 NINJA = which('ninja')
 
@@ -346,7 +349,7 @@ end
 
 require_relative 'rake/deps'
 
-CORES = ENV['TRAVIS'] ? 2 : 4
+CORES = ENV['TRAVIS'] ? 1 : 4
 
 task :deps_other do
 	EXTERNAL_BUILDS.(:build, true, false)

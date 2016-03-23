@@ -351,7 +351,7 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 		run 'cp', 'compiler-rt/install-x86_64-pc-avery/lib/generic/libclang_rt.builtins-x86_64.a', "avery-sysroot/lib/libcompiler_rt.a" if real
 
 		# clang is not the host compiler, force use of gcc
-		env = {'CC' => 'gcc', 'CXX' => 'g++'} unless ENV['CC']
+		env = {'CC' => CC || 'gcc', 'CXX' => CXX || 'g++'}
 		build_submodule.("rust", {env: env}) do |src, prefix|
 			run File.join(src, 'configure'), "--prefix=#{prefix}", "--llvm-root=#{File.join(src, "../../llvm/build")}", "--disable-docs", "--target=x86_64-pc-avery", "--disable-jemalloc"
 		end
