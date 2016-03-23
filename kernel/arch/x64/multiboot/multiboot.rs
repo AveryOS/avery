@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
-pub const HEADER_FLAG_PAGE_ALIGN: u32 = 1 << 0;
-pub const HEADER_FLAG_MEMORY_INFO: u32 = 1 << 1;
+pub const HEADER_FLAG_PAGE_ALIGN: u32 = 1;
+pub const HEADER_FLAG_MEMORY_INFO: u32 = 2;
 
 pub const MAGIC: u32 = 0x2BADB002;
 

@@ -7,7 +7,7 @@ path = "kernel.rs"
 crate-type = ["staticlib"]
 
 [dependencies]
-clippy = { git = "https://github.com/Manishearth/rust-clippy.git", rev = "523c5961712886ece782d4e3f307281df337b489" }
+clippy = { git = "https://github.com/Manishearth/rust-clippy.git", rev = "f13b841282a4832e8642b82dd3b652046de55c97" }
 rlibc = "0.1.5"
 elfloader = { path = "../verifier/rust-elfloader" }
 assembly = { path = "../vendor/asm" }

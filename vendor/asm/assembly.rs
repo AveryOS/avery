@@ -18,7 +18,7 @@ use self::asm::expand_asm;
 use syntax::parse::parser::{LhsExpr, Parser};
 use syntax::parse::token;
 use syntax::parse::token::{keywords, intern_and_get_ident};
-use syntax::parse::common::seq_sep_trailing_allowed;
+use syntax::parse::common::SeqSep;
 use syntax::print::pprust::token_to_string;
 use syntax::util::parser::AssocOp;
 use syntax::parse::PResult;
@@ -253,7 +253,7 @@ fn search<F: Fn(usize) -> bool>(fb: &codemap::FileMapAndBytePos, test: F, offset
         if test(p) {
             return None;
         }
-        
+
         p = match offset {
             -1 => p - 1,
             1 => p + 1,
@@ -322,7 +322,7 @@ fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree]) 
         token::OpenDelim(token::Bracket) => {
             p.parse_unspanned_seq(&token::OpenDelim(token::Bracket),
                                   &token::CloseDelim(token::Bracket),
-                                  seq_sep_trailing_allowed(token::Comma),
+                                  SeqSep::trailing_allowed(token::Comma),
                                   |p| {
                                        parse_opt(cx, p, &mut data)
                                   }).unwrap();

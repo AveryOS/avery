@@ -221,14 +221,6 @@ build_kernel = proc do
 			'-T', build.output(File.join(gen_folder, linker_script)),
 			*objects, compiler_rt,
 			'-o', kernel_binary
-
-		# Copy kernel into emulation environment
-		case type
-			when :multiboot
-				run 'mcopy', '-D', 'o', '-D', 'O', '-i' ,'emu/grubdisk.img@@1M', kernel_binary, '::kernel.elf'
-			when :boot
-				FileUtils.cp kernel_binary, "emu/hda/efi/boot"
-		end
 	end
 end
 
@@ -296,29 +288,54 @@ def run_qemu(efi)
 	end
 end
 
-task :qemu => :build do
+task :emu do
+	mkdirs('emu')
+	Dir.chdir('emu/') do
+		if ON_WINDOWS && QEMU_PATH == 'qemu/' && !Dir.exists?('qemu')
+			run 'curl', '-O', 'https://raw.githubusercontent.com/AveryOS/binaries/master/qemu.tar.xz'
+			run 'tar', "Jxf", 'qemu.tar.xz'
+			FileUtils.rm('qemu.tar.xz')
+		end
+
+		unless File.exists?('grubdisk.img')
+			run 'curl', '-O', 'https://raw.githubusercontent.com/AveryOS/binaries/master/disk.tar.xz'
+			run 'tar', "Jxf", 'disk.tar.xz'
+			FileUtils.rm('disk.tar.xz')
+		end
+	end
+
+	# Copy kernel into emulation environment
+	case type
+		when :multiboot
+			run 'mcopy', '-D', 'o', '-D', 'O', '-i' ,'emu/grubdisk.img@@1M', kernel_binary, '::kernel.elf'
+		when :boot
+			FileUtils.cp kernel_binary, "emu/hda/efi/boot"
+	end
+end
+
+task :qemu => [:build, :emu] do
 	run_qemu(false)
 end
 
-task :qemu_efi => :build_efi do
+task :qemu_efi => [:build_efi, :emu] do
 	run_qemu(true)
 end
 
-task :bochsdbg => :build do
+task :bochsdbg => [:build, :emu] do
 	Dir.chdir('emu/') do
 		puts "Running Bochs..."
 		run 'bochs/bochsdbg', '-q', '-f', 'avery.bxrc'
 	end
 end
 
-task :bochs4 => :build do
+task :bochs4 => [:build, :emu] do
 	Dir.chdir('emu/') do
 		puts "Running Bochs..."
 		run 'bochs4/bochs', '-q', '-f', 'avery4.bxrc'
 	end
 end
 
-task :bochs => :build do
+task :bochs => [:build, :emu] do
 
 	Dir.chdir('emu/') do
 		puts "Running Bochs..."

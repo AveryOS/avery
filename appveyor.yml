@@ -6,7 +6,6 @@ environment:
 
 install:
   - C:\msys64\usr\bin\bash -lc "pacman --needed --noconfirm -S ruby"
-  - C:\msys64\usr\bin\bash -lc "cd /c/projects/avery; rake deps_msys"
 
 build_script:
   - C:\msys64\usr\bin\bash -lc "cd /c/projects/avery; rake"

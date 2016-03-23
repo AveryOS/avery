@@ -189,21 +189,6 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 	#run *%w{git submodule init}
 	#run *%w{git submodule update}
 
-	mkdirs('emu')
-	Dir.chdir('emu/') do
-		if ON_WINDOWS && QEMU_PATH == 'qemu/' && !Dir.exists?('qemu')
-			run 'curl', '-O', 'https://raw.githubusercontent.com/AveryOS/binaries/master/qemu.tar.xz'
-			run 'tar', "Jxf", 'qemu.tar.xz'
-			FileUtils.rm('qemu.tar.xz')
-		end
-
-		unless File.exists?('grubdisk.img')
-			run 'curl', '-O', 'https://raw.githubusercontent.com/AveryOS/binaries/master/disk.tar.xz'
-			run 'tar', "Jxf", 'disk.tar.xz'
-			FileUtils.rm('disk.tar.xz')
-		end
-	end
-
 	Dir.chdir('vendor/') do
 		build_from_url.("ftp://ftp.gnu.org/gnu/binutils/", "binutils", "2.26", {unix: true, path: 'elf-binutils'}) do |src, prefix|
 			run File.join(src, 'configure'), "--prefix=#{prefix}", *%w{--target=x86_64-elf --with-sysroot --disable-nls --disable-werror}

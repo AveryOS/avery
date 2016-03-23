@@ -3,6 +3,8 @@
 #![feature(asm, lang_items, plugin)]
 #![plugin(assembly)]
 #![plugin(clippy)]
+#![warn(cast_possible_truncation, cast_possible_wrap,
+        cast_precision_loss, cast_sign_loss)]
 
 extern crate rlibc;
 
@@ -121,7 +123,7 @@ unsafe fn cpuid(input: u32) -> CPUIDResult {
 		cpuid
 	}
 
-	return result;
+	result
 }
 
 #[no_mangle]
