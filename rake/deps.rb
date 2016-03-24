@@ -1,4 +1,8 @@
 
+def get_submodule(path)
+	run *%w{git submodule update --depth 1 --init}, path.shellescape
+end
+
 build_type = :build
 
 # Build a unix like package at src
@@ -18,18 +22,21 @@ build_unix_pkg = proc do |src, rev, opts, config, &gen_src|
 
 	next if build_type != :build
 
-	if ENV['TRAVIS']
-		run 'cp', '-r', "#{cache}/install", '.' if Dir.exists?("#{cache}/install")
-		run 'cp', '-r', "#{cache}/meta", '.' if Dir.exists?("#{cache}/meta")
-	end
+	test_prefix = ENV['TRAVIS'] ? "#{cache}/" : ""
 
-	built_rev = File.read("meta/revision").strip if File.exists?("meta/revision")
+	built_rev = File.read("#{test_prefix}meta/revision").strip if File.exists?("#{test_prefix}meta/revision")
 	if built_rev && built_rev != rev
 			puts "Cleaning #{pathname} #{"(rev #{built_rev})" if built_rev}... new revision #{rev}"
 			FileUtils.rm_rf(["meta/revision"])
-			clean.() unless opts[:noclean]
+			clean.() unless opts[:noclean] && !ENV['TRAVIS']
 	end
 	puts "Building #{pathname} (rev #{rev})..."
+
+	if File.exists?(cache)
+		run 'ln', '-s', "#{cache}/install", File.expand_path('install')
+		run 'ln', '-s', "#{cache}/meta", File.expand_path('meta')
+		next
+	end
 
 	old_env = ENV.to_hash
 	ENV.replace(CLEANENV.merge(opts[:env] || {}))
@@ -53,8 +60,7 @@ build_unix_pkg = proc do |src, rev, opts, config, &gen_src|
 		run 'touch', "meta/configured"
 	end
 
-	built = File.exists?("meta/built")
-	unless built
+	unless File.exists?("meta/built")
 		mkdirs(build_dir)
 		bin_path = "install"
 
@@ -78,17 +84,17 @@ build_unix_pkg = proc do |src, rev, opts, config, &gen_src|
 
 		run 'touch', "meta/built"
 
-		if ENV['TRAVIS']
-			mkdirs(cache)
-			run 'cp', '-r', 'install', cache
-			run 'cp', '-r', 'meta', cache
-		end
 	end
 
 	open("meta/revision", 'w') { |f| f.puts rev }
 
+	if ENV['TRAVIS']
+		mkdirs(cache)
+		run 'cp', '-r', 'install', cache
+		run 'cp', '-r', 'meta', cache
+	end
+
 	ENV.replace(old_env)
-	built
 end
 
 travis_exit = proc do |prev|
@@ -205,7 +211,7 @@ build_submodule = proc do |name, opts = {}, &proc|
 		Dir.chdir(build_base) do
 			build_unix_pkg.(src_path, rev, opts, proc) do
 				([src_path] + (opts[:submodules] || [])).each do |s|
-					run *%w{git submodule update --init}, s if needs_submodule
+					get_submodule(s) if needs_submodule
 				end
 			end
 		end
@@ -387,6 +393,6 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 		build_from_git.("bindgen", "https://github.com/crabtw/rust-bindgen.git", {cargo: true, env: env}) if extra
 
 		# We need rust sources to build sysroots
-		run *%w{git submodule update --init rust/src}
+		get_submodule('rust/src')
 	end
 end
