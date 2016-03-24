@@ -20,20 +20,20 @@ pub struct AddressSpace {
 }
 
 impl AddressSpace {
-	fn alloc_at(pos: usize, size: size) -> Option<AddressRange> {
+	fn alloc_at(&mut self, pos: usize, size: usize) -> Option<AddressRange> {
 		if pos + size >= self.end {
 			return None
 		}
-		if !ranges.iter().all(|range| (pos >= range.start + range.end) || (pos + size <= range.start) ) {
+		if !self.ranges.iter().all(|range| (pos >= range.start + range.end) || (pos + size <= range.start) ) {
 			return None
 		}
 		let range = AddressRange {
 			start: pos,
 			end: pos + size,
 		};
-		match ranges.binary_search_by(|e| range.start.cmp(e.start)) {
+		match self.ranges.binary_search_by(|e| range.start.cmp(&e.start)) {
 			Ok(e) => panic!(),
-			Err(i) => ranges.insert(range),
+			Err(i) => self.ranges.insert(i, range),
 		}
 		Some(range)
 	}

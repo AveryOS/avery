@@ -1,6 +1,6 @@
 #![crate_name = "std"]
 #![crate_type = "rlib"]
-#![feature(zero_one, core_intrinsics, raw, num_bits_bytes, lang_items,
+#![feature(zero_one, core_intrinsics, raw, lang_items,
 	macro_reexport, allow_internal_unstable, core_panic,
 	collections, alloc, slice_concat_ext)]
 #![no_std]
@@ -18,6 +18,7 @@ extern crate core as __core;
 extern crate collections as core_collections;
 
 extern crate alloc;
+extern crate conv;
 
 pub use core_collections::borrow;
 pub use core_collections::fmt;
@@ -78,6 +79,18 @@ pub mod prelude {
 
 		use core::ops::{Add, Sub, BitAnd, Not, Div};
 		use core::num::One;
+		use conv::ValueInto;
+		use core::any::{Any, TypeId};
+		use core::fmt::Display;
+
+		pub fn coerce<A: ValueInto<B> + Display + Any + Clone, B: Any>(from: A) -> B {
+			match from.clone().value_into() {
+				Ok(v) => v,
+				Err(_) => {
+					panic!("Cannot coerce value {} of type {:?} into type {:?}", from, TypeId::of::<A>(), TypeId::of::<A>())
+				}
+			}
+		}
 
 		//pub use core::prelude::v1::*;
 

@@ -43,7 +43,7 @@ pub unsafe fn allocate() -> &'static mut CPU {
 	let count = cpus.len();
 	cpus.push(CPU::new(count));
 
-	return &mut cpus[count];
+	&mut cpus[count]
 }
 
 pub fn current() -> &'static mut CPU {

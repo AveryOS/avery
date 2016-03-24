@@ -80,16 +80,17 @@ pub fn allocate_dirty_page() -> PhysicalPage {
 pub fn allocate_page() -> PhysicalPage {
 	let result = allocate_dirty_page();
 
+	//TODO: Fix
 	//clear_physical_page(result);
 
-	return result;
+	result
 }
 
 
 pub unsafe fn initialize(st: &memory::initial::State) {
 	const HOLES_ADDR: *mut Hole = arch::memory::PHYSICAL_ALLOCATOR_MEMORY as *mut Hole;
 
-	let mut _entry = st.list;
+	let mut entry_ = st.list;
 
 	let mut overhead_hole = None;
 	let mut pos = memory::offset_mut(HOLES_ADDR, st.holes) as *mut usize;
@@ -99,12 +100,12 @@ pub unsafe fn initialize(st: &memory::initial::State) {
 
 	*holes = slice::from_raw_parts_mut(HOLES_ADDR, st.holes);
 
-	while _entry != null_mut() {
-		let entry = &mut *_entry;
+	while entry_ != null_mut() {
+		let entry = &mut *entry_;
 
 		let hole = &mut holes[hole_index];
 
-		if _entry == st.entry {
+		if entry_ == st.entry {
 			overhead_hole = Some(hole_index);
 		}
 
@@ -139,7 +140,7 @@ pub unsafe fn initialize(st: &memory::initial::State) {
 		pos = memory::offset_mut(pos, units);
 
 		hole_index += 1;
-		_entry = entry.next;
+		entry_ = entry.next;
 	}
 
 	let overhead = pos as usize - arch::memory::PHYSICAL_ALLOCATOR_MEMORY;

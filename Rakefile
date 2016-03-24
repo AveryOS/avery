@@ -261,6 +261,11 @@ task :deps => [:user, :deps_other] do
 	end
 end
 
+task :kernel do
+	type = :multiboot
+	build_kernel.call
+end
+
 task :build => :deps do
 	type = :multiboot
 	build_kernel.call
@@ -307,6 +312,8 @@ task :emu do
 			FileUtils.rm('disk.tar.xz')
 		end
 	end
+
+	kernel_binary = "build/#{type}/kernel.elf"
 
 	# Copy kernel into emulation environment
 	case type

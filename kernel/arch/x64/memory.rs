@@ -139,7 +139,7 @@ pub fn new_process() -> (usize, PhysicalPage) {
 		let ptl3 = memory::physical::allocate_page();
 
 		let ops = &mut *LOCK.lock();
-		
+
 		ptl4_static[ptl4_index] = page_table_entry(ptl3, PRESENT_BIT | WRITE_BIT);
 
 		invalidate_all();
@@ -294,8 +294,10 @@ pub unsafe fn initialize_initial(st: &memory::initial::State)
 		static mut ptables: [Table; 32];
 		static low_end: void;
 		static kernel_start: void;
+		static stack_start: void;
+		static stack_end: void;
 	}
-
+	
 	let high_offset = offset(&kernel_start) - offset(&low_end);
 
 	let table_index = RefCell::new(0);
@@ -375,11 +377,6 @@ pub unsafe fn initialize_initial(st: &memory::initial::State)
 	KERNEL_MAPPED = true;
 
 	console::set_buffer(FRAMEBUFFER_START);
-
-	extern {
-		static stack_start: void;
-		static stack_end: void;
-	}
 
 	// Unmap the stack guard page
 	*get_page_entry(&mut *LOCK.lock(), Page::new(offset(&stack_start))) = NULL_ENTRY;

@@ -54,6 +54,8 @@ extern fn eh_personality() {
 #[allow(unreachable_code)]
 #[lang = "panic_fmt"]
 extern fn panic_fmt(fmt: Arguments, file: &'static str, line: u32) -> ! {
+    static mut TRIED_BACKTRACE: bool = false;
+
     unsafe {
         arch::interrupts::disable();
         arch::cpu::freeze_other_cores();
@@ -65,8 +67,6 @@ extern fn panic_fmt(fmt: Arguments, file: &'static str, line: u32) -> ! {
         println!("\nPanic: {}\nLoc: {}:{}", fmt, file, line);
 
         arch::freeze();
-
-        static mut TRIED_BACKTRACE: bool = false;
 
         if !TRIED_BACKTRACE {
             TRIED_BACKTRACE = true;

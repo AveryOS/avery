@@ -5,4 +5,7 @@ version = "0.1.0"
 [lib]
 path = "std.rs"
 
-[dependencies]
+[dependencies.conv]
+git = "https://github.com/AveryOS/rust-conv.git"
+rev = "c71dd2a555c1cfa6a638f6087d97570a108ac3d8"
+features = ["no_std"]

@@ -167,7 +167,7 @@ impl Allocator {
 		let result = self.current_block;
 		self.current_block = offset_mut(self.current_block, 1);
 
-		return result;
+		result
 	}
 
 	pub fn allocate(&mut self, kind: Kind, pages: usize) -> *mut Block {

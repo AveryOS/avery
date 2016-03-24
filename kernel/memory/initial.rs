@@ -31,11 +31,11 @@ unsafe fn load_memory_map(info: &mut params::Info) -> *mut Range {
 }
 
 unsafe fn punch_holes(st: &mut State) {
-	let mut _entry = st.list;
-	let mut prev = _entry;
+	let mut entry_ = st.list;
+	let mut prev = entry_;
 
-	'label: while _entry != null_mut() {
-		let entry = &mut *_entry;
+	'label: while entry_ != null_mut() {
+		let entry = &mut *entry_;
 
 		for hole in st.info.segments.iter_mut() {
 			if hole.found {
@@ -59,7 +59,7 @@ unsafe fn punch_holes(st: &mut State) {
 						(*prev).next = entry.next;
 					}
 
-					_entry = entry.next;
+					entry_ = entry.next;
 					continue 'label;
 				} else if hole.base == entry.base {
 					// The entry's and hole's bases match perfectly. Resize the entry.
@@ -91,9 +91,9 @@ unsafe fn punch_holes(st: &mut State) {
 			}
 		}
 
-		prev = _entry;
+		prev = entry_;
 
-		_entry = entry.next;
+		entry_ = entry.next;
 	}
 
 	for hole in st.info.segments.iter() {
@@ -104,17 +104,17 @@ unsafe fn punch_holes(st: &mut State) {
 }
 
 unsafe fn align_holes(st: &mut State) {
-	let mut _entry = st.list;
-	let mut prev = _entry;
+	let mut entry_ = st.list;
+	let mut prev = entry_;
 
-	while _entry != null_mut() {
-		let entry = &mut *_entry;
+	while entry_ != null_mut() {
+		let entry = &mut *entry_;
 
 		entry.base = align_up(entry.base, arch::PHYS_PAGE_SIZE);
 		entry.end = align_down(entry.end, arch::PHYS_PAGE_SIZE);
 
 		if entry.end > entry.base {
-			prev = _entry; // Go to the next entry
+			prev = entry_; // Go to the next entry
 		} else {
 			// No usable memory in this entry. Remove it from the list.
 
@@ -126,26 +126,26 @@ unsafe fn align_holes(st: &mut State) {
 			}
 		}
 
-		_entry = entry.next;
+		entry_ = entry.next;
 	}
 }
 
-unsafe fn find_biggest_entry(mut _entry: *mut Range) -> Option<*mut Range> {
+unsafe fn find_biggest_entry(mut entry_: *mut Range) -> Option<*mut Range> {
 	let mut result: Option<*mut Range> = None;
 
-	while _entry != null_mut() {
-		let entry = &mut *_entry;
+	while entry_ != null_mut() {
+		let entry = &mut *entry_;
 
 		match result {
 			Some(r) => {
 				if entry.end - entry.base > (*r).end - (*r).base {
-					result = Some(_entry);
+					result = Some(entry_);
 				}
 			}
-			None => result = Some(_entry)
+			None => result = Some(entry_)
 		}
 
-		_entry = entry.next;
+		entry_ = entry.next;
 	}
 
 	result
@@ -182,10 +182,10 @@ pub unsafe fn initialize_physical(info: &mut params::Info) -> State {
 
 	let mut memory_in_pages = 0;
 
-	let mut _entry = st.list;
+	let mut entry_ = st.list;
 
-	while _entry != null_mut() {
-		let entry = &mut *_entry;
+	while entry_ != null_mut() {
+		let entry = &mut *entry_;
 
 		println!("Free physical memory {:#x} - {:#x}", entry.base, entry.end);
 
@@ -194,7 +194,7 @@ pub unsafe fn initialize_physical(info: &mut params::Info) -> State {
 
 		st.holes += 1;
 
-		_entry = entry.next;
+		entry_ = entry.next;
 	}
 
 	println!("Available memory: {} MiB", memory_in_pages * arch::PHYS_PAGE_SIZE / 0x100000);

@@ -12,18 +12,6 @@ pub extern "C" fn boot_entry(info: &multiboot::Info) {
 
 #[inline(never)]
 pub fn init(info: &multiboot::Info) {
-    ::arch::console::cls();
-
-	if info.flags & multiboot::FLAG_MMAP == 0 {
-		panic!("Memory map not passed by Multiboot loader");
-	}
-
-	let mut params = params::Info {
-		ranges: FixVec::new(),
-		segments: FixVec::new()
-
-	};
-
 	extern {
 		static low_end: void;
 		static kernel_start: void;
@@ -35,7 +23,7 @@ pub fn init(info: &multiboot::Info) {
 	fn setup_segment(params: &mut params::Info, kind: params::SegmentKind, virtual_start: &'static void, virtual_end: &'static void)
 	{
 		let base = offset(virtual_start) - offset(&kernel_start) + offset(&low_end);
-		
+
 		params.segments.push(params::Segment {
 			kind: kind,
 			base: base as Addr,
@@ -45,6 +33,18 @@ pub fn init(info: &multiboot::Info) {
 			name: unsafe { std::mem::zeroed() }
 		});
 	}
+
+    ::arch::console::cls();
+
+	if info.flags & multiboot::FLAG_MMAP == 0 {
+		panic!("Memory map not passed by Multiboot loader");
+	}
+
+	let mut params = params::Info {
+		ranges: FixVec::new(),
+		segments: FixVec::new()
+
+	};
 
 	setup_segment(&mut params, params::SegmentKind::Code, &kernel_start, &rodata_start);
 	setup_segment(&mut params, params::SegmentKind::ReadOnlyData, &rodata_start, &data_start);

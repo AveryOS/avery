@@ -181,6 +181,11 @@ pub unsafe fn initialize() {
 	use elfloader::{self, elf};
 	use std::slice;
 
+	extern {
+		static user_image_start: u8;
+		static user_image_end: u8;
+	}
+
 	cpu::map_local_page_tables(cpu::bsp());
 
 	let pit_irq = IRQ::new(0, true, false);
@@ -190,11 +195,6 @@ pub unsafe fn initialize() {
 	pit::initialize(setup.pit_irq);
 	apic::calibrate();
 	cpu::boot_cpus(setup.cpus);
-
-	extern {
-		static user_image_start: u8;
-		static user_image_end: u8;
-	}
 
 	let user = slice::from_raw_parts(&user_image_start, offset(&user_image_end) - offset(&user_image_start));
 
