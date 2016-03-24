@@ -14,11 +14,11 @@ build_unix_pkg = proc do |src, rev, opts, config, &gen_src|
 
 	next if build_type != :build
 
-	pathname = File.basename(Dir.pwd)
+	pathname = File.basename(File.expand_path(File.join(src, '..')))
 
 	if ENV['TRAVIS']
-		run 'cp', '-r', "../cache/#{pathname}/install", '.' if Dir.exists?("../cache/#{pathname}/install")
-		run 'cp', '-r', "../cache/#{pathname}/meta", '.' if Dir.exists?("../cache/#{pathname}/install")
+		run 'cp', '-r', "#{src}/../cache/#{pathname}/install", '.' if Dir.exists?("#{src}/../cache/#{pathname}/install")
+		run 'cp', '-r', "#{src}/../cache/#{pathname}/meta", '.' if Dir.exists?("#{src}/../cache/#{pathname}/install")
 	end
 
 	built_rev = File.read("meta/built").strip if File.exists?("meta/built")
@@ -77,9 +77,9 @@ build_unix_pkg = proc do |src, rev, opts, config, &gen_src|
 		open("meta/built", 'w') { |f| f.puts rev }
 
 		if ENV['TRAVIS']
-			mkdirs("../cache/#{pathname}")
-			run 'cp', '-r', 'install', "../cache/#{pathname}"
-			run 'cp', '-r', 'meta', "../cache/#{pathname}"
+			mkdirs("#{src}/../cache/#{pathname}")
+			run 'cp', '-r', 'install', "#{src}/../cache/#{pathname}"
+			run 'cp', '-r', 'meta', "#{src}/../cache/#{pathname}"
 		end
 	end
 
@@ -195,9 +195,14 @@ build_submodule = proc do |name, opts = {}, &proc|
 		else
 			rev = Dir.chdir("src") { `git rev-parse --verify HEAD`.strip }
 		end
-		build_unix_pkg.("src", rev, opts, proc) do
-			(["src"] + (opts[:submodules] || [])).each do |s|
-				run *%w{git submodule update --init}, s if needs_submodule
+		build_base = opts[:build] || '.'
+		mkdirs(build_base)
+		src_path = Pathname.new('src').relative_path_from(Pathname.new(build_base)).to_s
+		Dir.chdir(build_base) do
+			build_unix_pkg.(src_path, rev, opts, proc) do
+				([src_path] + (opts[:submodules] || [])).each do |s|
+					run *%w{git submodule update --init}, s if needs_submodule
+				end
 			end
 		end
 	end
@@ -284,11 +289,7 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 
 		build_rt = proc do |target, s, binutils, flags|
 			next if !real
-			next if Dir.exists?("compiler-rt/install-#{target}")
-			mkdirs("compiler-rt/build-#{target}")
-			Dir.chdir("compiler-rt/build-#{target}") do
-				src = '../src'
-				prefix = hostpath("../install-#{target}")
+			build_submodule.("compiler-rt", {build: target}) do |src, prefix|
 				opts = ["-DLLVM_CONFIG_PATH=#{File.join(src, "../../llvm/install/bin/llvm-config")}",
 					"-DFREESTANDING=On",
 					"-DCMAKE_SYSTEM_NAME=Generic",
@@ -308,9 +309,7 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 					"-DCOMPILER_RT_BUILD_SANITIZERS=Off",
 					"-DCOMPILER_RT_DEFAULT_TARGET_TRIPLE=#{target}"]
 				opts += ['-G',  'MSYS Makefiles'] if ON_WINDOWS_MINGW
-				run "cmake", '--debug-trycompile', src, *opts
-				ENV['VERBOSE'] = '1'
-				run "cmake", '--build', '.', '--target', 'install'
+				run "cmake", src, *opts
 			end
 		end
 
@@ -350,7 +349,7 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 		end if nil
 
 		# place compiler-rt in lib/rustlib/x86_64-pc-avery/lib - rustc links to it // clang links to it instead
-		run 'cp', 'compiler-rt/install-x86_64-pc-avery/lib/generic/libclang_rt.builtins-x86_64.a', "avery-sysroot/lib/libcompiler_rt.a" if real
+		run 'cp', 'compiler-rt/x86_64-pc-avery/install/lib/generic/libclang_rt.builtins-x86_64.a', "avery-sysroot/lib/libcompiler_rt.a" if real
 
 		# clang is not the host compiler, force use of gcc
 		env = {'CC' => CC || 'gcc', 'CXX' => CXX || 'g++'}
