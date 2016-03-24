@@ -23,10 +23,10 @@ build_unix_pkg = proc do |src, rev, opts, config, &gen_src|
 		run 'cp', '-r', "#{cache}/meta", '.' if Dir.exists?("#{cache}/meta")
 	end
 
-	built_rev = File.read("meta/built").strip if File.exists?("meta/built")
+	built_rev = File.read("meta/revision").strip if File.exists?("meta/revision")
 	if built_rev && built_rev != rev
 			puts "Cleaning #{pathname} #{"(rev #{built_rev})" if built_rev}... new revision #{rev}"
-			FileUtils.rm_rf(["meta/built"])
+			FileUtils.rm_rf(["meta/revision"])
 			clean.() unless opts[:noclean]
 	end
 	puts "Building #{pathname} (rev #{rev})..."
@@ -76,7 +76,7 @@ build_unix_pkg = proc do |src, rev, opts, config, &gen_src|
 			end
 		end
 
-		open("meta/built", 'w') { |f| f.puts rev }
+		run 'touch', "meta/built"
 
 		if ENV['TRAVIS']
 			mkdirs(cache)
@@ -84,6 +84,8 @@ build_unix_pkg = proc do |src, rev, opts, config, &gen_src|
 			run 'cp', '-r', 'meta', cache
 		end
 	end
+
+	open("meta/revision", 'w') { |f| f.puts rev }
 
 	ENV.replace(old_env)
 	built
@@ -356,7 +358,7 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 		# clang is not the host compiler, force use of gcc
 		env = {'CC' => CC || 'gcc', 'CXX' => CXX || 'g++'}
 		build_submodule.("rust", {env: env}) do |src, prefix|
-			run File.join(src, 'configure'), "--prefix=#{prefix}", "--llvm-root=#{File.join(src, "../../llvm/build")}", "--disable-docs", "--target=x86_64-pc-avery", "--disable-jemalloc"
+			run File.join(src, 'configure'), "--prefix=#{prefix}", "--llvm-root=#{File.join(src, "../../llvm/install")}", "--disable-docs", "--target=x86_64-pc-avery", "--disable-jemalloc"
 		end
 
 		travis_exit.('rust')
