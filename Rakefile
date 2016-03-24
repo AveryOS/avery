@@ -218,7 +218,7 @@ build_kernel = proc do
 			run 'x86_64-elf-objcopy', '--set-section-flags', '.debug*=alloc,contents,load,readonly,data,debug', obj
 		end
 
-		compiler_rt = 'vendor/compiler-rt/install-x86_64-generic-generic/lib/generic/libclang_rt.builtins-x86_64.a'
+		compiler_rt = 'vendor/compiler-rt/install-x86_64-unknown-unknown-elf/lib/generic/libclang_rt.builtins-x86_64.a'
 
 		# Finally link#compiler_rt
 		run 'x86_64-elf-ld', '-z', 'max-page-size=0x1000',
@@ -244,7 +244,7 @@ task :deps => [:user, :deps_other] do
 
 	cargo 'kernel/arch/x64/multiboot', 'x86_32-avery-kernel', [], (%w{-C lto --emit=obj=build/bootstrap-32.o})
 
-	compiler_rt = 'vendor/compiler-rt/install-x86_64-generic-generic/lib/generic/libclang_rt.builtins-i386.a'
+	compiler_rt = 'vendor/compiler-rt/install-x86_64-unknown-unknown-elf/lib/generic/libclang_rt.builtins-i386.a'
 
 	build = Build.new('build', 'info.yml')
 	build.run do

@@ -1,4 +1,4 @@
-#![allow(improper_ctypes, dead_code)]
+#![allow(improper_ctypes, dead_code, similar_names)]
 #![feature(lang_items, alloc, collections,
 		   plugin, asm, core_intrinsics, linkage, const_fn,
 		   allocator)]

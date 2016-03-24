@@ -5,6 +5,7 @@
 #![plugin(clippy)]
 #![warn(cast_possible_truncation, cast_possible_wrap,
         cast_precision_loss, cast_sign_loss)]
+#![allow(similar_names)]
 
 extern crate rlibc;
 
