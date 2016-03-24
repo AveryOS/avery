@@ -385,5 +385,8 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 
 		env = {'LIBCLANG_PATH' => path("vendor/llvm/install/#{ON_WINDOWS ? 'bin' : 'lib'}")}
 		build_from_git.("bindgen", "https://github.com/crabtw/rust-bindgen.git", {cargo: true, env: env}) if extra
+
+		# We need rust sources to build sysroots
+		run *%w{git submodule update --init rust/src}
 	end
 end
