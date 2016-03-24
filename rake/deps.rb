@@ -3,8 +3,12 @@ build_type = :build
 
 # Build a unix like package at src
 build_unix_pkg = proc do |src, rev, opts, config, &gen_src|
+	pathname = File.basename(File.expand_path(File.join(src, '..')))
+	cache = File.expand_path(File.join(src, "../../cache", pathname))
+
 	clean = proc do
 		FileUtils.rm_rf(["meta", "build", "install"])
+		FileUtils.rm_rf([cache]) if ENV['TRAVIS']
 		FileUtils.rm_rf(["#{src}/target"]) if opts[:cargo]
 	end
 
@@ -14,11 +18,9 @@ build_unix_pkg = proc do |src, rev, opts, config, &gen_src|
 
 	next if build_type != :build
 
-	pathname = File.basename(File.expand_path(File.join(src, '..')))
-
 	if ENV['TRAVIS']
-		run 'cp', '-r', "#{src}/../cache/#{pathname}/install", '.' if Dir.exists?("#{src}/../cache/#{pathname}/install")
-		run 'cp', '-r', "#{src}/../cache/#{pathname}/meta", '.' if Dir.exists?("#{src}/../cache/#{pathname}/install")
+		run 'cp', '-r', "#{cache}/install", '.' if Dir.exists?("#{cache}/install")
+		run 'cp', '-r', "#{cache}/meta", '.' if Dir.exists?("#{cache}/meta")
 	end
 
 	built_rev = File.read("meta/built").strip if File.exists?("meta/built")
@@ -77,9 +79,9 @@ build_unix_pkg = proc do |src, rev, opts, config, &gen_src|
 		open("meta/built", 'w') { |f| f.puts rev }
 
 		if ENV['TRAVIS']
-			mkdirs("#{src}/../cache/#{pathname}")
-			run 'cp', '-r', 'install', "#{src}/../cache/#{pathname}"
-			run 'cp', '-r', 'meta', "#{src}/../cache/#{pathname}"
+			mkdirs(cache)
+			run 'cp', '-r', 'install', cache
+			run 'cp', '-r', 'meta', cache
 		end
 	end
 

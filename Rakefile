@@ -131,7 +131,7 @@ def assemble(build, source, objects)
 	objects << object_file
 end
 
-RELEASE_BUILD = false
+RELEASE_BUILD = ENV['AVERY_BUILD'] == 'RELEASE' ? true : false
 CARGO_BUILD = RELEASE_BUILD ? 'release' : 'debug'
 
 RUSTFLAGS = ['--sysroot', hostpath('build/sysroot')] + %w{-g -Z no-landing-pads -C target-feature=-mmx,-sse,-sse2}
@@ -349,7 +349,7 @@ end
 
 require_relative 'rake/deps'
 
-CORES = ENV['TRAVIS'] ? 1 : 4
+CORES = ENV['TRAVIS'] ? 2 : 4
 
 task :deps_other do
 	EXTERNAL_BUILDS.(:build, true, false)

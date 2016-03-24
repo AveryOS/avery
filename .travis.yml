@@ -2,22 +2,24 @@ notifications:
   email: false
 git:
   submodules: false
-matrix:
-  include:
-    - os: linux
-      env:
-        CC: clang-3.7
-        CXX: clang++-3.7
-      addons:
-       apt:
-         sources:
-         - ubuntu-toolchain-r-test
-         - llvm-toolchain-precise-3.7
-         packages:
-         - g++-4.8
-         - clang-3.7
-         - ninja-build
-         - texinfo
+os: linux
+env:
+  global:
+    CC: clang-3.7
+    CXX: clang++-3.7
+  matrix:
+    - AVERY_BUILD=RELEASE
+    - AVERY_BUILD=DEBUG
+addons:
+ apt:
+   sources:
+   - ubuntu-toolchain-r-test
+   - llvm-toolchain-precise-3.7
+   packages:
+   - g++-4.8
+   - clang-3.7
+   - ninja-build
+   - texinfo
 language: ruby
 cache:
   timeout: 1000
