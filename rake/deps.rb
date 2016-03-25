@@ -7,7 +7,8 @@ build_type = :build
 
 # Build a unix like package at src
 build_unix_pkg = proc do |src, rev, opts, config, &gen_src|
-	pathname = File.basename(File.expand_path(File.join(src, '..')))
+	vendor = Pathname.new(File.join(AVERY_DIR, 'vendor'))
+	pathname = Pathname.new(File.expand_path('.')).relative_path_from(vendor).to_s
 	cache = File.expand_path(File.join(src, "../../cache", pathname))
 
 	clean = proc do
@@ -32,9 +33,13 @@ build_unix_pkg = proc do |src, rev, opts, config, &gen_src|
 	end
 	puts "Building #{pathname} (rev #{rev})..."
 
-	if File.exists?(cache)
-		run 'ln', '-s', "#{cache}/install", File.expand_path('install')
-		run 'ln', '-s', "#{cache}/meta", File.expand_path('meta')
+	if ENV['TRAVIS'] && File.exists?(cache)
+		if pathname == 'llvm'
+			# clang is hardcoded to use relative paths; symlinks won't work
+			run 'cp', '-r', "#{cache}/install", File.expand_path('.')
+		else
+			run 'ln', '-s', "#{cache}/install", File.expand_path('install')
+		end
 		next
 	end
 
@@ -325,7 +330,7 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 
 		build_rt.("x86_64-pc-avery", 8, "binutils/install/x86_64-pc-avery/bin", "-fPIC")
 		build_rt.("x86_64-unknown-unknown-elf", 8, "elf-binutils/install/x86_64-elf/bin", "") # Builds i386 too
-		#build_rt.("i386-generic-generic", 4)
+		#build_rt.("i386-unknown-unknown-elf", 4, "elf-binutils/install/x86_64-elf/bin", "-m32")
 
 		env = {'CFLAGS' => '-fPIC'}
 		build_submodule.("newlib", {env: env}) do |src, prefix|
@@ -394,5 +399,7 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 
 		# We need rust sources to build sysroots
 		get_submodule('rust/src')
+		# We need the ELF loader for the kernel
+		get_submodule('../verifier/rust-elfloader')
 	end
 end
