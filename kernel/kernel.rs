@@ -1,5 +1,5 @@
 #![allow(improper_ctypes, dead_code, similar_names, if_not_else,
-	     needless_lifetimes, len_without_is_empty)]
+	     needless_lifetimes, len_without_is_empty, new_without_default)]
 #![feature(lang_items, alloc, collections,
 		   plugin, asm, core_intrinsics, linkage, const_fn,
 		   allocator)]

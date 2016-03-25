@@ -40,6 +40,7 @@ end
 CC = (which(ENV['CC']) if ENV['CC'])
 CXX = (which(ENV['CXX']) if ENV['CXX'])
 
+append_path(File.expand_path('../build/cargo/home/bin', __FILE__))
 append_path(File.expand_path('../vendor/cmake/install/bin', __FILE__))
 append_path(File.expand_path('../vendor/elf-binutils/install/bin', __FILE__))
 append_path(File.expand_path('../vendor/mtools/install/bin', __FILE__))

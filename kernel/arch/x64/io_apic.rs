@@ -39,7 +39,7 @@ impl IOAPIC {
 
     	let id_from_reg = (io.get_reg(REG_ID) >> 24) & 0xF;
 
-    	if id_from_reg as u8 != id {
+    	if u8::coerce(id_from_reg) != id {
     		println!("I/O APIC register id differs from ACPI id: {} vs. ACPI: {}", id_from_reg, id);
         }
 
@@ -74,11 +74,11 @@ impl IOAPIC {
 
         println!("Routing IRQ {} to target {}", irq, target);
 
-    	let reg_start = REG_IRQ_START + (irq as u32) * 2;
+    	let reg_start = REG_IRQ_START + u32::coerce(irq) * 2;
 
 		// Mask the Interrupt before changing it
     	self.reg(reg_start, self.get_reg(reg_start) | MASK_BIT);
-		
+
     	self.reg(reg_start + 1, (target as u32) << 24);
         let mut val = vector as u32;
         if !edge_triggered {
@@ -116,7 +116,7 @@ impl IRQ {
         let ios = IOS.as_ref().unwrap();
 
         for io in ios.iter() {
-    		if (self.index as u32) >= io.irq_base && (self.index as u32) < io.irq_base + io.irq_count {
+    		if u32::coerce(self.index) >= io.irq_base && u32::coerce(self.index) < io.irq_base + io.irq_count {
     			self.apic = Some(io);
     			self.index -= io.irq_base as usize;
     			return;

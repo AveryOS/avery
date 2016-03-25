@@ -91,7 +91,7 @@ extern fn page_fault_handler(info: &Info, _: u8, error_code: usize)
 		"writing"
 	};
 
-	let reason = if (error_code & (1 << 0)) == 0 {
+	let reason = if (error_code & 1) == 0 {
 		"Page not present"
 	} else if (error_code & (1 << 3)) != 0 {
 		"Reserved bit set"
@@ -156,7 +156,7 @@ pub unsafe fn ref_gate(index: u8) -> &'static mut Gate {
 pub unsafe fn set_gate(index: u8, stub: unsafe extern fn (), ist: u8) {
 	let target = stub as usize;
 
-	let gate = &mut IDT[index as usize];
+	let gate = &mut IDT[usize::from(index)];
 
 	gate.target_low = target as u16;
 	gate.target_medium = (target >> 16) as u16;
@@ -175,7 +175,7 @@ pub fn register_handler(index: u8, handler: Handler) {
 
 pub unsafe fn load_idt() {
 	let idt_ptr = arch::CPUPointer {
-		limit: size_of_val(&IDT) as u16 - 1,
+		limit: u16::coerce(size_of_val(&IDT)) - 1,
 		base: offset(&IDT)
 	};
 

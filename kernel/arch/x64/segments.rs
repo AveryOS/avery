@@ -92,7 +92,7 @@ fn set_task_segment(tss: &'static TaskState) {
 	segment.base_higher = (base >> 32) as u32;
 
 	segment.desc.access = 0b11101001; // available, type = 4, preset, privilege_level = 3
-	segment.desc.granularity = size_of::<TaskState>() as u8 - 1;
+	segment.desc.granularity = u8::coerce(size_of::<TaskState>()) - 1;
 }
 
 extern {
@@ -106,7 +106,7 @@ pub unsafe fn initialize_gdt() {
 	set_segment(4, true, true);
 
 	let gdt_ptr = arch::CPUPointer {
-		limit: size_of_val(&GDT) as u16 - 1,
+		limit: u16::coerce(size_of_val(&GDT)) - 1,
 		base: offset(&GDT)
 	};
 
@@ -120,7 +120,7 @@ pub unsafe fn initialize_gdt() {
 pub unsafe fn setup_tss() {
 	let cpu = arch::cpu::current_slow();
 
-	cpu.arch.tss.rsps[0] = cpu.arch.stack.end as u64;
+	cpu.arch.tss.rsps[0] = u64::coerce(cpu.arch.stack.end);
 
 	set_task_segment(&cpu.arch.tss);
 

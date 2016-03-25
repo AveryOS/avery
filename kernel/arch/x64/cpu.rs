@@ -172,7 +172,7 @@ unsafe fn setup_ap_bootstrap() -> &'static mut APBootstrapInfo {
 	// Write bootstrap info
 
 	ap_bootstrap_info = APBootstrapInfo {
-		pml4: arch::memory::get_pml4_physical().addr() as u32,
+		pml4: u32::coerce(arch::memory::get_pml4_physical().addr()),
 		apic_registers: apic::REGISTERS,
 		cpu_count: cpu::cpus().len(),
 		cpu_size: size_of::<cpu::CPU>(),

@@ -66,7 +66,7 @@ pub unsafe fn eoi() {
 
 pub unsafe fn ipi(target: u8, kind: Message, vector: usize) {
 	reg(REG_ICRH, (target as u32) << 24);
-	reg(REG_ICRL, ((vector as u32) & 0xFF) | (((kind as u32) & 7) << 8));
+	reg(REG_ICRL, (u32::coerce(vector) & 0xFF) | (((kind as u32) & 7) << 8));
 }
 
 pub fn local_id() -> u8 {
@@ -119,7 +119,7 @@ pub unsafe fn calibrate() {
 	pit_gate = *gate;
 	interrupts::set_gate(pit::VECTOR, apic_calibrate_pit_handler, 0);
 
-	interrupts::register_handler(TIMER_VECTOR as u8, calibrate_oneshot);
+	interrupts::register_handler(u8::coerce(TIMER_VECTOR), calibrate_oneshot);
 
 	calibrate_ap();
 }
@@ -183,7 +183,7 @@ pub fn simple_oneshot(ticks: u32) {
 	unsafe {
 		interrupts::disable();
 
-		interrupts::register_handler(TIMER_VECTOR as u8, simple_oneshot_wake);
+		interrupts::register_handler(u8::coerce(TIMER_VECTOR), simple_oneshot_wake);
 		volatile_store(&mut oneshot_done, false);
 		reg(REG_TIMER_INIT, ticks);
 		reg(REG_LVT_TIMER, TIMER_VECTOR);

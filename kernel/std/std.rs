@@ -83,7 +83,17 @@ pub mod prelude {
 		use core::fmt::Display;
 		use core::intrinsics::type_name;
 
-		pub fn coerce<A: ValueInto<B> + Display + Clone, B>(from: A) -> B {
+		pub trait Coerce<T>: Sized {
+			fn coerce(from: T) -> Self;
+		}
+
+		impl<A, T: ValueInto<A> + Display + Clone> Coerce<T> for A {
+			fn coerce(from: T) -> Self {
+				::prelude::v1::coerce(from)
+			}
+		}
+
+		pub fn coerce<B, A: ValueInto<B> + Display + Clone>(from: A) -> B {
 			match from.clone().value_into() {
 				Ok(v) => v,
 				Err(_) => {

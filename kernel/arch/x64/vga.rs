@@ -10,13 +10,13 @@ const MIN_Y: isize = 1;
 const MAX_X: isize = 78;
 const MAX_Y: isize = 24;
 
-const COLOR: u16 = (0 << 8) | (7 << 12);
+const COLOR: u16 = 7 << 12;
 
 static mut x: isize = MIN_X;
 static mut y: isize = MIN_Y;
 
 pub fn get_buffer_info() -> (Addr, usize) {
-	unsafe { (VGA as Addr, (SIZE_X * SIZE_Y) as usize * size_of::<u16>()) }
+	unsafe { (Addr::coerce(VGA as usize), usize::coerce(SIZE_X * SIZE_Y) * size_of::<u16>()) }
 }
 
 pub fn set_buffer(addr: usize) {
@@ -27,7 +27,7 @@ unsafe fn update_cursor()
 {
 	use arch::outb;
 
-	let loc = y * SIZE_X + x;
+	let loc = u16::coerce(y * SIZE_X + x);
 
 	outb(0x3D4, 14);
 	outb(0x3D5, (loc >> 8) as u8);

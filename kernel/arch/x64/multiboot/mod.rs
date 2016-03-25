@@ -51,7 +51,7 @@ pub fn init(info: &multiboot::Info) {
 	setup_segment(&mut params, params::SegmentKind::Data, &data_start, &kernel_end);
 
 	for i in 0..info.mods_count {
-		let module = unsafe { &*(info.mods_addr as *const multiboot::Module).offset(i as isize) };
+		let module = unsafe { &*(info.mods_addr as *const multiboot::Module).offset(isize::coerce(i)) };
 
 		let segment = params::Segment {
 			kind: params::SegmentKind::Module,

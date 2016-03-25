@@ -34,7 +34,7 @@ impl<'a> ::core::fmt::Display for Demangle<'a> {
 	fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
 		if &self.0[..3] == "_ZN" {
 			let mut s = &self.0[3..];
-			while s.len() > 0
+			while !s.is_empty()
 			{
 				let n = s.read_num();
 				if n == 0 { break ; }
@@ -73,7 +73,7 @@ pub fn get_symbol_info_for_addr(addr: usize) -> Option<(&'static str, usize, &'s
 
 	//let (sym, start_addr) = get_symbol_for_addr(addr).unwrap_or(("unknown", 0));
 
-	Some((bound.name, bound.line as usize, sym, 0, bound.address as usize))
+	Some((bound.name, bound.line as usize, sym, 0, usize::coerce(bound.address)))
 }
 
 pub fn get_symbol_for_addr(addr: usize) -> Option<(&'static str, usize)> {
@@ -178,11 +178,11 @@ pub fn print_backtrace()
 pub struct Backtrace(usize);
 impl ::core::fmt::Display for Backtrace {
 	fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-		let mut bp = self.0 as u64;
+		let mut bp = u64::coerce(self.0);
 		while let Option::Some((newbp, ip)) = backtrace(bp)
 		{
 			try!(write!(f, " {:#x}", ip));
-			if let Some( (file, line, name, ofs, mofs) ) = get_symbol_info_for_addr(ip as usize - 1) {
+			if let Some( (file, line, name, ofs, mofs) ) = get_symbol_info_for_addr(usize::coerce(ip) - 1) {
 				try!(write!(f, "({}:{} {}+{:#x} M@{:#x})", file, line, Demangle(name), ofs + 1, mofs));
 			}
 			try!(write!(f, "\n"));

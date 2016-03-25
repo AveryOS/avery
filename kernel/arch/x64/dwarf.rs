@@ -48,7 +48,7 @@ fn read<T, R: Read>(r: &mut R) -> Result<T, Error> {
 }
 
 fn read_str<'s>(r: &mut Cursor<&'s [u8]>) -> Result<&'s str, Error> {
-    let start = r.position() as usize;
+    let start = usize::coerce(r.position());
 
     loop {
         let c: u8 = try!(read(r));
@@ -58,7 +58,7 @@ fn read_str<'s>(r: &mut Cursor<&'s [u8]>) -> Result<&'s str, Error> {
     }
 
     unsafe {
-        let bytes = &r.get_ref()[start..((r.position() - 1) as usize)];
+        let bytes = &r.get_ref()[start..usize::coerce(r.position() - 1)];
         Ok(mem::transmute(bytes))
     }
 }
@@ -277,7 +277,7 @@ fn parse_info_unit<'s>(data: &mut Cursor<&'s [u8]>, dwarf: &DwarfInfo<'s>, targe
 pub fn parse_info_units<'s>(dwarf: &DwarfInfo<'s>, target: u64) -> Result<Option<&'s str>, Error> {
     let mut cursor = Cursor::new(dwarf.info);
 
-    while (cursor.position() as usize) < dwarf.info.len() {
+    while usize::coerce(cursor.position()) < dwarf.info.len() {
         let name = try!(parse_info_unit(&mut cursor, dwarf, target));
         if name.is_some() {
             return Ok(name);
@@ -400,7 +400,7 @@ fn parse_line_unit<'s>(data: &mut Cursor<&'s [u8]>, bound: &mut Bound<'s>) -> Re
         () => (
             if address < bound.target && address >= bound.address {
                 bound.address = address;
-                bound.line = line as u64 as usize;
+                bound.line = usize::coerce(line);
                 bound_file = Some(file);
             }
             /*if table {
@@ -564,7 +564,7 @@ pub fn parse_line_units<'s>(dwarf: &DwarfInfo<'s>, target: usize) -> Result<Boun
 
     let mut cursor = Cursor::new(dwarf.line);
 
-    while (cursor.position() as usize) < dwarf.line.len() {
+    while usize::coerce(cursor.position()) < dwarf.line.len() {
         try!(parse_line_unit(&mut cursor, &mut bound));
     }
 

@@ -190,7 +190,7 @@ pub unsafe fn initialize_physical(info: &mut params::Info) -> State {
 		println!("Free physical memory {:#x} - {:#x}", entry.base, entry.end);
 
 		memory_in_pages += (entry.end - entry.base) / arch::PHYS_PAGE_SIZE;
-		st.overhead += size_of::<physical::Hole>() + size_of::<usize>() * div_up(entry.end - entry.base, physical::BYTE_MAP_SIZE) as usize;
+		st.overhead += size_of::<physical::Hole>() + size_of::<usize>() * usize::coerce(div_up(entry.end - entry.base, physical::BYTE_MAP_SIZE));
 
 		st.holes += 1;
 

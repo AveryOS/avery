@@ -46,7 +46,7 @@ pub fn free_page(page: PhysicalPage) {
 	for hole in unsafe { HOLES.lock().iter_mut() } {
 		if page >= hole.base && page < hole.end	{
 			let base = hole.base;
-			hole.clear(((page - base) / arch::PHYS_PAGE_SIZE) as usize);
+			hole.clear(usize::coerce((page - base) / arch::PHYS_PAGE_SIZE));
 			return;
 		}
 	}
@@ -110,7 +110,7 @@ pub unsafe fn initialize(st: &memory::initial::State) {
 		}
 
 		hole.base = entry.base;
-		hole.pages = ((entry.end - entry.base) / arch::PHYS_PAGE_SIZE) as usize;
+		hole.pages = usize::coerce((entry.end - entry.base) / arch::PHYS_PAGE_SIZE);
 		hole.end = entry.end;
 
 		let units = div_up(hole.pages, BITS_PER_UNIT);
@@ -123,9 +123,8 @@ pub unsafe fn initialize(st: &memory::initial::State) {
 			*unit = 0;
 		}
 
-		let real_end_s = hole.base + ((units - 1) * BITS_PER_UNIT) as Addr * arch::PHYS_PAGE_SIZE;
-		let real_end = hole.base + (units * BITS_PER_UNIT) as Addr * arch::PHYS_PAGE_SIZE;
-
+		let real_end_s = hole.base + Addr::coerce((units - 1) * BITS_PER_UNIT) * arch::PHYS_PAGE_SIZE;
+		let real_end = hole.base + Addr::coerce(units * BITS_PER_UNIT) * arch::PHYS_PAGE_SIZE;
 
 		// Set non-existent pages at the end of the word as allocated
 

@@ -26,7 +26,7 @@ pub const ALLOCATOR_END: usize = (PHYSICAL_ALLOCATOR_MEMORY - PAGE_SIZE) + PTL2_
 
 const TABLE_ENTRIES: usize = 0x1000 / PTR_BYTES;
 
-pub const PRESENT_BIT: Addr = 1 << 0;
+pub const PRESENT_BIT: Addr = 1;
 pub const WRITE_BIT: Addr = 1 << 1;
 pub const USERMODE_BIT: Addr = 1 << 2;
 pub const WRITETHROUGH_BIT: Addr = 1 << 3;
@@ -138,7 +138,7 @@ pub fn new_process() -> (usize, PhysicalPage) {
 		let ptl4_index = 0;
 		let ptl3 = memory::physical::allocate_page();
 
-		let ops = &mut *LOCK.lock();
+		let _ops = &mut *LOCK.lock();
 
 		ptl4_static[ptl4_index] = page_table_entry(ptl3, PRESENT_BIT | WRITE_BIT);
 
@@ -297,7 +297,7 @@ pub unsafe fn initialize_initial(st: &memory::initial::State)
 		static stack_start: void;
 		static stack_end: void;
 	}
-	
+
 	let high_offset = offset(&kernel_start) - offset(&low_end);
 
 	let table_index = RefCell::new(0);
@@ -315,7 +315,7 @@ pub unsafe fn initialize_initial(st: &memory::initial::State)
 			table[index] = page_table_entry(PhysicalPage::new(new_table as Addr), PRESENT_BIT | WRITE_BIT);
 		}
 
-		&mut *((physical_page_from_table_entry(table[index]).addr() as usize + high_offset) as *mut Table)
+		&mut *((usize::coerce(physical_page_from_table_entry(table[index]).addr()) + high_offset) as *mut Table)
 	};
 
 	let set_entry = |pointer: Page, entry: TableEntry| {
@@ -369,7 +369,7 @@ pub unsafe fn initialize_initial(st: &memory::initial::State)
 
 		println!("Segment {:?} {:#x} - {:#x} @ {:#x} - {:#x}", hole.kind, hole.virtual_base, hole.virtual_base + (hole.end - hole.base) as usize, hole.base, hole.end);
 
-		map(hole.virtual_base, (hole.end - hole.base) as usize, hole.base, flags);
+		map(hole.virtual_base, usize::coerce(hole.end - hole.base), hole.base, flags);
 	}
 
 	load_pml4(get_pml4_physical());

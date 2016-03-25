@@ -16,14 +16,14 @@ pub struct PhysicalView {
 impl PhysicalView {
     pub unsafe fn map<'s>(&'s mut self, base: Addr, size: usize, flags: Addr) -> &'s [u8] {
         let start = align_down(base, arch::PHYS_PAGE_SIZE);
-        let end = align_up(base + size as Addr, arch::PHYS_PAGE_SIZE);
-        let pages = ((end - start) / arch::PHYS_PAGE_SIZE) as usize;
+        let end = align_up(base + Addr::coerce(size), arch::PHYS_PAGE_SIZE);
+        let pages = usize::coerce((end - start) / arch::PHYS_PAGE_SIZE);
 
         let (block, page) = map_physical(PhysicalPage::new(start), pages, flags);
 
         self.block = Some(block);
 
-        let start = page.ptr() + (base & (arch::PHYS_PAGE_SIZE - 1)) as usize;
+        let start = page.ptr() + usize::coerce(base & (arch::PHYS_PAGE_SIZE - 1));
 
         slice::from_raw_parts(start as *const u8, size)
     }
