@@ -80,14 +80,16 @@ pub mod prelude {
 		use core::ops::{Add, Sub, BitAnd, Not, Div};
 		use core::num::One;
 		use conv::ValueInto;
-		use core::any::{Any, TypeId};
 		use core::fmt::Display;
+		use core::intrinsics::type_name;
 
-		pub fn coerce<A: ValueInto<B> + Display + Any + Clone, B: Any>(from: A) -> B {
+		pub fn coerce<A: ValueInto<B> + Display + Clone, B>(from: A) -> B {
 			match from.clone().value_into() {
 				Ok(v) => v,
 				Err(_) => {
-					panic!("Cannot coerce value {} of type {:?} into type {:?}", from, TypeId::of::<A>(), TypeId::of::<A>())
+					unsafe {
+						panic!("Cannot coerce value {} of type {} into type {}", from, type_name::<A>(), type_name::<B>())
+					}
 				}
 			}
 		}
