@@ -379,6 +379,13 @@ task :clean do
 	EXTERNAL_BUILDS.(:clean, false, true)
 end
 
+task :fmt do
+	run 'cargo', 'install', 'rustfmt' unless which 'rustfmt'
+	format = proc { run 'cargo', 'fmt', '--', '--config-path', File.expand_path('.') }
+	Dir.chdir('kernel') { format.() }
+	Dir.chdir('kernel/arch/x64/multiboot') { format.() }
+end
+
 task :user => :deps_other do
 	ENV['RUSTFLAGS'] = nil
 
