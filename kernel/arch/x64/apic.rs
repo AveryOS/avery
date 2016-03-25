@@ -71,7 +71,7 @@ pub unsafe fn ipi(target: u8, kind: Message, vector: usize) {
 
 pub fn local_id() -> u8 {
 	unsafe {
-		(get_reg(REG_ID) >> 24) as u8
+		(get_reg(REG_ID) >> 24).split().0.split().0
 	}
 }
 
@@ -166,7 +166,7 @@ pub unsafe fn calibrate_ap() {
 
 	reg(REG_LVT_TIMER, LVT_MASK);
 
-	cpu::current().arch.apic_tick_rate = ticks as usize;
+	cpu::current().arch.apic_tick_rate = usize::coerce(ticks);
 }
 
 static mut oneshot_done: bool = false;

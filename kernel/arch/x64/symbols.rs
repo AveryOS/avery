@@ -96,10 +96,8 @@ pub fn get_symbol_for_addr(addr: usize) -> Option<(&'static str, usize)> {
 						return Some( (get_name(s.st_name as usize), ofs) );
 					}
 				}
-				else {
-					if ofs < best.0 {
-						best = (ofs, i);
-					}
+				else if ofs < best.0 {
+					best = (ofs, i);
 				}
 			}
 		}

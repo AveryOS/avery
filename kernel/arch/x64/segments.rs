@@ -84,12 +84,13 @@ fn set_segment(index: usize, code: bool, usermode: bool) {
 fn set_task_segment(tss: &'static TaskState) {
 	let segment = unsafe { &mut GDT.tsds[cpu::current().index] };
 
-	let base = offset(tss);
+	let base = u64::coerce(offset(tss));
+	let base_low = base.split().0.split();
 
-	segment.desc.base_low = base as u16;
-	segment.desc.base_middle = (base >> 16) as u8;
-	segment.desc.base_high = (base >> 24) as u8;
-	segment.base_higher = (base >> 32) as u32;
+	segment.desc.base_low = base_low.0;
+	segment.desc.base_middle = base_low.1.split().0;
+	segment.desc.base_high = base_low.1.split().1;
+	segment.base_higher = base.split().1;
 
 	segment.desc.access = 0b11101001; // available, type = 4, preset, privilege_level = 3
 	segment.desc.granularity = u8::coerce(size_of::<TaskState>()) - 1;

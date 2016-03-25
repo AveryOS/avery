@@ -1,11 +1,14 @@
-#![allow(improper_ctypes, dead_code, similar_names, if_not_else,
-	     needless_lifetimes, len_without_is_empty, new_without_default)]
+#![allow(improper_ctypes, dead_code)]
 #![feature(lang_items, alloc, collections,
 		   plugin, asm, core_intrinsics, linkage, const_fn,
 		   allocator)]
 #![plugin(assembly)]
 #![plugin(clippy)]
 #![crate_type = "staticlib"]
+
+// clippy lints
+#![allow(cyclomatic_complexity, similar_names, if_not_else,
+	     needless_lifetimes, len_without_is_empty, new_without_default)]
 #![warn(cast_possible_truncation, cast_possible_wrap,
         cast_precision_loss, cast_sign_loss)]
 

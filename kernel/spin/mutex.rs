@@ -122,7 +122,7 @@ impl<T> Mutex<T>
 
     fn obtain_lock(&self)
     {
-        while self.lock.compare_and_swap(false, true, Ordering::SeqCst) != false
+        while !self.lock.compare_and_swap(false, true, Ordering::SeqCst)
         {
             arch::pause();
             // Do nothing
@@ -158,7 +158,7 @@ impl<T> Mutex<T>
     /// a guard within Some.
     pub fn try_lock(&self) -> Option<MutexGuard<T>>
     {
-        if self.lock.compare_and_swap(false, true, Ordering::SeqCst) == false
+        if !self.lock.compare_and_swap(false, true, Ordering::SeqCst)
         {
             Some(
                 MutexGuard {

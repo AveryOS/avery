@@ -18,10 +18,10 @@ fn read_lebi128<R: Read>(r: &mut R) -> Result<i64, Error> {
     }
 
     if (shift < 8 * 8) && (byte & 0x40 != 0) {
-        result |= ((1u64 << shift) as i64).wrapping_neg() as u64;
+        result |= (1u64 << shift).as_signed().wrapping_neg().as_unsigned();
     }
 
-    Ok(result as i64)
+    Ok(result.as_signed())
 }
 
 fn read_lebu128<R: Read>(r: &mut R) -> Result<u64, Error> {
@@ -170,12 +170,7 @@ fn parse_info_unit<'s>(data: &mut Cursor<&'s [u8]>, dwarf: &DwarfInfo<'s>, targe
         let mut low_pc = None;
         let mut high_pc = None;
 
-        loop {
-            let (attr, form) = match try!(read_abbrev_pair(adata)) {
-                Some(p) => p,
-                None => break
-            };
-
+        while let Some((attr, form)) = try!(read_abbrev_pair(adata)) {
             debug!("    <{:x}>   abbrev {} attr {} form: {} - ", data.position(), abbrev_code, attr, form);
 
             let mut str_val = None;
@@ -258,15 +253,12 @@ fn parse_info_unit<'s>(data: &mut Cursor<&'s [u8]>, dwarf: &DwarfInfo<'s>, targe
             }
         }
 
-        match (name, low_pc, high_pc) {
-            (Some(name), Some(low_pc), Some(high_pc)) => {
-                debug!("COMPARING  {} {:#x}-{:#x} with {:#x}\n", name, low_pc, high_pc, target);
+        if let (Some(name), Some(low_pc), Some(high_pc)) = (name, low_pc, high_pc) {
+            debug!("COMPARING  {} {:#x}-{:#x} with {:#x}\n", name, low_pc, high_pc, target);
 
-                if target >= low_pc && target < low_pc + high_pc {
-                    return Ok(Some(name))
-                };
+            if target >= low_pc && target < low_pc + high_pc {
+                return Ok(Some(name))
             }
-            _ => {}
         }
     }
 

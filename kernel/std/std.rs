@@ -83,6 +83,26 @@ pub mod prelude {
 		use core::fmt::Display;
 		use core::intrinsics::type_name;
 
+		pub trait SplitInt {
+			type Half;
+			fn split(self) -> (Self::Half, Self::Half);
+		}
+
+		macro_rules! split_impl {
+			($int:ty, $half:ty) => {
+				impl SplitInt for $int {
+					type Half = $half;
+					fn split(self) -> ($half, $half) {
+						(self as $half, (self >> (size_of::<$half>() * 8)) as $half)
+					}
+				}
+			}
+		}
+
+		split_impl!(u64, u32);
+		split_impl!(u32, u16);
+		split_impl!(u16, u8);
+
 		pub trait Coerce<T>: Sized {
 			fn coerce(from: T) -> Self;
 		}
@@ -104,7 +124,43 @@ pub mod prelude {
 			}
 		}
 
-		//pub use core::prelude::v1::*;
+		pub trait CastSign {
+			type Signed;
+			type Unsigned;
+			fn as_signed(self) -> Self::Signed;
+			fn as_unsigned(self) -> Self::Unsigned;
+		}
+
+		macro_rules! cast_sign_impl {
+			($signed:ty, $unsigned:ty) => {
+				impl CastSign for $signed {
+					type Signed = $signed;
+					type Unsigned = $unsigned;
+					fn as_signed(self) -> Self::Signed {
+						self as Self::Signed
+					}
+					fn as_unsigned(self) -> Self::Unsigned {
+						self as Self::Unsigned
+					}
+				}
+				impl CastSign for $unsigned {
+					type Signed = $signed;
+					type Unsigned = $unsigned;
+					fn as_signed(self) -> Self::Signed {
+						self as Self::Signed
+					}
+					fn as_unsigned(self) -> Self::Unsigned {
+						self as Self::Unsigned
+					}
+				}
+			}
+		}
+
+		cast_sign_impl!(i8, u8);
+		cast_sign_impl!(i16, u16);
+		cast_sign_impl!(i32, u32);
+		cast_sign_impl!(i64, u64);
+		cast_sign_impl!(isize, usize);
 
 		pub use core::ptr::{null, null_mut};
 		pub use core::mem::{size_of, size_of_val, uninitialized, transmute};

@@ -14,11 +14,11 @@ pub unsafe fn initialize(mut irq: IRQ) {
 
 	irq.route(VECTOR, apic::local_id());
 
-	let divisor: u32 = 1193182 / 20;
+	let divisor = u16::coerce(1193182u32 / 20);
 
     println!("PIT divisor {}", divisor);
 
 	outb(0x43, 0x34);
-	outb(0x40, divisor as u8);
-	outb(0x40, (divisor >> 8) as u8);
+	outb(0x40, divisor.split().0);
+	outb(0x40, divisor.split().1);
 }

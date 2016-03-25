@@ -27,12 +27,12 @@ unsafe fn update_cursor()
 {
 	use arch::outb;
 
-	let loc = u16::coerce(y * SIZE_X + x);
+	let loc = u16::coerce(y * SIZE_X + x).split();
 
 	outb(0x3D4, 14);
-	outb(0x3D5, (loc >> 8) as u8);
+	outb(0x3D5, loc.1);
 	outb(0x3D4, 15);
-	outb(0x3D5, loc as u8);
+	outb(0x3D5, loc.0);
 }
 
 pub fn scroll() {

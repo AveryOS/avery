@@ -154,13 +154,15 @@ pub unsafe fn ref_gate(index: u8) -> &'static mut Gate {
 }
 
 pub unsafe fn set_gate(index: u8, stub: unsafe extern fn (), ist: u8) {
-	let target = stub as usize;
+	let target = u64::coerce(stub as usize);
 
 	let gate = &mut IDT[usize::from(index)];
 
-	gate.target_low = target as u16;
-	gate.target_medium = (target >> 16) as u16;
-	gate.target_high = (target >> 32) as u32;
+	let target_low = target.split().0.split();
+
+	gate.target_low = target_low.0;
+	gate.target_medium = target_low.1;
+	gate.target_high = target.split().1;
 	gate.segment_selector = arch::segments::CODE_SEGMENT;
 	gate.ist = ist;
 
