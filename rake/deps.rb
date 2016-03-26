@@ -103,7 +103,7 @@ build_unix_pkg = proc do |src, rev, opts, config, &gen_src|
 end
 
 travis_exit = proc do |prev|
-	if ENV['TRAVIS'] && File.exists?("#{prev}/build")
+	if ENV['TRAVIS'] && File.exists?("vendor/#{prev}/build")
 		puts "Exiting so Travis can cache the result"
 		exit
 	end
@@ -111,7 +111,7 @@ end
 
 # Build a unix like package from url
 build_from_url = proc do |url, name, ver, opts = {}, &proc|
-	src = "#{name}-#{ver}"
+	src = "#{File.basename(name)}-#{ver}"
 	ext = opts[:ext] || "bz2"
 	path = opts[:path] || name
 
@@ -238,168 +238,183 @@ task :deps_msys do
 	run *%W{pacman --needed --noconfirm -S ruby git tar gcc bison make texinfo patch diffutils autoconf #{mingw}-python2 #{mingw}-cmake #{mingw}-gcc #{mingw}-ninja}
 end
 
+task :dep_cmake do
+	build_from_url.("https://cmake.org/files/v3.5/", "vendor/cmake", "3.5.0", {ext: "gz"}) do |src, prefix|
+		run File.join(src, 'configure'), "--prefix=#{prefix}"
+	end unless `cmake --version`.include?('3')
+end
+
+task :dep_elf_binutils do
+	build_from_url.("ftp://ftp.gnu.org/gnu/binutils/", "binutils", "2.26", {unix: true, path: 'vendor/elf-binutils'}) do |src, prefix|
+		run File.join(src, 'configure'), "--prefix=#{prefix}", *%w{--target=x86_64-elf --with-sysroot --disable-nls --disable-werror}
+	end # binutils is buggy with mingw-w64
+end
+
+task :dep_mtools do
+	build_from_url.("ftp://ftp.gnu.org/gnu/mtools/", "vendor/mtools", "4.0.18", {unix: true}) do |src, prefix|
+		update_cfg.(src)
+		#run 'cp', '-rf', "../../libiconv/install", ".."
+		Dir.chdir(src) do
+			run 'patch', '-i', "../../mtools-fix.diff"
+		end
+		opts = []
+		opts += ["LIBS=-liconv"] if Gem::Platform::local.os == 'darwin'
+		run File.join(src, 'configure'), "--prefix=#{prefix}", *opts
+	end # mtools doesn't build with mingw-w64
+end
+
+task :dep_llvm => :dep_cmake do
+	build_submodule.("vendor/llvm", {ninja: true, noclean: true, submodules: ["clang"]}) do |src, prefix|
+		#-DLLVM_ENABLE_ASSERTIONS=On  crashes on GCC 5.x + Release on Windows
+		#-DCMAKE_BUILD_TYPE=RelWithDebInfo
+		opts = %W{-DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_EXTERNAL_CLANG_SOURCE_DIR=#{hostpath(File.join(src, '../clang'))} -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=On -DCMAKE_INSTALL_PREFIX=#{prefix}}
+		opts += ['-G',  'Ninja', '-DLLVM_PARALLEL_LINK_JOBS=1'] if NINJA
+		opts += %w{-DCMAKE_CXX_COMPILER=g++ -DCMAKE_C_COMPILER=gcc} if ON_WINDOWS_MINGW
+		run "cmake", src, *opts
+	end
+end
+
+task :dep_autoconf do
+	build_from_url.("ftp://ftp.gnu.org/gnu/autoconf/", "vendor/autoconf", "2.68", {unix: true, ext: "gz"}) do |src, prefix|
+		update_cfg.(src)
+		update_cfg.(File.join(src, 'build-aux'))
+		run File.join(src, 'configure'), "--prefix=#{prefix}"
+	end
+end
+
+task :dep_automake do
+	build_from_url.("ftp://ftp.gnu.org/gnu/automake/", "vendor/automake", "1.12", {unix: true, ext: "gz"}) do |src, prefix|
+		update_cfg.(src)
+		update_cfg.(File.join(src, 'lib'))
+		run File.join(src, 'configure'), "--prefix=#{prefix}"
+	end
+end
+
+task :dep_binutils do
+	build_submodule.("vendor/binutils", {unix: true}) do |src, prefix|
+		run File.join(src, 'configure'), "--prefix=#{prefix}", *%w{--target=x86_64-pc-avery --with-sysroot --disable-nls --disable-werror --disable-gdb --disable-sim --disable-readline --disable-libdecnumber}
+	end # binutils is buggy with mingw-w64
+end
+
+task :dep_compiler_rt => [:dep_llvm, :dep_binutils, :dep_elf_binutils] do
+	build_rt = proc do |target, s, binutils, flags|
+		build_submodule.("vendor/compiler-rt", {build: target}) do |src, prefix|
+			opts = ["-DLLVM_CONFIG_PATH=#{File.join(src, "../../llvm/install/bin/llvm-config")}",
+				"-DFREESTANDING=On",
+				"-DCMAKE_SYSTEM_NAME=Generic",
+				"-DCMAKE_SIZEOF_VOID_P=#{s}",
+				"-DCMAKE_SYSROOT=#{hostpath("fake-sysroot")}",
+				"-DCMAKE_ASM_COMPILER=clang",
+				"-DCMAKE_ASM_FLAGS=--target=#{target} -B #{hostpath("../../#{binutils}")}",
+				"-DCMAKE_AR=#{which "x86_64-elf-ar"}",
+				"-DCMAKE_C_COMPILER=clang",
+				"-DCMAKE_CXX_COMPILER=clang++",
+				"-DCMAKE_C_COMPILER_TARGET=#{target}",
+				"-DCMAKE_CXX_COMPILER_TARGET=#{target}",
+				"-DCMAKE_STAGING_PREFIX=#{prefix}",
+				"-DCMAKE_INSTALL_PREFIX=#{prefix}",
+				"-DCMAKE_C_FLAGS=-ffreestanding -O2 -nostdlib #{flags} -B #{hostpath("../../#{binutils}/ld#{EXE_POST}")}",
+				"-DCMAKE_CXX_FLAGS=-ffreestanding -O2 -nostdlib #{flags} -B #{hostpath("../../#{binutils}/ld#{EXE_POST}")}",
+				"-DCOMPILER_RT_BUILD_SANITIZERS=Off",
+				"-DCOMPILER_RT_DEFAULT_TARGET_TRIPLE=#{target}"]
+			opts += ['-G',  'MSYS Makefiles'] if ON_WINDOWS_MINGW
+			run "cmake", src, *opts
+		end
+	end
+
+	build_rt.("x86_64-pc-avery", 8, "binutils/install/x86_64-pc-avery/bin", "-fPIC")
+	build_rt.("x86_64-unknown-unknown-elf", 8, "elf-binutils/install/x86_64-elf/bin", "") # Builds i386 too
+	#build_rt.("i386-unknown-unknown-elf", 4, "elf-binutils/install/x86_64-elf/bin", "-m32")
+end
+
+task :dep_newlib => [:dep_llvm, :dep_automake, :dep_autoconf, :dep_binutils] do
+	env = {'CFLAGS' => '-fPIC'}
+	build_submodule.("vendor/newlib", {env: env}) do |src, prefix|
+		Dir.chdir(File.join(src, "newlib/libc/sys")) do
+			run "autoconf"
+			Dir.chdir("avery") do
+				run "autoreconf"
+			end
+		end
+		# -ccc-gcc-name x86_64-pc-avery-gcc
+		run File.join(src, 'configure'), "--prefix=#{prefix}", "--target=x86_64-pc-avery", 'CC_FOR_TARGET=clang -fno-integrated-as -ffreestanding --target=x86_64-pc-avery'
+	end
+end
+
+task :avery_sysroot => [:dep_compiler_rt, :dep_newlib] do
+	run "rm", "-rf", "vendor/avery-sysroot"
+	mkdirs('vendor/avery-sysroot')
+	run 'cp', '-r', 'vendor/newlib/install/x86_64-pc-avery/.', "vendor/avery-sysroot"
+
+	# place compiler-rt in lib/rustlib/x86_64-pc-avery/lib - clang links to it
+	run 'cp', 'vendor/compiler-rt/x86_64-pc-avery/install/lib/generic/libclang_rt.builtins-x86_64.a', "vendor/avery-sysroot/lib/libcompiler_rt.a"
+end
+
+task :dep_rust => [:dep_llvm, :avery_sysroot] do
+	# clang is not the host compiler, force use of gcc
+	env = {'CC' => CC || 'gcc', 'CXX' => CXX || 'g++'}
+	build_submodule.("vendor/rust", {env: env}) do |src, prefix|
+		run File.join(src, 'configure'), "--prefix=#{prefix}", "--llvm-root=#{File.join(src, "../../llvm/install")}", "--disable-docs", "--target=x86_64-pc-avery", "--disable-jemalloc"
+	end
+	run 'cp', '-r', 'vendor/rust/install/lib/rustlib/x86_64-pc-avery', "vendor/avery-sysroot/lib/rustlib"
+end
+
+task :dep_cargo => :dep_rust do
+	env = if which 'brew'
+		prefix = `brew --prefix openssl`.strip
+		{
+			'OPENSSL_INCLUDE_DIR' => "#{prefix}/include",
+			'OPENSSL_LIB_DIR' => "#{prefix}/lib"
+		}
+	else
+		{}
+	end
+	env['CARGO_HOME'] = path('build/cargo/home')
+
+	build_submodule.("vendor/cargo", {intree: true, env: env}) do |src, prefix|
+		Dir.chdir(src) do
+			run *%w{git submodule update --init}
+		end
+		run File.join(src, 'configure'), "--prefix=#{prefix}", "--local-rust-root=#{path("vendor/rust/install")}"
+	end
+end
+
+task :dep_bindgen => :dep_llvm do
+	raise "Need rustc to build bindgen" unless which('rustc')
+	env = {'LIBCLANG_PATH' => path("vendor/llvm/install/#{ON_WINDOWS ? 'bin' : 'lib'}")}
+	build_from_git.("vendor/bindgen", "https://github.com/crabtw/rust-bindgen.git", {cargo: true, env: env})
+end
+
 EXTERNAL_BUILDS = proc do |type, real, extra|
 	build_type = type
 
-	raise "Cannot build non-UNIX dependencies with MSYS2 shell, use the MinGW shell and run `rake deps`" if ON_WINDOWS && !ON_WINDOWS_MINGW
-	raise "Ninja is required on Windows" if ON_WINDOWS_MINGW && !NINJA
+	build_from_url.("ftp://ftp.gnu.org/gnu/libiconv/", "vendor/libiconv", "1.14", {unix: true, ext: "gz"}) do |src, prefix|
+		run File.join(src, 'configure'), "--prefix=#{prefix}"
+	end if nil #RbConfig::CONFIG['host_os'] == 'msys'
 
-	#run *%w{git submodule init}
-	#run *%w{git submodule update}
+	Rake::Task["dep_mtools"].invoke
+	Rake::Task["dep_cmake"].invoke
 
-	Dir.chdir('vendor/') do
-		build_from_url.("https://cmake.org/files/v3.5/", "cmake", "3.5.0", {ext: "gz"}) do |src, prefix|
-			run File.join(src, 'configure'), "--prefix=#{prefix}"
-		end unless `cmake --version`.include?('3')
+	travis_exit.('mtools')
+	Rake::Task["dep_llvm"].invoke
+	travis_exit.('llvm')
 
-		build_from_url.("ftp://ftp.gnu.org/gnu/binutils/", "binutils", "2.26", {unix: true, path: 'elf-binutils'}) do |src, prefix|
-			run File.join(src, 'configure'), "--prefix=#{prefix}", *%w{--target=x86_64-elf --with-sysroot --disable-nls --disable-werror}
-		end # binutils is buggy with mingw-w64
+	Rake::Task["avery_sysroot"].invoke
 
-		build_from_url.("ftp://ftp.gnu.org/gnu/mtools/", "mtools", "4.0.18", {unix: true}) do |src, prefix|
-			update_cfg.(src)
-			#run 'cp', '-rf', "../../libiconv/install", ".."
-			Dir.chdir(src) do
-				run 'patch', '-i', "../../mtools-fix.diff"
-			end
-			opts = []
-			opts += ["LIBS=-liconv"] if Gem::Platform::local.os == 'darwin'
-			run File.join(src, 'configure'), "--prefix=#{prefix}", *opts
-		end # mtools doesn't build with mingw-w64
+	travis_exit.('newlib')
+	Rake::Task["dep_rust"].invoke
+	travis_exit.('rust')
 
-		travis_exit.('mtools')
+	# CMAKE_STAGING_PREFIX, CMAKE_INSTALL_PREFIX
 
-		build_submodule.("llvm", {ninja: true, noclean: true, submodules: ["clang"]}) do |src, prefix|
-			#-DLLVM_ENABLE_ASSERTIONS=On  crashes on GCC 5.x + Release on Windows
-			#-DCMAKE_BUILD_TYPE=RelWithDebInfo
-			opts = %W{-DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_EXTERNAL_CLANG_SOURCE_DIR=#{hostpath(File.join(src, '../clang'))} -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=On -DCMAKE_INSTALL_PREFIX=#{prefix}}
-			opts += ['-G',  'Ninja', '-DLLVM_PARALLEL_LINK_JOBS=1'] if NINJA
-			opts += %w{-DCMAKE_CXX_COMPILER=g++ -DCMAKE_C_COMPILER=gcc} if ON_WINDOWS_MINGW
-			run "cmake", src, *opts
-		end
+	build_from_git.("vendor/libcxx", "http://llvm.org/git/libcxx.git") do |src, prefix| # -nodefaultlibs
+		opts = ["-DLLVM_CONFIG_PATH=#{File.join(src, "../../llvm/install/bin/llvm-config")}", "-DCMAKE_TOOLCHAIN_FILE=../../toolchain.txt", "-DCMAKE_STAGING_PREFIX=#{prefix}"]
+		opts += ['-G',  'MSYS Makefiles'] if ON_WINDOWS_MINGW
+		run "cmake", src, *opts
+	end if nil
 
-		travis_exit.('llvm')
-
-		build_from_url.("ftp://ftp.gnu.org/gnu/libiconv/", "libiconv", "1.14", {unix: true, ext: "gz"}) do |src, prefix|
-			run File.join(src, 'configure'), "--prefix=#{prefix}"
-		end if nil #RbConfig::CONFIG['host_os'] == 'msys'
-
-		# autotools for picky newlib
-
-		build_from_url.("ftp://ftp.gnu.org/gnu/autoconf/", "autoconf", "2.68", {unix: true, ext: "gz"}) do |src, prefix|
-			update_cfg.(src)
-			update_cfg.(File.join(src, 'build-aux'))
-			run File.join(src, 'configure'), "--prefix=#{prefix}"
-		end
-
-		build_from_url.("ftp://ftp.gnu.org/gnu/automake/", "automake", "1.12", {unix: true, ext: "gz"}) do |src, prefix|
-			update_cfg.(src)
-			update_cfg.(File.join(src, 'lib'))
-			run File.join(src, 'configure'), "--prefix=#{prefix}"
-		end
-
-		build_submodule.("binutils", {unix: true}) do |src, prefix|
-			run File.join(src, 'configure'), "--prefix=#{prefix}", *%w{--target=x86_64-pc-avery --with-sysroot --disable-nls --disable-werror --disable-gdb --disable-sim --disable-readline --disable-libdecnumber}
-		end # binutils is buggy with mingw-w64
-
-		build_rt = proc do |target, s, binutils, flags|
-			next if !real
-			build_submodule.("compiler-rt", {build: target}) do |src, prefix|
-				opts = ["-DLLVM_CONFIG_PATH=#{File.join(src, "../../llvm/install/bin/llvm-config")}",
-					"-DFREESTANDING=On",
-					"-DCMAKE_SYSTEM_NAME=Generic",
-					"-DCMAKE_SIZEOF_VOID_P=#{s}",
-					"-DCMAKE_SYSROOT=#{hostpath("fake-sysroot")}",
-					"-DCMAKE_ASM_COMPILER=clang",
-					"-DCMAKE_ASM_FLAGS=--target=#{target} -B #{hostpath("../../#{binutils}")}",
-					"-DCMAKE_AR=#{which "x86_64-elf-ar"}",
-					"-DCMAKE_C_COMPILER=clang",
-					"-DCMAKE_CXX_COMPILER=clang++",
-					"-DCMAKE_C_COMPILER_TARGET=#{target}",
-					"-DCMAKE_CXX_COMPILER_TARGET=#{target}",
-					"-DCMAKE_STAGING_PREFIX=#{prefix}",
-					"-DCMAKE_INSTALL_PREFIX=#{prefix}",
-					"-DCMAKE_C_FLAGS=-ffreestanding -O2 -nostdlib #{flags} -B #{hostpath("../../#{binutils}/ld#{EXE_POST}")}",
-					"-DCMAKE_CXX_FLAGS=-ffreestanding -O2 -nostdlib #{flags} -B #{hostpath("../../#{binutils}/ld#{EXE_POST}")}",
-					"-DCOMPILER_RT_BUILD_SANITIZERS=Off",
-					"-DCOMPILER_RT_DEFAULT_TARGET_TRIPLE=#{target}"]
-				opts += ['-G',  'MSYS Makefiles'] if ON_WINDOWS_MINGW
-				run "cmake", src, *opts
-			end
-		end
-
-		build_rt.("x86_64-pc-avery", 8, "binutils/install/x86_64-pc-avery/bin", "-fPIC")
-		build_rt.("x86_64-unknown-unknown-elf", 8, "elf-binutils/install/x86_64-elf/bin", "") # Builds i386 too
-		#build_rt.("i386-unknown-unknown-elf", 4, "elf-binutils/install/x86_64-elf/bin", "-m32")
-
-		env = {'CFLAGS' => '-fPIC'}
-		build_submodule.("newlib", {env: env}) do |src, prefix|
-			Dir.chdir(File.join(src, "newlib/libc/sys")) do
-				run "autoconf"
-				Dir.chdir("avery") do
-					run "autoreconf"
-				end
-			end
-			# -ccc-gcc-name x86_64-pc-avery-gcc
-			run File.join(src, 'configure'), "--prefix=#{prefix}", "--target=x86_64-pc-avery", 'CC_FOR_TARGET=clang -fno-integrated-as -ffreestanding --target=x86_64-pc-avery'
-		end
-
-		travis_exit.('newlib')
-
-		# C++ isn't working yet
-		#run "rm", "llvm/install/bin/clang++#{EXE_POST}"
-
-		if real
-			run "rm", "-rf", "avery-sysroot"
-			mkdirs('avery-sysroot')
-			run 'cp', '-r', 'newlib/install/x86_64-pc-avery/.', "avery-sysroot"
-		end
-
-		# CMAKE_STAGING_PREFIX, CMAKE_INSTALL_PREFIX
-
-		build_from_git.("libcxx", "http://llvm.org/git/libcxx.git") do |src, prefix| # -nodefaultlibs
-			opts = ["-DLLVM_CONFIG_PATH=#{File.join(src, "../../llvm/install/bin/llvm-config")}", "-DCMAKE_TOOLCHAIN_FILE=../../toolchain.txt", "-DCMAKE_STAGING_PREFIX=#{prefix}"]
-			opts += ['-G',  'MSYS Makefiles'] if ON_WINDOWS_MINGW
-			run "cmake", src, *opts
-		end if nil
-
-		# place compiler-rt in lib/rustlib/x86_64-pc-avery/lib - rustc links to it // clang links to it instead
-		run 'cp', 'compiler-rt/x86_64-pc-avery/install/lib/generic/libclang_rt.builtins-x86_64.a', "avery-sysroot/lib/libcompiler_rt.a" if real
-
-		# clang is not the host compiler, force use of gcc
-		env = {'CC' => CC || 'gcc', 'CXX' => CXX || 'g++'}
-		build_submodule.("rust", {env: env}) do |src, prefix|
-			run File.join(src, 'configure'), "--prefix=#{prefix}", "--llvm-root=#{File.join(src, "../../llvm/install")}", "--disable-docs", "--target=x86_64-pc-avery", "--disable-jemalloc"
-		end
-
-		travis_exit.('rust')
-
-		run 'cp', '-r', 'rust/install/lib/rustlib/x86_64-pc-avery', "avery-sysroot/lib/rustlib" if real
-
-		env = if which 'brew'
-			prefix = `brew --prefix openssl`.strip
-			{
-				'OPENSSL_INCLUDE_DIR' => "#{prefix}/include",
-				'OPENSSL_LIB_DIR' => "#{prefix}/lib"
-			}
-		else
-			{}
-		end
-		env['CARGO_HOME'] = path('build/cargo/home')
-
-		build_submodule.("cargo", {intree: true, env: env}) do |src, prefix|
-			Dir.chdir(src) do
-				run *%w{git submodule update --init}
-			end
-			run File.join(src, 'configure'), "--prefix=#{prefix}", "--local-rust-root=#{path("vendor/rust/install")}"
-		end
-
-		env = {'LIBCLANG_PATH' => path("vendor/llvm/install/#{ON_WINDOWS ? 'bin' : 'lib'}")}
-		build_from_git.("bindgen", "https://github.com/crabtw/rust-bindgen.git", {cargo: true, env: env}) if extra
-
-		# We need rust sources to build sysroots
-		get_submodule('rust/src')
-		# We need the ELF loader for the kernel
-		get_submodule('../verifier/rust-elfloader')
-	end
+	# We need rust sources to build sysroots
+	get_submodule('vendor/rust/src')
+	# We need the ELF loader for the kernel
+	get_submodule('verifier/rust-elfloader')
 end

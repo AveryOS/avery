@@ -25,4 +25,3 @@ cache:
   timeout: 1000
   directories:
   - vendor/cache
-  - build/cargo

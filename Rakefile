@@ -110,6 +110,9 @@ ON_WINDOWS = Gem.win_platform? || ENV['MSYSTEM']
 
 ON_WINDOWS_MINGW = ENV['MSYSTEM'] && ENV['MSYSTEM'].start_with?('MINGW')
 
+raise "Cannot build non-UNIX dependencies with MSYS2 shell, use the MinGW shell and run `rake`" if ON_WINDOWS && !ON_WINDOWS_MINGW
+raise "Ninja is required on Windows" if ON_WINDOWS_MINGW && !NINJA
+
 EXE_POST = ON_WINDOWS ? ".exe" :	""
 
 QEMU_PATH = "#{'qemu/' if !which("qemu-system-x86_64")}"
@@ -361,22 +364,6 @@ CORES = ENV['TRAVIS'] ? 2 : 4
 
 task :deps_other do
 	EXTERNAL_BUILDS.(:build, true, false)
-end
-
-task :extra do
-	EXTERNAL_BUILDS.(:build, true, true)
-end
-
-task :update do
-	EXTERNAL_BUILDS.(:update, false, true)
-end
-
-task :update_all => :update do
-	#checkout_git.(".", "https://github.com/AveryOS/avery.git")
-end
-
-task :clean do
-	EXTERNAL_BUILDS.(:clean, false, true)
 end
 
 task :fmt do
