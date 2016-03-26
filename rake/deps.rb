@@ -1,6 +1,6 @@
 
 def get_submodule(path)
-	run *%w{git submodule update --depth 1 --init}, path.shellescape
+	run *%w{git submodule update --init}, *(ENV['TRAVIS'] ? ['--depth', '1'] : []), path.shellescape
 end
 
 build_type = :build
@@ -100,13 +100,6 @@ build_unix_pkg = proc do |src, rev, opts, config, &gen_src|
 	end
 
 	ENV.replace(old_env)
-end
-
-travis_exit = proc do |prev|
-	if ENV['TRAVIS'] && File.exists?("vendor/#{prev}/build")
-		puts "Exiting so Travis can cache the result"
-		exit
-	end
 end
 
 # Build a unix like package from url
@@ -386,6 +379,13 @@ task :dep_bindgen => :dep_llvm do
 end
 
 EXTERNAL_BUILDS = proc do |type, real, extra|
+	travis_exit = proc do |prev|
+		if ENV['TRAVIS'] && File.exists?("vendor/#{prev}/build")
+			puts "Exiting so Travis can cache the result"
+			exit
+		end
+	end
+
 	build_type = type
 
 	build_from_url.("ftp://ftp.gnu.org/gnu/libiconv/", "vendor/libiconv", "1.14", {unix: true, ext: "gz"}) do |src, prefix|
@@ -412,6 +412,8 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 		opts += ['-G',  'MSYS Makefiles'] if ON_WINDOWS_MINGW
 		run "cmake", src, *opts
 	end if nil
+
+	Rake::Task["dep_cargo"].invoke
 
 	# We need rust sources to build sysroots
 	get_submodule('vendor/rust/src')

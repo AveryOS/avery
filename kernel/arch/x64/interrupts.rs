@@ -99,8 +99,8 @@ extern fn page_fault_handler(info: &Info, _: u8, error_code: usize)
 		"Unknown"
 	};
 
-    panic!("Page fault {} {:#x} ({})\n\nerrnr: {:#x} cpu: {} rsi: {:x}  rsp: {:x} rip: {:x}",
-    	access, cr2, reason, error_code, arch::cpu::current_slow().index, info.registers.rsi, info.registers.rsp, info.registers.rip);
+    panic!("Page fault {} {:#x} ({})\n\nerrnr: {:#x} cpu: {} rsi: {:x}  rsp: {:x} rip: {:x}\n regs {:?}\n",
+    	access, cr2, reason, error_code, arch::cpu::current_slow().index, info.registers.rsi, info.registers.rsp, info.registers.rip, info.registers);
 }
 
 extern fn default_handler(info: &Info, index: u8, error_code: usize)

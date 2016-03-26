@@ -1,5 +1,6 @@
 use arch;
 use alloc::arc::Arc;
+use spin::Mutex;
 use util::IndexList;
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
@@ -20,7 +21,7 @@ pub struct AddressSpace {
 }
 
 impl AddressSpace {
-	fn alloc_at(&mut self, pos: usize, size: usize) -> Option<AddressRange> {
+	pub fn alloc_at(&mut self, pos: usize, size: usize) -> Option<AddressRange> {
 		if pos + size >= self.end {
 			return None
 		}
@@ -40,8 +41,8 @@ impl AddressSpace {
 }
 
 pub struct Info {
-	arch: arch::process::Info,
-	space: AddressSpace,
+	pub arch: arch::process::Info,
+	pub space: Mutex<AddressSpace>,
 }
 
 pub fn new() -> Arc<Info> {
@@ -53,6 +54,6 @@ pub fn new() -> Arc<Info> {
 	};
 	Arc::new(Info {
 		arch: arch,
-		space: space,
+		space: Mutex::new(space),
 	})
 }

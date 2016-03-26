@@ -35,6 +35,7 @@ pub const PHYS_PAGE_SIZE: Addr = PAGE_SIZE as Addr;
 
 #[allow(dead_code)]
 #[repr(packed)]
+#[derive(Debug)]
 struct GeneralRegisters {
 	r15: u64,
 	r14: u64,
@@ -147,7 +148,7 @@ pub mod process {
 	pub struct Info {
 		ptl4_i: usize,
 		ptl3: PhysicalPage,
-		base: usize,
+		pub base: usize,
 	}
 
 	impl Info {
@@ -180,6 +181,10 @@ pub unsafe fn initialize_basic() {
 pub unsafe fn initialize() {
 	use elfloader::{self, elf};
 	use std::slice;
+	use process;
+	use memory::Page;
+	use std::mem::transmute;
+	use std::ptr::copy_nonoverlapping;
 
 	extern {
 		static user_image_start: u8;
@@ -198,6 +203,8 @@ pub unsafe fn initialize() {
 
 	let user = slice::from_raw_parts(&user_image_start, offset(&user_image_end) - offset(&user_image_start));
 
+	let mut process = process::new();
+
 	let bin = elfloader::ElfBinary::new("user_image", user).unwrap();
 
 	for p in bin.program_headers() {
@@ -206,5 +213,28 @@ pub unsafe fn initialize() {
 
 	for h in bin.section_headers() {
 		println!("section_header {} {}", bin.section_name(h), h);
+	}
+
+	bin.load(|header, data| {
+		println!("loading program header {} EXEC:{}", header, header.flags.0 & elf::PF_X.0 != 0);
+		let pos = usize::coerce(header.vaddr);
+		let size = usize::coerce(header.memsz);
+		let pos_aligned = align_down(pos, PAGE_SIZE);
+		let size_aligned = align_up(pos + size, PAGE_SIZE) - pos_aligned;
+		process.space.lock().alloc_at(pos_aligned, size);
+		memory::map(Page::new(process.arch.base + pos_aligned), size_aligned / PAGE_SIZE, memory::WRITE_BIT | memory::PRESENT_BIT);
+		std::ptr::copy_nonoverlapping(data.as_ptr(), (process.arch.base + pos) as *mut u8, data.len());
+		Ok(())
+	});
+
+	let entry = process.arch.base + usize::coerce(bin.header.entry);
+
+	println!("program entry point: {:x}", entry);
+
+	write_msr(GS_BASE, u64::coerce(process.arch.base));
+
+	asm! {
+		[entry => %rax, -1isize => %rbx]
+		call rax
 	}
 }

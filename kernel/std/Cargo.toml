@@ -7,5 +7,5 @@ path = "std.rs"
 
 [dependencies.conv]
 git = "https://github.com/AveryOS/rust-conv.git"
-rev = "c71dd2a555c1cfa6a638f6087d97570a108ac3d8"
+rev = "31f59a4f8b15454d04a0c4127e6c406ba1f7f1c9"
 features = ["no_std"]
