@@ -1,7 +1,7 @@
 #![allow(improper_ctypes, dead_code)]
 #![feature(lang_items, alloc, collections,
 		   plugin, asm, core_intrinsics, linkage, const_fn,
-		   allocator)]
+		   allocator, question_mark)]
 #![plugin(assembly)]
 #![plugin(clippy)]
 #![crate_type = "staticlib"]

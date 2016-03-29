@@ -1,6 +1,9 @@
 use arch;
+use arch::PAGE_SIZE;
+use cpu;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::SeqCst;
+use elfloader::ElfBinary;
 
 unsafe fn setup_pics() {
 	use arch::outb;
@@ -55,6 +58,25 @@ pub type Handler = extern fn (info: &Info, index: u8, error_code: usize);
 
 const HANDLER_COUNT: usize = 256; // Same as in interrupts.s
 
+unsafe fn backtrace<'s>(info: &Info, elf: Option<&'s ElfBinary<'s>>) {
+	use arch::symbols;
+	print!("Backtrace:\n{}", symbols::Backtrace(info.registers.rbp as usize, Some(info.registers.rip), elf));
+}
+
+unsafe fn dump_stack(info: &Info, len: usize) {
+	if info.registers.rsp & 7 != 0 {
+		println!("Stack is not aligned with 8");
+	}
+	for i in 0..len {
+		let off = usize::coerce(info.registers.rsp) + i * 8;
+		if off + 8 > cpu::current().arch.stack.end {
+			println!("End of stack");
+			break;
+		}
+		println!("{:>16x} {:>4x} => {:>16x}", off, i * 8, *(off as *const usize));
+	}
+}
+
 extern {
 	#[link_name = "interrupt_handlers"]
 	pub static mut HANDLERS: [AtomicUsize; HANDLER_COUNT];
@@ -71,19 +93,24 @@ extern fn nmi_handler(_: &Info, _: u8, _: usize) {
 
 extern fn page_fault_handler(info: &Info, _: u8, error_code: usize)
 {
+	extern {
+		static stack_start: void;
+	}
+
 	let cr2: u64;
 
 	unsafe {
-	    asm! {
-	    	[%rax => cr2]
+		asm! {
+			[%rax => cr2]
 
-	    	mov rax, cr2
-	    }
+			mov rax, cr2
+		}
 	}
 
-	;
+	let executing = (error_code & (1 << 4)) != 0;
+	let not_present = (error_code & 1) == 0;
 
-	let access = if (error_code & (1 << 4)) != 0 {
+	let access = if executing {
 		"executing"
 	} else if (error_code & (1 << 1)) == 0 {
 		"reading"
@@ -91,7 +118,7 @@ extern fn page_fault_handler(info: &Info, _: u8, error_code: usize)
 		"writing"
 	};
 
-	let reason = if (error_code & 1) == 0 {
+	let reason = if not_present {
 		"Page not present"
 	} else if (error_code & (1 << 3)) != 0 {
 		"Reserved bit set"
@@ -99,15 +126,43 @@ extern fn page_fault_handler(info: &Info, _: u8, error_code: usize)
 		"Unknown"
 	};
 
-    panic!("Page fault {} {:#x} ({})\n\nerrnr: {:#x} cpu: {} rsi: {:x}  rsp: {:x} rip: {:x}\n regs {:?}\n",
-    	access, cr2, reason, error_code, arch::cpu::current_slow().index, info.registers.rsi, info.registers.rsp, info.registers.rip, info.registers);
+	if !executing && not_present {
+		let page_start = align_down(usize::coerce(cr2), PAGE_SIZE);
+		if page_start == offset(&stack_start) {
+			println!("\nPanic looks like an overflow of the BSP stack");
+		}
+
+		for cpu in cpu::cpus() {
+			if page_start == cpu.arch.stack.start {
+				println!("\nPanic looks like an overflow of the kernel CPU stack {}", cpu.index);
+			}
+		}
+	}
+
+	println!("Page fault {} {:#x} ({})\n\nerrnr: {:#x} cpu: {}\n{}",
+		access, cr2, reason, error_code, arch::cpu::current_slow().index, info.registers);
+
+	unsafe { backtrace(info, None); }
+
+	panic!("Page fault");
 }
 
-extern fn default_handler(info: &Info, index: u8, error_code: usize)
-{
-    panic!("Unhandled interrupt: {} ({:#x})\n\nerrnr: {:#x}   cpu: {} rsi: {:x}  rsp: {:x}
-rip: {:x}",
-    	index, index, error_code, arch::cpu::current_slow().index, info.registers.rsi, info.registers.rsp, info.registers.rip);
+extern fn default_handler(info: &Info, index: u8, error_code: usize) {
+	panic!("Unhandled interrupt: {} ({:#x})\n\nerrnr: {:#x}   cpu: {}\n\n{}",
+		index, index, error_code, arch::cpu::current_slow().index, info.registers);
+}
+
+extern fn exit_handler(info: &Info, index: u8, error_code: usize) {
+	println!("Process exitted");
+	unsafe { backtrace(info, Some(&arch::get_user_elf())); }
+	panic!("Process exitted");
+}
+
+extern fn debug_print_handler(info: &Info, index: u8, error_code: usize) {
+	print!("Value:{} ({:#x})\n{}", info.registers.rax, info.registers.rax, info.registers);
+
+	unsafe { backtrace(info, Some(&arch::get_user_elf())); }
+	unsafe { dump_stack(info, 3000) };
 }
 
 #[allow(dead_code)]
@@ -181,9 +236,9 @@ pub unsafe fn load_idt() {
 		base: offset(&IDT)
 	};
 
-    asm! {
-        lidt {&idt_ptr => %*m};
-    }
+	asm! {
+		lidt {&idt_ptr => %*m};
+	}
 
 	arch::cpu::current_slow().arch.has_idt.store(true, SeqCst);
 }
@@ -211,6 +266,8 @@ pub unsafe fn initialize_idt() {
 
 	register_handler(0x2, nmi_handler);
 	register_handler(0xe, page_fault_handler);
+	register_handler(0x2d, debug_print_handler);
+	register_handler(0x2e, exit_handler);
 
 	load_idt();
 }

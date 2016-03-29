@@ -328,6 +328,10 @@ task :emu do
 	end
 end
 
+task :fqemu => [:kernel, :emu] do
+	run_qemu(false)
+end
+
 task :qemu => [:build, :emu] do
 	run_qemu(false)
 end
@@ -382,98 +386,13 @@ task :user => :deps_other do
 	mkdirs("build/user")
 	FileUtils.cp "build/cargo/target/x86_64-pc-avery/#{CARGO_BUILD}/hello", "build/user"
 
+	run *%w{clang --target=x86_64-pc-avery user/hello/hello.c -o build/user/hello}
+
 	build = Build.new('build', 'info.yml')
 	build.run do
 		build.process  "build/user/hello.o", "build/user/hello" do |o, i|
 			run 'x86_64-elf-objcopy', '-I', 'binary', '-B', 'i386', '-O', 'elf64-x86-64', i, o
 		end
-	end
-end
-
-UPSTREAMS = {
-	'vendor/llvm/clang' => 'http://llvm.org/git/clang.git',
-	'vendor/llvm/src' => 'http://llvm.org/git/llvm.git',
-	'vendor/compiler-rt/src' => 'http://llvm.org/git/compiler-rt.git',
-	'vendor/rust/src/src/liblibc' => 'https://github.com/rust-lang/libc.git',
-	'vendor/rust/src' => 'https://github.com/rust-lang/rust.git',
-	'vendor/cargo/src' => 'https://github.com/rust-lang/cargo.git',
-}
-
-task :upstreams do
-	UPSTREAMS.each do |(path, url)|
-		Dir.chdir(path) do
-			git_remote = `git remote get-url upstream`.strip
-			if git_remote == ''
-				run *%W{git remote add upstream #{url}}
-			elsif git_remote != url
-				raise "Git remote mismatch for #{path}. Local is #{git_remote}. Required is #{url}"
-			end
-		end
-	end
-end
-
-task :rebase => :upstreams do
-	Dir.chdir(CURRENT_DIR)
-	path = Pathname.new(CURRENT_DIR).relative_path_from(Pathname.new(AVERY_DIR)).to_s
-	puts "Rebasing in #{path}.."
-	remote_branch = {
-		'vendor/llvm/clang' => 'release_38',
-		'vendor/llvm/src' => 'release_38',
-	}[path] || "master"
-	raise "No remote for path #{path}" unless UPSTREAMS[path]
-	local_master = `git rev-parse master`.strip
-	local_master = nil if $?.exitstatus != 0
-	unless local_master
-		local = `git rev-parse avery`.strip
-		remote = `git rev-parse origin/avery`.strip
-		if local == remote
-			run *%w{git checkout -b master origin/master}
-		else
-			raise "master branch doesn't exist. Don't know the start of the rebase"
-		end
-	end
-	run *%w{git fetch upstream}
-	run *%w{git checkout avery}
-	run_stay *%W{git rebase -i --onto upstream/#{remote_branch} master avery}
-	if $? != 0
-		loop do
-			action = loop do
-				puts "Continue (c) or abort (a)?"
-				case STDIN.gets.strip
-					when "c"
-							break true
-					when "a"
-							break false
-				end
-			end
-
-			if action
-				puts "Continuing.."
-				run_stay *%w{git rebase --continue}
-				break if $? == 0
-			else
-				puts "Aborting.."
-				run_stay *%w{git rebase --abort}
-				raise "Rebase aborted"
-			end
-		end
-	end
-	run *%w{git checkout master}
-	run *%W{git reset --hard upstream/#{remote_branch}}
-	run *%w{git checkout avery}
-
-	action = loop do
-		puts "Push changes? y/n?"
-		case STDIN.gets.strip
-			when "y"
-					break true
-			when "n"
-					break false
-		end
-	end
-	if action
-		run *%w{git push origin master}
-		run *%w{git push origin avery -f}
 	end
 end
 

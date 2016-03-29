@@ -1,3 +1,7 @@
+Avery kernel
+================
+[![Build Status](https://travis-ci.org/AveryOS/avery.svg?branch=master)](https://travis-ci.org/AveryOS/avery)
+
 # Dependencies
   * git
   * curl

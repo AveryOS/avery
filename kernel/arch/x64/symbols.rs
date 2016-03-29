@@ -1,33 +1,6 @@
 use arch::dwarf;
 
-#[repr(C)]
-pub struct Elf32_Sym {
-	st_name: u32,
-	st_value: u32,
-	st_size: u32,
-	st_info: u8,
-	st_other: u8,
-	st_shndx: u16,
-}
-
-struct State {
-	symtab: &'static [Elf32_Sym],
-	strtab: &'static [u8],
-	/// Symbol address offset - used for AMD64 where the symbol table has truncated symbols
-	addr_offset: usize,
-}
-
-static mut S_SYMS: State = State { symtab: &[], strtab: &[], addr_offset: 0 };
-
-/// UNSAFE: Should only ever be called once, and before multithreading
-pub unsafe fn set_symtab(symtab: &'static [Elf32_Sym], strtab: &'static [u8], offset: usize) {
-	assert!(S_SYMS.symtab.len() == 0, "Setting symbol table twice");
-	S_SYMS = State {
-		symtab: symtab,
-		strtab: strtab,
-		addr_offset: offset,
-		};
-}
+use elfloader::{self, ElfBinary, elf};
 
 pub struct Demangle<'a>(pub &'a str);
 impl<'a> ::core::fmt::Display for Demangle<'a> {
@@ -67,6 +40,7 @@ impl<'a> ReadInt for &'a str {
 }
 
 pub fn get_symbol_info_for_addr(addr: usize) -> Option<(&'static str, usize, &'static str, usize, usize)> {
+	return None;
 	let bound = dwarf::parse_line_units(&dwarf::get_dwarf_info(), addr).unwrap();
 
 	let sym = "unknown";// dwarf::parse_info_units(&dwarf::get_dwarf_info(), addr as u64).unwrap().unwrap_or("<unknown>");
@@ -76,65 +50,30 @@ pub fn get_symbol_info_for_addr(addr: usize) -> Option<(&'static str, usize, &'s
 	Some((bound.name, bound.line as usize, sym, 0, usize::coerce(bound.address)))
 }
 
-pub fn get_symbol_for_addr(addr: usize) -> Option<(&'static str, usize)> {
-	// SAFE: This should only ever be initialised once, and from an empty state
-	let (symtab, addr_offset) = unsafe { (S_SYMS.symtab, S_SYMS.addr_offset) };
-	let mut best = (!0, 0);
-	println!(" ssearch {:x}", addr);
-	for (i,s) in symtab.iter().enumerate()
-	{
-	println!(" sentry");
-		if s.st_info & 0xF == 0x02
-		{
-			let base = s.st_value as usize + addr_offset;
-			let len = s.st_size as usize;
-			println!("- {} {:#x}+{:#x}", get_name(s.st_name as usize), base, len);
-			if base != addr_offset && base <= addr {
-				let ofs = addr - base;
-				if len > 0 {
-					if addr < base + len {
-						return Some( (get_name(s.st_name as usize), ofs) );
-					}
-				}
-				else if ofs < best.0 {
-					best = (ofs, i);
-				}
-			}
+fn get_symbol_info_for_addr2<'s>(addr: usize, bin: &'s ElfBinary<'s>) -> Option<(&'s str, usize, &'s str, usize, usize)> {
+	let result = bin.find_symbol(|sym| {
+		if sym.sym_type() != elf::STT_FUNC {
+			return false;
 		}
-	}
-	if best.1 != 0 {
-		Some( (get_name(symtab[best.1].st_name as usize), best.0) )
-	}
-	else {
-		None
-	}
-}
-
-
-fn get_name(ofs: usize) -> &'static str {
-	// SAFE: This should only ever be initialised once, and from an empty state
-	let strtab = unsafe { S_SYMS.strtab };
-	if ofs == 0 {
-		""
-	}
-	else if ofs >= strtab.len() {
-		println!("{:#x} >= {}", ofs, strtab.len());
-		"#BADSTR#"
-	}
-	else {
-		let start = &strtab[ofs..];
-		let bytes = start.split(|&x| x == b'\0').next().unwrap();
-		::core::str::from_utf8(bytes).unwrap_or("#UTF8#")
-	}
+		if usize::coerce(sym.value) <= addr &&  usize::coerce(sym.value + sym.size) > addr {
+			return true;
+		}
+		false
+	});
+	result.map(|s| {
+		("?", 1, bin.symbol_name(s), addr - usize::coerce(s.value), 0)
+	} )
 }
 
 /// Obtain the old RBP value and return address from a provided RBP value
-pub fn backtrace(bp: u64) -> Option<(u64,u64)>
+pub fn backtrace(bp: usize) -> Option<(usize,usize)>
 {
+	use std::mem::size_of;
+
 	if bp == 0 {
 		return None;
 	}
-	if bp % 8 != 0 {
+	if bp % size_of::<usize>() != 0 {
 		return None;
 	}
 	/*if ! ::memory::buf_valid(bp as *const (), 16) {
@@ -145,7 +84,7 @@ pub fn backtrace(bp: u64) -> Option<(u64,u64)>
 	// SAFE: Pointer access checked, any alias is benign
 	unsafe
 	{
-		let ptr: *const [u64; 2] = ::core::mem::transmute(bp);
+		let ptr: *const [usize; 2] = ::core::mem::transmute(bp);
 		if false  /* ! ::arch::memory::virt::is_reserved(ptr)*/ {
 			None
 		}
@@ -168,20 +107,31 @@ pub fn backtrace(bp: u64) -> Option<(u64,u64)>
 /// Print a backtrace, starting at the current location.
 pub fn print_backtrace()
 {
-	let cur_bp: u64;
+	let cur_bp: usize;
 	// SAFE: Reads from bp
 	unsafe{ asm!("mov %rbp, $0" : "=r" (cur_bp)); }
-	print!("Backtrace: {:#x}\n{}", cur_bp, Backtrace(cur_bp as usize));
+	print!("Backtrace:\n{}", Backtrace(cur_bp as usize, None, None));
 }
-pub struct Backtrace(usize);
-impl ::core::fmt::Display for Backtrace {
+pub struct Backtrace<'s>(pub usize, pub Option<usize>, pub Option<&'s ElfBinary<'s>>);
+impl<'s> ::core::fmt::Display for Backtrace<'s> {
 	fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-		let mut bp = u64::coerce(self.0);
-		while let Option::Some((newbp, ip)) = backtrace(bp)
-		{
+		let mut bp = self.0;
+		let mut ip = self.1;
+		while let Option::Some((newbp, ip)) = {
+			if let Some(i) = ip {
+				ip = None;
+				Some((bp, i))
+			} else {
+				backtrace(bp)
+			}
+		} {
 			try!(write!(f, " {:#x}", ip));
-			if let Some( (file, line, name, ofs, mofs) ) = get_symbol_info_for_addr(usize::coerce(ip) - 1) {
-				try!(write!(f, "({}:{} {}+{:#x} M@{:#x})", file, line, Demangle(name), ofs + 1, mofs));
+			let info = match self.2 {
+				Some(elf) => get_symbol_info_for_addr2(usize::coerce(ip), elf),
+				None => get_symbol_info_for_addr(usize::coerce(ip) - 1)
+			};
+			if let Some( (file, line, name, ofs, mofs) ) = info {
+				try!(write!(f, " - {}+{:#x} ({}:{}M@{:#x})", Demangle(name), ofs, file, line, mofs));
 			}
 			try!(write!(f, "\n"));
 			bp = newbp;

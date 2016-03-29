@@ -290,7 +290,7 @@ pub unsafe fn boot_cpus(cpus: cpu::CPUVec<acpi::CPUInfo>) {
 	info.allow_start.store(1, SeqCst);
 
 
-	// interrupts are disable by apic::calibrate_ap
+	// interrupts are disabled by apic::calibrate_ap
 	//apic::calibrate_ap();
 
 	interrupts::enable();

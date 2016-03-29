@@ -66,7 +66,7 @@ extern fn panic_fmt(fmt: Arguments, file: &'static str, line: u32) -> ! {
 
         println!("\nPanic: {}\nLoc: {}:{}", fmt, file, line);
 
-        arch::freeze();
+        //arch::freeze();
 
         if !TRIED_BACKTRACE {
             TRIED_BACKTRACE = true;
