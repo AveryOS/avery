@@ -6,6 +6,6 @@ version = "0.1.0"
 path = "std.rs"
 
 [dependencies.conv]
-git = "https://github.com/AveryOS/rust-conv.git"
-rev = "31f59a4f8b15454d04a0c4127e6c406ba1f7f1c9"
-features = ["no_std"]
+git = "https://github.com/DanielKeep/rust-conv.git"
+rev = "b03427a13b3f92fb8f65c80822e056a98cdce036"
+default_features = false

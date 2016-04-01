@@ -1,13 +1,16 @@
 ﻿require 'fileutils'
+require 'digest'
 require_relative 'rake/build'
 require_relative 'rake/lokar'
+
+START_TIME = Time.new
 
 CURRENT_DIR = Rake.original_dir
 AVERY_DIR = File.expand_path('../', __FILE__)
 Dir.chdir(AVERY_DIR)
 
 def path(p)
-	File.expand_path(File.join('..', p), __FILE__)
+	File.expand_path(File.join(AVERY_DIR, p))
 end
 
 def so_append_path(path)
@@ -73,7 +76,7 @@ def hostpath(p)
 	end
 end
 
-ENV['CARGO_HOME'] = path('build/cargo/home')
+ENV['CARGO_HOME'] = hostpath('build/cargo/home')
 ENV['CARGO_TARGET_DIR'] = File.expand_path('../build/cargo/target', __FILE__)
 ENV['RUST_TARGET_PATH'] = File.expand_path('../targets', __FILE__)
 ENV['RUST_BACKTRACE'] = '1'
@@ -135,18 +138,23 @@ def assemble(build, source, objects)
 	objects << object_file
 end
 
+ENV['AVERY_BUILD'] = 'RELEASE' unless ENV['AVERY_BUILD']
+
 RELEASE_BUILD = ENV['AVERY_BUILD'] == 'RELEASE' ? true : false
 CARGO_BUILD = RELEASE_BUILD ? 'release' : 'debug'
 
-RUSTFLAGS = ['--sysroot', hostpath('build/sysroot')] + %w{-g -Z no-landing-pads -C target-feature=-mmx,-sse,-sse2}
-ENV['RUSTFLAGS_HOST'] = "-L #{hostpath("vendor/llvm/install/#{ON_WINDOWS ? "bin" : "lib"}")}" # Workaround bug with LLVM linking
+RUSTFLAGS = ['--sysroot', hostpath('build/sysroot')] + %w{-C llvm-args=-inline-threshold=0 -g -Z no-landing-pads -C target-feature=-mmx,-sse,-sse2}
 
-def cargo(path, target, cargoflags = [], flags = [])
+# Workaround bug with LLVM linking
+ENV['RUSTFLAGS_HOST'] = "-L #{hostpath("vendor/llvm/install/#{ON_WINDOWS ? "bin" : "lib"}")}"
+
+def cargo(path, target, cargoflags = [], flags = [], rustflags = nil)
 	cargoflags += ['--target', target]
+		cargoflags += ['-j', '1'] if CORES == 1
 	if target == 'x86_64-pc-avery'
-		ENV['RUSTFLAGS'] = nil
+		ENV['RUSTFLAGS'] = (rustflags || []).join(" ")
 	else
-		ENV['RUSTFLAGS'] = RUSTFLAGS.join(" ") # Cargo uses this. How to pass spaces here?
+		ENV['RUSTFLAGS'] = (rustflags || RUSTFLAGS).join(" ") # Cargo uses this. How to pass spaces here?
 	end
 	run 'cargo', 'rustc', *(RELEASE_BUILD ? ['--release'] : []), '--manifest-path', File.join(path, 'Cargo.toml'), *cargoflags, '--', *flags
 end
@@ -154,7 +162,7 @@ end
 kernel_object_bootstrap = "build/bootstrap.o"
 
 type = :multiboot
-build_kernel = proc do
+build_kernel = proc do |skip = false|
 	build = Build.new('build', 'info.yml')
 	mkdirs(build.output "#{type}")
 	kernel_binary = build.output "#{type}/kernel.elf"
@@ -181,7 +189,7 @@ build_kernel = proc do
 		flags = ['-C', 'lto', "--emit=llvm-ir,obj=#{kernel_object}"]
 		flags += ['--cfg', 'multiboot'] if type == :multiboot
 
-		cargo 'kernel', 'x86_64-avery-kernel', [], flags
+		cargo('kernel', 'x86_64-avery-kernel', [], flags) unless skip
 
 		# Preprocess files
 
@@ -232,18 +240,42 @@ build_kernel = proc do
 	end
 end
 
-task :deps => [:user, :deps_other] do
-	new_env('CARGO_TARGET_DIR', 'build/cargo/sysroot-target') do
-		run "rm", "-rf", "build/sysroot"
+task :std do
+	rebuild("vendor/cargo-sysroot/version", ["rust"], CARGO_BUILD) do
+		run "rm", "-rf", "build/cargo/avery-sysroot-target"
+		ENV['CC_x86_64-pc-avery'] = 'clang --target=x86_64-pc-avery'
+		ENV['CXX_x86_64-pc-avery'] = 'clang++ --target=x86_64-pc-avery'
+		ENV['CPP_x86_64-pc-avery'] = 'clang --target=x86_64-pc-avery'
+		ENV['AR_x86_64-pc-avery'] = 'x86_64-pc-avery-ar'
 
-		build_sysroot = proc do |target|
-			cargo "sysroot", target
-			mkdirs("build/sysroot/lib/rustlib/#{target}/lib")
-			run 'cp', '-r', "build/cargo/sysroot-target/#{target}/#{CARGO_BUILD}/deps/.", "build/sysroot/lib/rustlib/#{target}/lib"
+		new_env('CARGO_TARGET_DIR', 'build/cargo/avery-sysroot-target') do
+			sysroot = "build/cargo/avery-sysroot-target/x86_64-pc-avery/#{CARGO_BUILD}/deps"
+
+			ENV['RUSTFLAGS'] = '-C llvm-args=-inline-threshold=0 --sysroot vendor/fake-sysroot -C opt-level=2'
+			run *%w{cargo build -j 1 --manifest-path vendor/cargo-sysroot/Cargo.toml --verbose}
+			dir = "vendor/rust/install/lib/rustlib/x86_64-pc-avery/lib"
+			FileUtils.rm_rf([dir])
+			mkdirs(dir)
+			run 'cp', '-r', "#{sysroot}/.", dir
 		end
+	end
+end
 
-		build_sysroot.('x86_32-avery-kernel')
-		build_sysroot.('x86_64-avery-kernel')
+task :deps => [:user, :deps_other] do
+	rebuild("build/sysroot/version", ["rust"], CARGO_BUILD) do
+		run "rm", "-rf", "build/cargo/sysroot-target"
+		new_env('CARGO_TARGET_DIR', 'build/cargo/sysroot-target') do
+			run "rm", "-rf", "build/sysroot"
+
+			build_sysroot = proc do |target|
+				cargo "sysroot", target
+				mkdirs("build/sysroot/lib/rustlib/#{target}/lib")
+				run 'cp', '-r', "build/cargo/sysroot-target/#{target}/#{CARGO_BUILD}/deps/.", "build/sysroot/lib/rustlib/#{target}/lib"
+			end
+
+			build_sysroot.('x86_32-avery-kernel')
+			build_sysroot.('x86_64-avery-kernel')
+		end
 	end
 
 	cargo 'kernel/arch/x64/multiboot', 'x86_32-avery-kernel', [], (%w{-C lto --emit=obj=build/bootstrap-32.o})
@@ -328,6 +360,13 @@ task :emu do
 	end
 end
 
+task :uqemu => [:user_skip] do
+	type = :multiboot
+	build_kernel.call(true)
+	Rake::Task["emu"].invoke
+	run_qemu(false)
+end
+
 task :fqemu => [:kernel, :emu] do
 	run_qemu(false)
 end
@@ -355,7 +394,6 @@ task :bochs4 => [:build, :emu] do
 end
 
 task :bochs => [:build, :emu] do
-
 	Dir.chdir('emu/') do
 		puts "Running Bochs..."
 		run 'bochs/bochs', '-q', '-f', 'avery.bxrc'
@@ -365,6 +403,7 @@ end
 require_relative 'rake/deps'
 
 CORES = ENV['TRAVIS'] ? 2 : 4
+#CORES = 1
 
 task :deps_other do
 	EXTERNAL_BUILDS.(:build, true, false)
@@ -377,7 +416,7 @@ task :fmt do
 	Dir.chdir('kernel/arch/x64/multiboot') { format.() }
 end
 
-task :user => :deps_other do
+build_user = proc do
 	ENV['RUSTFLAGS'] = nil
 
 	cargo 'user', 'x86_64-pc-avery'
@@ -386,7 +425,7 @@ task :user => :deps_other do
 	mkdirs("build/user")
 	FileUtils.cp "build/cargo/target/x86_64-pc-avery/#{CARGO_BUILD}/hello", "build/user"
 
-	run *%w{clang --target=x86_64-pc-avery user/hello/hello.c -o build/user/hello}
+	#run *%w{clang --target=x86_64-pc-avery user/hello/hello.c -o build/user/hello}
 
 	build = Build.new('build', 'info.yml')
 	build.run do
@@ -396,7 +435,13 @@ task :user => :deps_other do
 	end
 end
 
+task :user_skip do
+	build_user.()
+end
+task :user => [:deps_other, :user_skip]
+
 task :sh do
+	ENV.replace(CLEANENV)
 	Dir.chdir(CURRENT_DIR)
 	run 'bash'
 end

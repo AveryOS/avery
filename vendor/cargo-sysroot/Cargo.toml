@@ -1,0 +1,11 @@
+[package]
+name = "sysroot"
+version = "0.1.0"
+
+[lib]
+path = "lib.rs"
+crate-type = ["rlib"]
+
+[dependencies]
+#std = { path = "../rust/src/src/libstd" }
+std = { path = "std" }

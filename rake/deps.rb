@@ -1,5 +1,6 @@
 
 def get_submodule(path)
+	return if File.exists?(File.join(path, '.git'))
 	run *%w{git submodule update --init}, *(ENV['TRAVIS'] ? ['--depth', '1'] : []), path.shellescape
 end
 
@@ -45,7 +46,7 @@ task :rebase => :upstreams do
 			raise "master branch doesn't exist. Don't know the start of the rebase"
 		end
 	end
-	run *%w{git fetch upstream}
+	run *%w{git fetch upstream --no-recurse-submodules}
 	run *%w{git checkout avery}
 	run_stay *%W{git rebase -i --onto upstream/#{remote_branch} master avery}
 	if $? != 0
@@ -92,6 +93,22 @@ end
 
 build_type = :build
 
+def rebuild(rev_file, depends = [], version = "")
+	built_rev = File.read(rev_file).strip if File.exist?(rev_file)
+	digest = Digest::SHA2.new(256)
+	digest << version
+	depends.each do |d|
+		digest << File.read("vendor/#{d}/meta/revision").strip
+	end
+	rev = digest.hexdigest
+	if built_rev != rev
+			FileUtils.rm_rf([rev_file])
+			r = yield
+			open(rev_file, 'w') { |f| f.puts rev }
+			r
+	end
+end
+
 # Build a unix like package at src
 build_unix_pkg = proc do |src, rev, opts, config, &gen_src|
 	vendor = Pathname.new(File.join(AVERY_DIR, 'vendor'))
@@ -114,11 +131,14 @@ build_unix_pkg = proc do |src, rev, opts, config, &gen_src|
 
 	built_rev = File.read("#{test_prefix}meta/revision").strip if File.exists?("#{test_prefix}meta/revision")
 	if built_rev && built_rev != rev
-			puts "Cleaning #{pathname} #{"(rev #{built_rev})" if built_rev}... new revision #{rev}"
+			puts "Cleaning #{pathname} #{"(version #{built_rev})" if built_rev}... new version #{rev}"
 			FileUtils.rm_rf(["meta/revision"])
-			clean.() unless opts[:noclean] && !ENV['TRAVIS']
+			if opts[:noclean] && !ENV['TRAVIS']
+				FileUtils.rm_rf(["meta/built"])
+			else
+				clean.()
+			end
 	end
-	puts "Building #{pathname} (rev #{rev})..."
 
 	if ENV['TRAVIS'] && File.exists?(cache)
 		if pathname == 'llvm'
@@ -127,6 +147,7 @@ build_unix_pkg = proc do |src, rev, opts, config, &gen_src|
 		else
 			run 'ln', '-s', "#{cache}/install", File.expand_path('install')
 		end
+		run 'ln', '-s', "#{cache}/meta", File.expand_path('meta')
 		next
 	end
 
@@ -141,6 +162,7 @@ build_unix_pkg = proc do |src, rev, opts, config, &gen_src|
 	mkdirs("meta")
 
 	unless File.exists?("meta/configured")
+		puts "Configuring #{pathname} (version #{rev})..."
 		gen_src.call() if gen_src
 		mkdirs(build_dir)
 		Dir.chdir(build_dir) do
@@ -153,6 +175,7 @@ build_unix_pkg = proc do |src, rev, opts, config, &gen_src|
 	end
 
 	unless File.exists?("meta/built")
+		puts "Building #{pathname} (version #{rev})..."
 		mkdirs(build_dir)
 		bin_path = "install"
 
@@ -167,8 +190,13 @@ build_unix_pkg = proc do |src, rev, opts, config, &gen_src|
 				else
 					old_unix = UNIX_EMU[0]
 					UNIX_EMU[0] = opts[:unix]
-					run "make", "-j#{CORES}"
-					run "make", "install"
+					b = opts[:make]
+					if b
+						b.()
+					else
+						run "make", "-j#{CORES}"
+						run "make", "install"
+					end
 					UNIX_EMU[0] = old_unix
 				end
 			end
@@ -283,20 +311,14 @@ end
 build_submodule = proc do |name, opts = {}, &proc|
 	mkdirs(name)
 	Dir.chdir(name) do
-		subrev = `git submodule status src`.strip.split(" ")[0]
-		if subrev[0] == "-"
-			rev = subrev[1..-1]
-			needs_submodule = true
-		else
-			rev = Dir.chdir("src") { `git rev-parse --verify HEAD`.strip }
-		end
+		rev = `git ls-tree HEAD src`.strip.split(" ")[2]
 		build_base = opts[:build] || '.'
 		mkdirs(build_base)
 		src_path = Pathname.new('src').relative_path_from(Pathname.new(build_base)).to_s
 		Dir.chdir(build_base) do
 			build_unix_pkg.(src_path, rev, opts, proc) do
 				([src_path] + (opts[:submodules] || [])).each do |s|
-					get_submodule(s) if needs_submodule
+					get_submodule(s)
 				end
 			end
 		end
@@ -422,21 +444,44 @@ task :dep_newlib => [:dep_llvm, :dep_automake, :dep_autoconf, :dep_binutils] do
 end
 
 task :avery_sysroot => [:dep_compiler_rt, :dep_newlib] do
-	run "rm", "-rf", "vendor/avery-sysroot"
-	mkdirs('vendor/avery-sysroot')
-	run 'cp', '-r', 'vendor/newlib/install/x86_64-pc-avery/.', "vendor/avery-sysroot"
+	rebuild("vendor/avery-sysroot/version", ["compiler-rt/x86_64-pc-avery", "newlib"]) do
+		run "rm", "-rf", "vendor/avery-sysroot"
+		mkdirs('vendor/avery-sysroot')
+		run 'cp', '-r', 'vendor/newlib/install/x86_64-pc-avery/.', "vendor/avery-sysroot"
 
-	# place compiler-rt in lib/rustlib/x86_64-pc-avery/lib - clang links to it
-	run 'cp', 'vendor/compiler-rt/x86_64-pc-avery/install/lib/generic/libclang_rt.builtins-x86_64.a', "vendor/avery-sysroot/lib/libcompiler_rt.a"
+		# place compiler-rt in lib/rustlib/x86_64-pc-avery/lib - clang links to it
+		run 'cp', 'vendor/compiler-rt/x86_64-pc-avery/install/lib/generic/libclang_rt.builtins-x86_64.a', "vendor/avery-sysroot/lib/libcompiler_rt.a"
+	end
 end
 
 task :dep_rust => [:dep_llvm, :avery_sysroot] do
 	# clang is not the host compiler, force use of gcc
-	env = {'CC' => CC || 'gcc', 'CXX' => CXX || 'g++'}
-	build_submodule.("vendor/rust", {env: env}) do |src, prefix|
-		run File.join(src, 'configure'), "--prefix=#{prefix}", "--llvm-root=#{File.join(src, "../../llvm/install")}", "--disable-docs", "--target=x86_64-pc-avery", "--disable-jemalloc"
+	env = {
+		'CC' => CC || 'gcc',
+		'CXX' => CXX || 'g++',
+		'CARGO_HOME' => path('build/cargo/home'),
+	}
+	prefix = File.expand_path("vendor/rust/install")
+	make = proc do
+		run *%W{make dist -j#{CORES}}
+		install = proc do |n|
+				dist = Dir["build/dist/#{n}-*"][0]
+				target = "extract-dist/#{n}"
+				mkdirs(target)
+				run 'tar', "-zxf", dist, '-C', target
+				target = Dir["#{target}/*"][0]
+				run "bash", "#{target}/install.sh", "--prefix=#{prefix}"
+				puts File.basename(target).split('-').inspect
+				triple = File.basename(target).split('-')[3..-1].join('-')
+				run 'cp', '-r', path("vendor/rust/install/bin/."), path("vendor/rust/install/lib/rustlib/#{triple}/lib")
+		end
+		install.('rustc')
+		install.('rust-std')
 	end
-	run 'cp', '-r', 'vendor/rust/install/lib/rustlib/x86_64-pc-avery', "vendor/avery-sysroot/lib/rustlib"
+	build_submodule.("vendor/rust", {env: env, noclean: true, make: make}) do |src, prefix|
+		llvm_path = File.expand_path(File.join(src, "../../llvm/install"))
+		run File.join(src, 'configure'), '--enable-rustbuild', "--prefix=#{prefix}", "--llvm-root=#{llvm_path}", "--disable-docs", "--disable-jemalloc"
+	end
 end
 
 task :dep_cargo => :dep_rust do
@@ -466,8 +511,9 @@ task :dep_bindgen => :dep_llvm do
 end
 
 EXTERNAL_BUILDS = proc do |type, real, extra|
-	travis_exit = proc do |prev|
-		if ENV['TRAVIS'] && File.exists?("vendor/#{prev}/build")
+	travis_pause = proc do
+		mins = (Time.new - START_TIME) / 60.0
+		if ENV['TRAVIS'] && mins > 5
 			puts "Exiting so Travis can cache the result"
 			exit
 		end
@@ -482,15 +528,15 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 	Rake::Task["dep_mtools"].invoke
 	Rake::Task["dep_cmake"].invoke
 
-	travis_exit.('mtools')
+	travis_pause.()
 	Rake::Task["dep_llvm"].invoke
-	travis_exit.('llvm')
+	travis_pause.()
 
 	Rake::Task["avery_sysroot"].invoke
 
-	travis_exit.('newlib')
+	travis_pause.()
 	Rake::Task["dep_rust"].invoke
-	travis_exit.('rust')
+	travis_pause.()
 
 	# CMAKE_STAGING_PREFIX, CMAKE_INSTALL_PREFIX
 
@@ -502,8 +548,15 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 
 	Rake::Task["dep_cargo"].invoke
 
+	Rake::Task["std"].invoke
+
 	# We need rust sources to build sysroots
 	get_submodule('vendor/rust/src')
 	# We need the ELF loader for the kernel
 	get_submodule('verifier/rust-elfloader')
+
+	# Reset cargo target dir if rust changes
+	rebuild("build/cargo/version", ["rust"]) do
+		run "rm", "-rf", "build/cargo/target"
+	end
 end
