@@ -548,7 +548,7 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 	Dir["vendor/rust/install/lib/rustlib/*"].each do |dir|
 		next if File.basename(dir) == 'x86_64-pc-avery'
 		target = "#{dir}/lib"
-		next unless Dir.exist?(dir)
+		next if Dir["#{target}/libstd-*"].empty?
 		next unless Dir["#{target}/rustc-*"].empty?
 		run 'cp', '-r', "vendor/rust/install/bin/.", target
 		Dir["vendor/rust/install/lib/*.so"].each do |f|
@@ -575,8 +575,6 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 	get_submodule('verifier/rust-elfloader')
 
 	Rake::Task["std"].invoke
-
-	run_stay "find", "-L", File.expand_path("vendor/rust/install/")
 
 	# Reset cargo target dir if rust changes
 	rebuild("build/cargo/version", ["rust"]) do

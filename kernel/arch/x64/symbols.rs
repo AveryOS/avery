@@ -39,20 +39,8 @@ impl<'a> ReadInt for &'a str {
 	}
 }
 
-pub fn get_symbol_info_for_addr(addr: usize) -> Option<(&'static str, usize, &'static str, usize, usize)> {
-	return None;
-	let bound = dwarf::parse_line_units(&dwarf::get_dwarf_info(), addr).unwrap();
-
-	let sym = "unknown";// dwarf::parse_info_units(&dwarf::get_dwarf_info(), addr as u64).unwrap().unwrap_or("<unknown>");
-
-	//let (sym, start_addr) = get_symbol_for_addr(addr).unwrap_or(("unknown", 0));
-
-	Some((bound.name, bound.line as usize, sym, 0, usize::coerce(bound.address)))
-}
-
-fn get_symbol_info_for_addr2<'s>(addr: usize, from_ip: bool, bin: &'s ElfBinary<'s>) -> Option<(&'s str, usize, &'s str, usize, usize)> {
-	//let mut guess: Option<&'s elf::Symbol> = None;
-	let result = bin.find_symbol(|sym| {
+fn get_symbol_for_addr<'s>(addr: usize, from_ip: bool, bin: &'s ElfBinary<'s>) -> Option<&'s elf::Symbol> {
+	bin.find_symbol(|sym| {
 		if sym.sym_type() != elf::STT_FUNC {
 			return false;
 		}
@@ -73,9 +61,6 @@ fn get_symbol_info_for_addr2<'s>(addr: usize, from_ip: bool, bin: &'s ElfBinary<
 			}
 		}
 		false
-	});
-	result.map(|s| {
-		("?", 1, bin.symbol_name(s), addr - usize::coerce(s.value), 0)
 	})
 }
 
@@ -106,27 +91,26 @@ pub fn print_backtrace()
 pub struct Backtrace<'s>(pub usize, pub Option<usize>, pub Option<&'s ElfBinary<'s>>);
 impl<'s> ::core::fmt::Display for Backtrace<'s> {
 	fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+		let mut stack = Vec::new();
+		let info = self.2.and_then(|b| dwarf::get_dwarf_info_from_elf(b));
+		if let Some(ip) = self.1 {
+			stack.push(dwarf::Bound::new(ip, false));
+		}
 		let mut bp = self.0;
-		let mut ip = self.1;
-		while let Option::Some(((newbp, ip), from_ip)) = {
-			if let Some(i) = ip {
-				ip = None;
-				Some(((bp, i), true))
-			} else {
-				backtrace(bp).map(|t| (t, false))
-			}
-		} {
-			try!(write!(f, " {:#x}", ip));
-			let info = match self.2 {
-				Some(elf) => get_symbol_info_for_addr2(usize::coerce(ip), from_ip, elf),
-				None => get_symbol_info_for_addr(usize::coerce(ip) - 1)
-			};
-			if let Some( (file, line, name, ofs, mofs) ) = info {
-				try!(write!(f, " - {}+{:#x} ({}:{}M@{:#x})", Demangle(name), ofs, file, line, mofs));
-			}
-			try!(write!(f, "\n"));
+		while let Option::Some((newbp, ip)) = backtrace(bp) {
+			stack.push(dwarf::Bound::new(ip, true));
 			bp = newbp;
 		}
+		info.map(|info| dwarf::parse_line_units(&info, &mut stack).unwrap());
+
+		for entry in stack {
+			let (name, offset) = self.2.and_then(|bin| {
+				get_symbol_for_addr(usize::coerce(entry.target), !entry.return_target, bin)
+					.map(|s| (bin.symbol_name(s), entry.target - s.value))
+			}).unwrap_or(("<unknown>", 0));
+			try!(write!(f, " {:#x} - {}+{:#x} ({}/{}:{}M@{:#x})\n", entry.target, Demangle(name), offset, entry.dir, entry.file, entry.line, entry.address));
+		}
+
 		Ok( () )
 	}
 }

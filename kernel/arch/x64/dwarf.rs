@@ -1,5 +1,6 @@
 #![allow(unused_variables, unused_mut)]
 
+use elfloader::{self, ElfBinary, elf};
 use std::mem;
 use std::slice;
 use std::io::{Read, Error, Cursor};
@@ -99,6 +100,32 @@ pub struct DwarfInfo<'s> {
     pub abbrev: &'s [u8],
     pub str: &'s [u8],
     pub line: &'s [u8],
+}
+
+pub fn get_dwarf_info_from_elf<'s>(bin: &'s ElfBinary<'s>) -> Option<DwarfInfo<'s>> {
+    let mut info = None;
+    let mut abbrev = None;
+    let mut str = None;
+    let mut line = None;
+    for h in bin.section_headers() {
+        match bin.section_name(h) {
+            ".debug_info" => info = Some(bin.section_data(h)),
+            ".debug_abbrev" => abbrev = Some(bin.section_data(h)),
+            ".debug_str" => str = Some(bin.section_data(h)),
+            ".debug_line" => line = Some(bin.section_data(h)),
+            _  => (),
+        }
+	}
+    if let (Some(info), Some(abbrev), Some(str), Some(line)) = (info, abbrev, str, line) {
+        Some(DwarfInfo {
+            info: info,
+            abbrev: abbrev,
+            str: str,
+            line: line,
+        })
+    } else {
+        None
+    }
 }
 
 pub fn get_dwarf_info() -> DwarfInfo<'static> {
@@ -280,13 +307,30 @@ pub fn parse_info_units<'s>(dwarf: &DwarfInfo<'s>, target: u64) -> Result<Option
 }
 
 pub struct Bound<'s> {
-    target: u64,
+    pub target: u64,
+    pub return_target: bool,
+    file_idx: Option<u64>,
     pub address: u64,
-    pub name: &'s str,
+    pub file: &'s str,
+    pub dir: &'s str,
     pub line: usize,
 }
 
-fn parse_line_unit<'s>(data: &mut Cursor<&'s [u8]>, bound: &mut Bound<'s>) -> Result<(), Error> {
+impl<'s> Bound<'s> {
+    pub fn new(target: usize, return_target: bool) -> Self {
+        Bound {
+            target: target as u64,
+            return_target: return_target,
+            file_idx: None,
+            address: 0,
+            line: 1,
+            file: "<unknown>",
+            dir: "",
+        }
+    }
+}
+
+fn parse_line_unit<'s>(data: &mut Cursor<&'s [u8]>, bounds: &mut [Bound<'s>]) -> Result<(), Error> {
     let offset = data.position();
     let unit_length: u32 = try!(read(data));
     let unit_end = data.position() + unit_length as u64;
@@ -325,6 +369,8 @@ fn parse_line_unit<'s>(data: &mut Cursor<&'s [u8]>, bound: &mut Bound<'s>) -> Re
         debug!("opcode_base-e: has {} args\n", e);
     }
 
+    let dir_table_offset = data.position();
+
     loop {
         let dir = try!(read_str(data));
 
@@ -336,33 +382,8 @@ fn parse_line_unit<'s>(data: &mut Cursor<&'s [u8]>, bound: &mut Bound<'s>) -> Re
     }
 
     let file_table_offset = data.position();
-/*
-    debug!(" The File Name Table (offset {:#x}):\n", data.position());
-    debug!("  Entry	Dir	Time	Size	Name\n");
 
-    let mut i = 1;
-
-    loop {
-        let file = try!(read_str(data));
-
-        if file.is_empty() {
-            break;
-        }
-
-        let dir_idx = try!(read_lebu128(data));
-        let time = try!(read_lebu128(data));
-        let file_size = try!(read_lebu128(data));
-
-        debug!("  {}\t{}\t{}\t{}\t{}\n",  i, dir_idx, time, file_size, file);
-
-        files.push(file);
-
-        i += 1;
-    }
-*/
     data.set_position(post_header);
-
-    let mut bound_file = None;
 
     let mut op_index;
     let mut line;
@@ -390,10 +411,12 @@ fn parse_line_unit<'s>(data: &mut Cursor<&'s [u8]>, bound: &mut Bound<'s>) -> Re
 
     macro_rules! output {
         () => (
-            if address < bound.target && address >= bound.address {
-                bound.address = address;
-                bound.line = usize::coerce(line);
-                bound_file = Some(file);
+            for bound in bounds.iter_mut() {
+                if address < bound.target && address >= bound.address {
+                    bound.address = address;
+                    bound.line = usize::coerce(line);
+                    bound.file_idx = Some(file);
+                }
             }
             /*if table {
                 println!("      #### {}:{} {:#x}  ", files[file as usize], line, address);
@@ -428,6 +451,10 @@ fn parse_line_unit<'s>(data: &mut Cursor<&'s [u8]>, bound: &mut Bound<'s>) -> Re
                         /* DW_LNE_define_file */ 0x3 => {
                             panic!();
                         }
+                        /* DW_LNE_set_discriminator */ 0x4 => {
+                            // TODO: Use this
+                            let _ = try!(read_lebu128(data));
+                        }
                         _ => {
                             panic!("Unknown extended opcode {:#x}", ecode)
                         }
@@ -460,7 +487,8 @@ fn parse_line_unit<'s>(data: &mut Cursor<&'s [u8]>, bound: &mut Bound<'s>) -> Re
                     debug!("Set File Name to entry {} in the File Name Table\n", file);
                 }
                 /* DW_LNS_set_column */ 0x5 => {
-                    panic!();
+                    // TODO: Return column too
+                    let _ = try!(read_lebu128(data));
                 }
                 /* DW_LNS_negate_stmt */ 0x6 => {
                     is_stmt = !is_stmt & 1;
@@ -514,30 +542,57 @@ fn parse_line_unit<'s>(data: &mut Cursor<&'s [u8]>, bound: &mut Bound<'s>) -> Re
 
     assert!(data.position() == unit_end);
 
-    if let Some(file_index) = bound_file {
-        data.set_position(file_table_offset);
+    for bound in bounds {
+        if let Some(file_index) = bound.file_idx {
+            data.set_position(file_table_offset);
 
-        let mut i = 1;
+            let mut i = 1;
+            let mut dir = None;
 
-        loop {
-            let file = try!(read_str(data));
+            loop {
+                let file = try!(read_str(data));
 
-            if file.is_empty() {
-                break;
+                if file.is_empty() {
+                    break;
+                }
+
+                let dir_idx = try!(read_lebu128(data));
+                let time = try!(read_lebu128(data));
+                let file_size = try!(read_lebu128(data));
+
+                debug!("  {}\t{}\t{}\t{}\t{}\n",  i, dir_idx, time, file_size, file);
+
+                if i == file_index {
+                    bound.file = file;
+                    dir = Some(dir_idx);
+                    break;
+                }
+
+                i += 1;
             }
 
-            let dir_idx = try!(read_lebu128(data));
-            let time = try!(read_lebu128(data));
-            let file_size = try!(read_lebu128(data));
+            if let Some(dir_index) = dir {
+                data.set_position(dir_table_offset);
 
-            debug!("  {}\t{}\t{}\t{}\t{}\n",  i, dir_idx, time, file_size, file);
+                let dir_table_offset = data.position();
+                let mut i = 1;
 
-            if i == file_index {
-                bound.name = file;
-                break;
+                loop {
+                    let dir = try!(read_str(data));
+
+                    if dir.is_empty() {
+                        break;
+                    }
+
+                    if i == dir_index {
+                        bound.dir = dir;
+                        break;
+                    }
+
+                    debug!("Directory: {}\n", dir);
+                    i += 1;
+                }
             }
-
-            i += 1;
         }
     }
 
@@ -546,19 +601,12 @@ fn parse_line_unit<'s>(data: &mut Cursor<&'s [u8]>, bound: &mut Bound<'s>) -> Re
     Ok(())
 }
 
-pub fn parse_line_units<'s>(dwarf: &DwarfInfo<'s>, target: usize) -> Result<Bound<'s>, Error> {
-    let mut bound = Bound {
-        target: target as u64,
-        address: 0,
-        line: 1,
-        name: "<unknown>",
-    };
-
+pub fn parse_line_units<'s>(dwarf: &DwarfInfo<'s>, bounds: &mut [Bound<'s>]) -> Result<(), Error> {
     let mut cursor = Cursor::new(dwarf.line);
 
     while usize::coerce(cursor.position()) < dwarf.line.len() {
-        try!(parse_line_unit(&mut cursor, &mut bound));
+        try!(parse_line_unit(&mut cursor, bounds));
     }
 
-    Ok(bound)
+    Ok(())
 }
