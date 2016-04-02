@@ -1,0 +1,136 @@
+When the VFS gets a request, store all the relevant data on the stack. Don't hold locks when calling into lower layers.
+	When the owner of the thread dies. Signal any blocking operation and return an error that the owner died so it should just chain that error up.
+The cost of threads are associated with the user process that spawned it.
+	Associate data stacks with the cost too during context switches?
+		Sounds expensive and the cost might be factor of the call stack cost anyway.
+		Perhaps there should be a memory allocator which associates the data with the thread owner, for data which is not a factor of the call stack cost.
+
+Do manual overflow checks on data stack
+	Allocate data stack when context switching with a freelist?
+		Use a global data stack address space that is mapped into each process
+			Address space allocations are global, but only the local process gets access to the stack
+			This allows the allocator to be in the kernel and have great locality - we don't want cache misses during context switches!
+			Requires small stack allocations so we don't run out of memory. So basically requires segmented stacks and atleast 4K stack size.
+
+			We can thread stacks so no adjacent stacks belong to the same process. Full address space utilization and we can rely on page faults
+			for stack overflow checking << DO THIS
+
+				Allocate a 4K stack during context switching and allocate a larger stack when the probing reaches a trap page
+
+				r15 = stack pointer
+
+				prologue:
+					sub r15, <stack-frame-size>
+					or [r15], 0
+
+			Might be better with just local process allocators which is managed by the kernel so they are still cache friendly.
+				Would prevent DOS attacks where some local process eats up all the global stacks.
+
+				Reuse stack for the current thread and don't allocate on each context switch
+					Would prevent DOS attacks from a single thread
+						But this can also be done by not calling back into the owner
+
+				Use a global stack area as a cache
+					Give each process an offset for where this global area maps to
+					When all the stacks in a process is allocated do an proper LOCKED allocation and place the stack area there
+						Must update the offset of all processes offset so make it global,
+						do so lazily with a global area modification counter? Which would do it globally on overflow
+						Requires a branch
+					We can garbage collect the global area by remapping so that each process has no stacks allocated in it. (If that is needed)
+					The global stack area should be CPU local
+
+					How to quickly free?
+						If the area offset stayed the same for the process, we can just unmark it otherwise we must unmark it in the process allocator
+						Requires 2 atomic operations and a branch, not ideal
+							We can mark it as allocated with regular operation (since we own the area, so other threads can't interrupt),
+							that way we get one OR op to mark and a atomic free operation (load/ATOMIC store loop)
+								Avoid the atomic operation by aligning the global area to a byte in bitmap form.
+								So each area offset can't overlap
+								How does that prevent the area from being reused? It does seem to
+								We can avoid the atomic op by comparing the modification counter and only do an atomic if it changed
+
+								We can also avoid atomic ops by requiring that the local area is split into CPU local parts
+
+					We must avoid marking and freeing from the local area bitmap, otherwise just using the local area bitmap directly is more efficient
+
+					Use a counter 'n' for the global area and have stacks indexed by < n be marked as allocated. This counter is thread-local and is saved by interrupt context switches. (or it could be CPU-local, possibly)
+						When n overflows we allocate enough space for another counter from the global area. We could also just use a slow path here if thread-local since the thread might be misbehaving.
+
+					Can we design an malloc like this too? Probably poor locality
+						Could be useful for mmap?
+
+					Map all stacks to physical memory to avoid page faults. Unused pages can be reclaimed if the system is low on memory.
+
+			Does require freeing the memory also on each context switch return! - can we garbage collect these stacks somehow?
+				Garbage collection might be too slow, and freeing is likely to touch cache anway
+
+
+	When context switching set the data stack to zero which triggers the overflow check and ensures an allocation is done?
+		Expensive code size overhead from branches
+			cheap segmented stacks?
+
+				r15 = stack pointer
+				r14 = stack end
+
+				prologue:
+					sub r15, <stack-frame-size>
+					cmp r15, r14
+					jnb ALLOC
+					call alloc_stack // this requires it to be part of the prologue and not just be plain x86 code (a LLVM pass to add the split-stack attribute would probably work)
+				ALLOC:
+	Pass the data stack in a callee save register?
+
+Do lazy allocations for TLS
+
+Message passing stack allocation with block indexed by 'i' with 'n' stacks - CPU Local
+block_index = version of block
+
+	i += 1
+	On overflow ->
+		block = allocate new block with size 'n'
+		block_index += 1
+			On overflow -> Do a slow path to reset block_index
+
+	stack = block[i]
+	i -= 1
+
+Message passing stack allocation with block indexed by 'i' with 'n' stacks - Thread Local
+	i += 1
+	On overflow ->
+		stack = slow path which uses a bitmap per process
+		i -= 1 // Cause overflow and the slow path next time too, so we can allocate in a different way
+		call
+		free stack
+	stack = block[i]
+	call
+	i -= 1
+
+	actual code - stack passed in r15
+		add r15, 0x2000 // increase by two pages (skipping the guard page)
+		cmp fs:[stack_end], r15  // compare stack with stack end, if the stack is expanded from 4K, this is set to 0 so it always triggers
+		jbe SLOW_PATH
+		call target
+		sub r15, 0x2000
+
+	SLOW_PATH:
+		mov r15, fs:[old_stack] // Load the old indexed stack
+		jz NO_INDEXED
+		mov r14, fs:[old_stack_end] // Load the old stack end
+		mov fs:[stack_end], r14
+		add r15, 0x2000
+		call target
+		sub r15, 0x2000
+	NO_INDEXED:
+		...
+
+	'block' and 'i' is thread-local
+
+	Threads with even ID allocates even (2i) stacks
+	Threads with odd ID allocates odd (2i + 1) stacks
+
+	Processes which allocates lots of threads will use something slower
+
+	Reserving 8 GB and 8 stacks per thread will give 256k threads so this is sufficient
+
+Have diverging functions in Rust which drops all variables on the frame
+Have diverging IPC which can only return to some higher non-diverging IPC call

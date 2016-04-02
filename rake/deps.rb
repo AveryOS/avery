@@ -431,7 +431,7 @@ end
 
 task :dep_newlib => [:dep_llvm, :dep_automake, :dep_autoconf, :dep_binutils] do
 	env = {'CFLAGS' => '-fPIC'}
-	build_submodule.("vendor/newlib", {env: env}) do |src, prefix|
+	build_submodule.("vendor/newlib", {env: env, noclean: true}) do |src, prefix|
 		Dir.chdir(File.join(src, "newlib/libc/sys")) do
 			run "autoconf"
 			Dir.chdir("avery") do
@@ -471,9 +471,10 @@ task :dep_rust => [:dep_llvm, :avery_sysroot] do
 				run 'tar', "-zxf", dist, '-C', target
 				target = Dir["#{target}/*"][0]
 				run "bash", "#{target}/install.sh", "--prefix=#{prefix}"
-				puts File.basename(target).split('-').inspect
 				triple = File.basename(target).split('-')[3..-1].join('-')
-				run 'cp', '-r', path("vendor/rust/install/bin/."), path("vendor/rust/install/lib/rustlib/#{triple}/lib")
+				dest = path("vendor/rust/install/lib/rustlib/#{triple}/lib")
+				mkdirs(dest)
+				run 'cp', '-r', path("vendor/rust/install/bin/."), dest
 		end
 		install.('rustc')
 		install.('rust-std')
@@ -548,15 +549,24 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 
 	Rake::Task["dep_cargo"].invoke
 
-	Rake::Task["std"].invoke
-
 	# We need rust sources to build sysroots
 	get_submodule('vendor/rust/src')
+	Dir.chdir('vendor/rust/src/src') do
+		get_submodule('liblibc')
+	end
 	# We need the ELF loader for the kernel
 	get_submodule('verifier/rust-elfloader')
+
+	Rake::Task["std"].invoke
 
 	# Reset cargo target dir if rust changes
 	rebuild("build/cargo/version", ["rust"]) do
 		run "rm", "-rf", "build/cargo/target"
 	end
+end
+
+task :re_newlib do
+	run "rm", "-rf", "vendor/newlib/meta/built"
+	run "rm", "-rf", "vendor/avery-sysroot/version"
+	run "rm", "-rf", "build/cargo/target/x86_64-pc-avery"
 end

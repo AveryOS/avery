@@ -29,3 +29,4 @@
 /vendor/newlib/build
 /vendor/newlib/install
 /verifier/target
+/vendor/cargo-sysroot/version

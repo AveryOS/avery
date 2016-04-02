@@ -241,7 +241,7 @@ build_kernel = proc do |skip = false|
 end
 
 task :std do
-	rebuild("vendor/cargo-sysroot/version", ["rust"], CARGO_BUILD) do
+	rebuild("vendor/cargo-sysroot/version", ["rust"]) do
 		run "rm", "-rf", "build/cargo/avery-sysroot-target"
 		ENV['CC_x86_64-pc-avery'] = 'clang --target=x86_64-pc-avery'
 		ENV['CXX_x86_64-pc-avery'] = 'clang++ --target=x86_64-pc-avery'
@@ -249,10 +249,10 @@ task :std do
 		ENV['AR_x86_64-pc-avery'] = 'x86_64-pc-avery-ar'
 
 		new_env('CARGO_TARGET_DIR', 'build/cargo/avery-sysroot-target') do
-			sysroot = "build/cargo/avery-sysroot-target/x86_64-pc-avery/#{CARGO_BUILD}/deps"
+			sysroot = "build/cargo/avery-sysroot-target/x86_64-pc-avery/debug/deps"
 
 			ENV['RUSTFLAGS'] = '-C llvm-args=-inline-threshold=0 --sysroot vendor/fake-sysroot -C opt-level=2'
-			run *%w{cargo build -j 1 --manifest-path vendor/cargo-sysroot/Cargo.toml --verbose}
+			run *%w{cargo build -j 1 --target x86_64-pc-avery --manifest-path vendor/cargo-sysroot/Cargo.toml --verbose}
 			dir = "vendor/rust/install/lib/rustlib/x86_64-pc-avery/lib"
 			FileUtils.rm_rf([dir])
 			mkdirs(dir)

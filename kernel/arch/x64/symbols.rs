@@ -50,56 +50,47 @@ pub fn get_symbol_info_for_addr(addr: usize) -> Option<(&'static str, usize, &'s
 	Some((bound.name, bound.line as usize, sym, 0, usize::coerce(bound.address)))
 }
 
-fn get_symbol_info_for_addr2<'s>(addr: usize, bin: &'s ElfBinary<'s>) -> Option<(&'s str, usize, &'s str, usize, usize)> {
+fn get_symbol_info_for_addr2<'s>(addr: usize, from_ip: bool, bin: &'s ElfBinary<'s>) -> Option<(&'s str, usize, &'s str, usize, usize)> {
+	//let mut guess: Option<&'s elf::Symbol> = None;
 	let result = bin.find_symbol(|sym| {
 		if sym.sym_type() != elf::STT_FUNC {
 			return false;
 		}
-		if usize::coerce(sym.value) <= addr &&  usize::coerce(sym.value + sym.size) > addr {
-			return true;
+
+		if from_ip {
+			// We are looking up a RIP address, do an exact match
+			if usize::coerce(sym.value) <= addr && usize::coerce(sym.value + sym.size) > addr {
+				return true;
+			}
+		} else {
+			// We are looking up a return address from the stack
+			// In this case the address after the end of the symbol
+			// actually means that we called from inside the symbol.
+			// The entry point of the function would also belong to
+			// the previous code.
+			if usize::coerce(sym.value) < addr && usize::coerce(sym.value + sym.size) >= addr {
+				return true;
+			}
 		}
 		false
 	});
 	result.map(|s| {
 		("?", 1, bin.symbol_name(s), addr - usize::coerce(s.value), 0)
-	} )
+	})
 }
 
 /// Obtain the old RBP value and return address from a provided RBP value
-pub fn backtrace(bp: usize) -> Option<(usize,usize)>
-{
+pub fn backtrace(bp: usize) -> Option<(usize,usize)> {
 	use std::mem::size_of;
 
 	if bp == 0 {
 		return None;
 	}
-	if bp % size_of::<usize>() != 0 {
-		return None;
-	}
-	/*if ! ::memory::buf_valid(bp as *const (), 16) {
-		return None;
-	}*/
-
-	// [rbp] = oldrbp, [rbp+8] = IP
-	// SAFE: Pointer access checked, any alias is benign
-	unsafe
-	{
+	unsafe {
 		let ptr: *const [usize; 2] = ::core::mem::transmute(bp);
-		if false  /* ! ::arch::memory::virt::is_reserved(ptr)*/ {
-			None
-		}
-		else {
-			let newbp = (*ptr)[0];
-			let newip = (*ptr)[1];
-			// Check validity of output BP, must be > old BP (upwards on the stack)
-			// - If not, return 0 (which will cause a break next loop)
-			if newbp <= bp {
-				Some( (0, newip) )
-			}
-			else {
-				Some( (newbp, newip) )
-			}
-		}
+		let newbp = (*ptr)[0];
+		let newip = (*ptr)[1];
+		Some((newbp, newip))
 	}
 }
 
@@ -117,17 +108,17 @@ impl<'s> ::core::fmt::Display for Backtrace<'s> {
 	fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
 		let mut bp = self.0;
 		let mut ip = self.1;
-		while let Option::Some((newbp, ip)) = {
+		while let Option::Some(((newbp, ip), from_ip)) = {
 			if let Some(i) = ip {
 				ip = None;
-				Some((bp, i))
+				Some(((bp, i), true))
 			} else {
-				backtrace(bp)
+				backtrace(bp).map(|t| (t, false))
 			}
 		} {
 			try!(write!(f, " {:#x}", ip));
 			let info = match self.2 {
-				Some(elf) => get_symbol_info_for_addr2(usize::coerce(ip), elf),
+				Some(elf) => get_symbol_info_for_addr2(usize::coerce(ip), from_ip, elf),
 				None => get_symbol_info_for_addr(usize::coerce(ip) - 1)
 			};
 			if let Some( (file, line, name, ofs, mofs) ) = info {

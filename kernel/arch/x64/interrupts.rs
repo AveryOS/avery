@@ -4,6 +4,7 @@ use cpu;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::SeqCst;
 use elfloader::ElfBinary;
+use std::{str, slice};
 
 unsafe fn setup_pics() {
 	use arch::outb;
@@ -153,7 +154,7 @@ extern fn default_handler(info: &Info, index: u8, error_code: usize) {
 }
 
 extern fn exit_handler(info: &Info, index: u8, error_code: usize) {
-	println!("Process exitted");
+	println!("\nProcess exitted");
 	unsafe { backtrace(info, Some(&arch::get_user_elf())); }
 	panic!("Process exitted");
 }
@@ -162,7 +163,14 @@ extern fn debug_print_handler(info: &Info, index: u8, error_code: usize) {
 	print!("Value:{} ({:#x})\n{}", info.registers.rax, info.registers.rax, info.registers);
 
 	unsafe { backtrace(info, Some(&arch::get_user_elf())); }
-	unsafe { dump_stack(info, 3000) };
+	//unsafe { dump_stack(info, 3000) };
+}
+
+extern fn print_handler(info: &Info, index: u8, error_code: usize) {
+	let bytes = unsafe {
+		slice::from_raw_parts(info.registers.rax as *const u8, info.registers.rbx)
+	};
+	print!("{}", str::from_utf8(bytes).unwrap());
 }
 
 #[allow(dead_code)]
@@ -268,6 +276,7 @@ pub unsafe fn initialize_idt() {
 	register_handler(0xe, page_fault_handler);
 	register_handler(0x2d, debug_print_handler);
 	register_handler(0x2e, exit_handler);
+	register_handler(0x2f, print_handler);
 
 	load_idt();
 }
