@@ -128,11 +128,12 @@ build_unix_pkg = proc do |src, rev, opts, config, &gen_src|
 	next if build_type != :build
 
 	test_prefix = ENV['TRAVIS'] ? "#{cache}/" : ""
+	test_revision = "#{test_prefix}meta/revision"
 
-	built_rev = File.read("#{test_prefix}meta/revision").strip if File.exists?("#{test_prefix}meta/revision")
+	built_rev = File.read(test_revision).strip if File.exists?(test_revision)
 	if built_rev && built_rev != rev
 			puts "Cleaning #{pathname} #{"(version #{built_rev})" if built_rev}... new version #{rev}"
-			FileUtils.rm_rf(["meta/revision"])
+			FileUtils.rm_rf([test_revision])
 			if opts[:noclean] && !ENV['TRAVIS']
 				FileUtils.rm_rf(["meta/built"])
 			else
@@ -140,7 +141,7 @@ build_unix_pkg = proc do |src, rev, opts, config, &gen_src|
 			end
 	end
 
-	if ENV['TRAVIS'] && File.exists?(cache)
+	if ENV['TRAVIS'] && File.exists?(test_revision)
 		if pathname == 'llvm'
 			# clang is hardcoded to use relative paths; symlinks won't work
 			run 'cp', '-r', "#{cache}/install", File.expand_path('.')
@@ -474,7 +475,11 @@ task :dep_rust => [:dep_llvm, :avery_sysroot] do
 				triple = File.basename(target).split('-')[3..-1].join('-')
 				dest = path("vendor/rust/install/lib/rustlib/#{triple}/lib")
 				mkdirs(dest)
+				# Copy shared libraries for rustc into the host lib direcory
 				run 'cp', '-r', path("vendor/rust/install/bin/."), dest
+				Dir["vendor/rust/install/lib/*.so"].each do |f|
+					run 'cp', f, dest
+				end
 		end
 		install.('rustc')
 		install.('rust-std')
@@ -539,6 +544,18 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 	Rake::Task["dep_rust"].invoke
 	travis_pause.()
 
+	# Copy compiler libraries into the library search path
+	Dir["vendor/rust/install/lib/rustlib/*"].each do |dir|
+		next if File.basename(dir) == 'x86_64-pc-avery'
+		target = "#{dir}/lib"
+		next unless Dir.exist?(dir)
+		next unless Dir["#{target}/rustc-*"].empty?
+		run 'cp', '-r', "vendor/rust/install/bin/.", target
+		Dir["vendor/rust/install/lib/*.so"].each do |f|
+			run 'cp', f, target
+		end
+	end
+
 	# CMAKE_STAGING_PREFIX, CMAKE_INSTALL_PREFIX
 
 	build_from_git.("vendor/libcxx", "http://llvm.org/git/libcxx.git") do |src, prefix| # -nodefaultlibs
@@ -558,6 +575,8 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 	get_submodule('verifier/rust-elfloader')
 
 	Rake::Task["std"].invoke
+
+	run_stay "find", "-L", File.expand_path("vendor/rust/install/")
 
 	# Reset cargo target dir if rust changes
 	rebuild("build/cargo/version", ["rust"]) do
