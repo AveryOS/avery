@@ -378,6 +378,13 @@ task :dep_llvm => :dep_cmake do
 	end
 end
 
+task :dep_udis86 do
+	build_submodule.("verifier/udis86", {unix: true}) do |src, prefix|
+		Dir.chdir(src) { run './autogen.sh' }
+		run File.join(src, 'configure'), "--prefix=#{prefix}"
+	end
+end
+
 task :dep_autoconf do
 	build_from_url.("ftp://ftp.gnu.org/gnu/autoconf/", "vendor/autoconf", "2.68", {unix: true, ext: "gz"}) do |src, prefix|
 		update_cfg.(src)
@@ -446,7 +453,7 @@ task :dep_newlib => [:dep_llvm, :dep_automake, :dep_autoconf, :dep_binutils] do
 end
 
 task :avery_sysroot => [:dep_compiler_rt, :dep_newlib] do
-	rebuild("build/meta/os-native-sysroot", ["compiler-rt/x86_64-pc-avery", "newlib"]) do
+	rebuild("vendor/avery-sysroot/version", ["compiler-rt/x86_64-pc-avery", "newlib"]) do
 		run "rm", "-rf", "vendor/avery-sysroot"
 		mkdirs('vendor/avery-sysroot')
 		run 'cp', '-r', 'vendor/newlib/install/x86_64-pc-avery/.', "vendor/avery-sysroot"
@@ -574,8 +581,6 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 	end
 	# We need the ELF loader for the kernel
 	get_submodule('verifier/rust-elfloader')
-
-	Rake::Task["std"].invoke
 
 	# Reset cargo target dir if rust changes
 	rebuild("build/meta/cargo-target", ["rust"]) do

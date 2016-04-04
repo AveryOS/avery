@@ -20,7 +20,8 @@ mod decoder;
 mod table;
 
 fn main() {
-	let path = "test.elf";
+	let path = std::env::args().nth(1).unwrap();
+	println!("Dumping {}", path);
 	let mut f = File::open(path).unwrap();
 	let mut buffer = Vec::new();
 	f.read_to_end(&mut buffer).unwrap();

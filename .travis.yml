@@ -4,28 +4,52 @@ git:
   submodules: false
 os: linux
 env:
-  global:
-    CC: clang-3.7
-    CXX: clang++-3.7
-  matrix:
-    - AVERY_BUILD=RELEASE
-    - AVERY_BUILD=DEBUG
-    - CI=VERIFIER
-addons:
- apt:
-   sources:
-   - ubuntu-toolchain-r-test
-   - llvm-toolchain-precise-3.7
-   packages:
-   - g++-4.8
-   - clang-3.7
-   - ninja-build
-   - texinfo
-language: ruby
-script: rake ci
-cache:
-  timeout: 1000
-  directories:
-  - vendor/cache
-  - build/cargo/avery-sysroot-target
-  - build/meta
+  - DUMMY_JOB=1
+script: echo dummy job
+matrix:
+  exclude:
+    env: TRAVIS_DUMMY=1
+  include:
+  - env:
+    - AVERY_BUILD=RELEASE CC=clang-3.7 CXX=clang++-3.7
+    addons:
+     apt:
+       sources:
+       - ubuntu-toolchain-r-test
+       - llvm-toolchain-precise-3.7
+       packages:
+       - g++-4.8
+       - clang-3.7
+       - ninja-build
+       - texinfo   
+    cache:
+      timeout: 1000
+      directories:
+      - vendor/cache
+      - build/cargo/avery-sysroot-target
+      - build/meta
+    script: rake
+  - env:
+    - AVERY_BUILD=DEBUG CC=clang-3.7 CXX=clang++-3.7
+    addons:
+     apt:
+       sources:
+       - ubuntu-toolchain-r-test
+       - llvm-toolchain-precise-3.7
+       packages:
+       - g++-4.8
+       - clang-3.7
+       - ninja-build
+       - texinfo   
+    cache:
+      timeout: 1000
+      directories:
+      - vendor/cache
+      - build/cargo/avery-sysroot-target
+      - build/meta
+    script: rake
+  - script: rake verifier
+    language: rust
+    rust: nightly
+    env:
+    - VERIFIER=1

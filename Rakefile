@@ -433,7 +433,7 @@ end
 task :user_skip do
 	build_user.()
 end
-task :user => [:deps_other, :user_skip]
+task :user => [:deps_other, :std, :user_skip]
 
 task :sh do
 	ENV.replace(CLEANENV)
@@ -441,8 +441,10 @@ task :sh do
 	run 'bash'
 end
 
-task :verifier do
+task :verifier => :dep_udis86 do
 	Dir.chdir("verifier")
+	get_submodule('rust-elfloader')
+
 	ENV['CARGO_TARGET_DIR'] = nil
 	run 'cargo', 'build'
 end
