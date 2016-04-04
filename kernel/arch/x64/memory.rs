@@ -328,13 +328,21 @@ pub unsafe fn initialize_initial(st: &memory::initial::State)
 		ptl1[ptl1_index] = entry;
 	};
 
-	let map = |virtual_start: usize, size: usize, base: Addr, mut flags: Addr| {
+	let map = |virtual_start: usize, size: usize, base: Addr, mut flags: Addr, limit: Option<usize>| {
+		let end = align_up(base + u64::coerce(size), PHYS_PAGE_SIZE);
+		let base = align_down(base, PHYS_PAGE_SIZE);
+		let size = usize::coerce(end - base);
+
+		if let Some(limit) = limit {
+			assert!(size <= limit);
+		}
+
 		assert_page_aligned!(base);
 		assert_page_aligned!(virtual_start);
 
 		flags |= PRESENT_BIT;
 
-		let pages = align_up(size, PAGE_SIZE) / PAGE_SIZE;
+		let pages = size / PAGE_SIZE;
 
 		for i in 0..pages {
 			set_entry(Page::new(virtual_start + i * PAGE_SIZE), page_table_entry(PhysicalPage::new(base + (i as Addr) * PHYS_PAGE_SIZE), flags));
@@ -346,14 +354,13 @@ pub unsafe fn initialize_initial(st: &memory::initial::State)
 
 	// Map the physical memory allocator
 
-	map(PHYSICAL_ALLOCATOR_MEMORY, st.overhead, (*st.entry).base, WRITE_BIT | NX_BIT);
+	map(PHYSICAL_ALLOCATOR_MEMORY, st.overhead, (*st.entry).base, WRITE_BIT | NX_BIT, Some(PTL2_SIZE));
 
 	// Map framebuffer to virtual memory
 
 	let (fb, fb_size) = console::get_buffer_info();
 
-	assert!(fb_size < PTL1_SIZE); // Framebuffer too large
-	map(FRAMEBUFFER_START, fb_size, fb, WRITE_BIT | NX_BIT);
+	map(FRAMEBUFFER_START, fb_size, fb, WRITE_BIT | NX_BIT, Some(PTL1_SIZE));
 
 	// Map kernel segments
 
@@ -361,6 +368,7 @@ pub unsafe fn initialize_initial(st: &memory::initial::State)
 		let mut flags = NX_BIT;
 
 		match hole.kind {
+			params::SegmentKind::Symbols => continue,
 			params::SegmentKind::Module => continue,
 			params::SegmentKind::Code => flags &= !NX_BIT,
 			params::SegmentKind::Data => flags |= WRITE_BIT,
@@ -369,7 +377,7 @@ pub unsafe fn initialize_initial(st: &memory::initial::State)
 
 		println!("Segment {:?} {:#x} - {:#x} @ {:#x} - {:#x}", hole.kind, hole.virtual_base, hole.virtual_base + (hole.end - hole.base) as usize, hole.base, hole.end);
 
-		map(hole.virtual_base, usize::coerce(hole.end - hole.base), hole.base, flags);
+		map(hole.virtual_base, usize::coerce(hole.end - hole.base), hole.base, flags, None);
 	}
 
 	load_pml4(get_pml4_physical());

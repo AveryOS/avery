@@ -1,6 +1,6 @@
 #![allow(unused_variables, unused_mut)]
 
-use elfloader::{self, ElfBinary, elf};
+use elfloader::{self, Image, DataHeader, elf};
 use std::mem;
 use std::slice;
 use std::io::{Read, Error, Cursor};
@@ -102,17 +102,17 @@ pub struct DwarfInfo<'s> {
     pub line: &'s [u8],
 }
 
-pub fn get_dwarf_info_from_elf<'s>(bin: &'s ElfBinary<'s>) -> Option<DwarfInfo<'s>> {
+pub fn get_dwarf_info_from_elf<'s>(bin: &'s Image<'s>) -> Option<DwarfInfo<'s>> {
     let mut info = None;
     let mut abbrev = None;
     let mut str = None;
     let mut line = None;
-    for h in bin.section_headers() {
-        match bin.section_name(h) {
-            ".debug_info" => info = Some(bin.section_data(h)),
-            ".debug_abbrev" => abbrev = Some(bin.section_data(h)),
-            ".debug_str" => str = Some(bin.section_data(h)),
-            ".debug_line" => line = Some(bin.section_data(h)),
+    for h in bin.sections {
+        match bin.section_name(h).unwrap() {
+            ".debug_info" => info = Some(h.data(bin)),
+            ".debug_abbrev" => abbrev = Some(h.data(bin)),
+            ".debug_str" => str = Some(h.data(bin)),
+            ".debug_line" => line = Some(h.data(bin)),
             _  => (),
         }
 	}
@@ -126,36 +126,6 @@ pub fn get_dwarf_info_from_elf<'s>(bin: &'s ElfBinary<'s>) -> Option<DwarfInfo<'
     } else {
         None
     }
-}
-
-pub fn get_dwarf_info() -> DwarfInfo<'static> {
-	extern {
-		static debug_line_start: u8;
-		static debug_line_end: u8;
-
-		static debug_abbrev_start: u8;
-		static debug_abbrev_end: u8;
-
-		static debug_str_start: u8;
-		static debug_str_end: u8;
-
-		static debug_info_start: u8;
-		static debug_info_end: u8;
-	}
-
-    unsafe {
-        let line = slice::from_raw_parts(&debug_line_start, offset(&debug_line_end) - offset(&debug_line_start));
-        let abbrev = slice::from_raw_parts(&debug_abbrev_start, offset(&debug_abbrev_end) - offset(&debug_abbrev_start));
-        let str = slice::from_raw_parts(&debug_str_start, offset(&debug_str_end) - offset(&debug_str_start));
-        let info = slice::from_raw_parts(&debug_info_start, offset(&debug_info_end) - offset(&debug_info_start));
-
-        DwarfInfo {
-            info: info,
-            abbrev: abbrev,
-            str: str,
-            line: line,
-        }
-   }
 }
 
 fn parse_info_unit<'s>(data: &mut Cursor<&'s [u8]>, dwarf: &DwarfInfo<'s>, target: u64) -> Result<Option<&'s str>, Error> {

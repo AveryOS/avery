@@ -61,6 +61,9 @@ bootstrap.64:
 	# Load a new higher-half stack
 	movabs $(stack_end), %rsp
 
+	# Clear rbp for backtraces
+	xor %rbp, %rbp
+
 	# Call the higher-half entry
 	mov %rcx, %rdi
 	movabs $boot_entry, %rax

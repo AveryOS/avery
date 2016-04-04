@@ -1,7 +1,7 @@
 use util::FixVec;
 use std;
 use std::fmt;
-use elfloader::{self, ElfBinary, elf};
+use elfloader::{self, Image, elf};
 
 #[cfg(multiboot)]
 pub mod multiboot;
@@ -191,7 +191,7 @@ pub unsafe fn initialize_basic() {
 	interrupts::initialize_idt();
 }
 
-pub fn get_user_elf() -> ElfBinary<'static> {
+pub fn get_user_elf() -> Image<'static> {
 	use std::slice;
 
 	extern {
@@ -203,14 +203,16 @@ pub fn get_user_elf() -> ElfBinary<'static> {
 		slice::from_raw_parts(&user_image_start, offset(&user_image_end) - offset(&user_image_start))
 	};
 
-	elfloader::ElfBinary::new("user_image", user).unwrap()
+	elfloader::Image::new(user).unwrap()
 }
 
-pub unsafe fn initialize() {
+pub unsafe fn initialize(st: &::memory::initial::State) {
 	use process;
 	use memory::Page;
 	use std::mem::transmute;
 	use std::ptr::copy_nonoverlapping;
+
+	symbols::setup(&st.info.symbols);
 
 	cpu::map_local_page_tables(cpu::bsp());
 
@@ -239,7 +241,7 @@ pub unsafe fn initialize() {
 		Ok(())
 	});
 
-	let entry = process.arch.base + usize::coerce(bin.header.entry);
+	let entry = process.arch.base + usize::coerce(bin.header.unwrap().entry);
 
 	println!("program entry point: {:x} stack {:x}", entry, cpu::current().arch.stack.end);
 

@@ -3,7 +3,7 @@ use arch::PAGE_SIZE;
 use cpu;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::SeqCst;
-use elfloader::ElfBinary;
+use elfloader::Image;
 use std::{str, slice};
 
 unsafe fn setup_pics() {
@@ -59,9 +59,9 @@ pub type Handler = extern fn (info: &Info, index: u8, error_code: usize);
 
 const HANDLER_COUNT: usize = 256; // Same as in interrupts.s
 
-unsafe fn backtrace<'s>(info: &Info, elf: Option<&'s ElfBinary<'s>>) {
+unsafe fn backtrace<'s>(info: &Info, elf: Option<&'s Image<'s>>) {
 	use arch::symbols;
-	print!("Backtrace:\n{}", symbols::Backtrace(info.registers.rbp as usize, Some(info.registers.rip), elf));
+	print!("Backtrace:\n{}", symbols::Backtrace(info.registers.rbp as usize, Some(info.registers.rip), elf, false));
 }
 
 unsafe fn dump_stack(info: &Info, len: usize) {

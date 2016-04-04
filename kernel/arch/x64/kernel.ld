@@ -36,21 +36,21 @@ SECTIONS
 	.ap_bootstrap ap_bootstrap_mapped : AT(ap_bootstrap_start - high_offset)
 	{
 		build/kernel/arch/x64/cpu.s.o(*)
+		. = ALIGN(page_size); /* Align .text */
 	}
 
 	. = ap_bootstrap_start + (. - ap_bootstrap_mapped);
 
 	ap_bootstrap_end = .;
 
-	. = ALIGN(page_size);
-
 	.text : AT(ADDR(.text) - high_offset)
 	{
 		*(.text*)
 		*(.gnu.linkonce.t*)
+
+		. = ALIGN(page_size); /* Align .rodata */
 	}
 
-	. = ALIGN(page_size);
 	rodata_start = .;
 
 	.rodata : AT(ADDR(.rodata) - high_offset)
@@ -64,16 +64,9 @@ SECTIONS
 		user_image_start = .;
 		build/user/hello.o(*)
 		user_image_end = .;
+
+		. = ALIGN(page_size); /* Align .data */
 	}
-
-% ['ranges', 'abbrev', 'info', 'line', 'str', 'loc'].each do |s|
-	debug_#{s}_start = .;
-	.debug_#{s} 0 : AT(debug_#{s}_start - high_offset) { *(.debug_#{s}) }
-	. += debug_#{s}_start;
-	debug_#{s}_end = .;
-% end
-
-	. = ALIGN(page_size);
 
 	.data : AT(ADDR(.data) - high_offset)
 	{
@@ -86,13 +79,9 @@ SECTIONS
 	{
 		*(.bss*)
 		*(.gnu.linkonce.b*)
+		. = ALIGN(page_size); /* Align kernel_end */
 	}
 
-	. = ALIGN(page_size);
 	kernel_end = .;
 	kernel_size = (kernel_end - kernel_start) / page_size;
-
-	/DISCARD/ : {
-		*(*)
-	}
 }

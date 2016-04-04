@@ -1,0 +1,11 @@
+Add the following:
+
+extern {
+    fn println_args(args: ::core::fmt::Arguments);
+}
+
+macro_rules! println {
+    ($($arg:tt)*) => (
+        unsafe { println_args(format_args!($($arg)*)) }
+    )
+}

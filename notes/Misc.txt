@@ -1,0 +1,15 @@
+For global data T
+	static mut storage: Mutex<Option<T>> = Mutex::new(None);
+	static AtomicPtr<T> ptr = 0;
+
+	fn get_or_init() -> &T {
+		if ptr != NULL {
+			return ptr;
+		}
+		s = storage.lock();
+		if s.is_some() {
+			return s.ptr();
+		}
+		s = Some(init_data());
+		return s.ptr();
+	}

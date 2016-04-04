@@ -111,6 +111,10 @@ pub mod physical;
 
 static ALLOC: Mutex<Option<allocator::Allocator>> = Mutex::new(None);
 
+pub fn can_alloc() -> bool {
+    ALLOC.lock().is_some()
+}
+
 pub unsafe fn initialize() {
     static mut alloc_first_block: Option<allocator::Block> = None;
     *ALLOC.lock() = Some(allocator::Allocator::new(Page::new(arch::memory::ALLOCATOR_START), Page::new(arch::memory::ALLOCATOR_END), &mut alloc_first_block));

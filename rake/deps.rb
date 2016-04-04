@@ -104,6 +104,7 @@ def rebuild(rev_file, depends = [], version = "")
 	if built_rev != rev
 			FileUtils.rm_rf([rev_file])
 			r = yield
+			mkdirs(File.dirname(rev_file))
 			open(rev_file, 'w') { |f| f.puts rev }
 			r
 	end

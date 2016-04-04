@@ -28,7 +28,8 @@ macro_rules! println {
     )
 }
 
-pub fn println_args(args: Arguments) {
+#[no_mangle]
+pub extern fn println_args(args: Arguments) {
     let lock = LOCK.lock();
     assert!(ScreenWriter.write_fmt(args).is_ok());
     arch::console::putc('\n');
@@ -54,7 +55,7 @@ extern fn eh_personality() {
 #[allow(unreachable_code)]
 #[lang = "panic_fmt"]
 extern fn panic_fmt(fmt: Arguments, file: &'static str, line: u32) -> ! {
-    static mut TRIED_BACKTRACE: bool = false;
+    static mut TRIED_BACKTRACE: usize = 0;
 
     unsafe {
         arch::interrupts::disable();
@@ -68,12 +69,14 @@ extern fn panic_fmt(fmt: Arguments, file: &'static str, line: u32) -> ! {
 
         //arch::freeze();
 
-        if !TRIED_BACKTRACE {
-            TRIED_BACKTRACE = true;
-            arch::symbols::print_backtrace();
+        if TRIED_BACKTRACE > 0 {
+            println!("Panic during backtrace...");
+        }
+
+        if TRIED_BACKTRACE < 2 {
+            TRIED_BACKTRACE += 1;
+            arch::symbols::print_backtrace(TRIED_BACKTRACE > 1);
             print!("@@@");
-        } else {
-            print!("Panic during backtrace...");
         }
 
     	arch::freeze();

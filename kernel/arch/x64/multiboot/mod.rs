@@ -1,7 +1,9 @@
 use std;
+use std::iter::Iterator;
 use params;
 use util::FixVec;
 use memory::{Addr};
+use arch::symbols;
 
 mod multiboot;
 
@@ -12,6 +14,8 @@ pub extern "C" fn boot_entry(info: &multiboot::Info) {
 
 #[inline(never)]
 pub fn init(info: &multiboot::Info) {
+	use elfloader::{self, Image, elf};
+
 	extern {
 		static low_end: void;
 		static kernel_start: void;
@@ -40,11 +44,65 @@ pub fn init(info: &multiboot::Info) {
 		panic!("Memory map not passed by Multiboot loader");
 	}
 
+	if info.flags & multiboot::FLAG_ELF == 0 {
+		panic!("ELF symbols not passed by Multiboot loader");
+	}
+
+	let first_2m = unsafe {
+		std::slice::from_raw_parts(0 as *const u8, 0x200000)
+	};
+
+	let bin = Image::new_sections(first_2m, u64::from(info.addr), u16::coerce(info.num), u16::coerce(info.size), u16::coerce(info.shndx)).unwrap();
+
 	let mut params = params::Info {
 		ranges: FixVec::new(),
-		segments: FixVec::new()
-
+		segments: FixVec::new(),
+		symbols: params::Symbols {
+			base: info.addr as u64,
+			count: u16::coerce(info.num),
+			strtab: u16::coerce(info.shndx),
+		},
 	};
+
+	params.segments.push(params::Segment {
+		kind: params::SegmentKind::Symbols,
+		base: Addr::from(info.addr),
+		end: Addr::from(info.addr + info.num * info.size),
+		virtual_base: 0,
+		found: false,
+		name: unsafe { std::mem::zeroed() }
+	});
+
+	// Place addr in offset so elfloader will use the correct data
+	for section in bin.sections.iter() {
+		unsafe {
+			*(&section.offset as *const u64 as *mut u64) = section.addr;
+		}
+	}
+
+	for section in bin.sections.iter() {
+		if section.shtype != elf::SHT_SYMTAB &&
+		   section.shtype != elf::SHT_PROGBITS &&
+		   section.shtype != elf::SHT_STRTAB {
+			continue;
+		}
+
+		let name = bin.section_name(section).unwrap();
+
+		if section.shtype == elf::SHT_PROGBITS &&
+			!name.starts_with(".debug_") {
+			continue;
+		}
+
+		params.segments.push(params::Segment {
+			kind: params::SegmentKind::Symbols,
+			base: section.addr as Addr,
+			end: (section.addr + section.size) as Addr,
+			virtual_base: 0,
+			found: false,
+			name: unsafe { std::mem::zeroed() }
+		});
+	}
 
 	setup_segment(&mut params, params::SegmentKind::Code, &kernel_start, &rodata_start);
 	setup_segment(&mut params, params::SegmentKind::ReadOnlyData, &rodata_start, &data_start);
