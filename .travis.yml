@@ -10,6 +10,7 @@ env:
   matrix:
     - AVERY_BUILD=RELEASE
     - AVERY_BUILD=DEBUG
+    - CI=VERIFIER
 addons:
  apt:
    sources:
@@ -21,6 +22,7 @@ addons:
    - ninja-build
    - texinfo
 language: ruby
+script: rake ci
 cache:
   timeout: 1000
   directories:

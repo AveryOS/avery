@@ -441,4 +441,19 @@ task :sh do
 	run 'bash'
 end
 
+task :verifier do
+	Dir.chdir("verifier")
+	ENV['CARGO_TARGET_DIR'] = nil
+	run 'cargo', 'build'
+end
+
+task :ci => [:user, :deps_other] do
+	case ENV['CI']
+		when 'VERIFIER'
+			Rake::Task["verifier"].invoke
+		else
+			Rake::Task["build"].invoke
+	end
+end
+
 task :default => :build
