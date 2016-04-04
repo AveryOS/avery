@@ -1,18 +1,14 @@
-#![feature(core)]
-#![feature(trace_macros)]
 #![feature(log_syntax)]
 #![feature(plugin)]
-//#![cfg_attr(test, feature(plugin, custom_attribute))]
-//#![cfg_attr(test, plugin(quickcheck_macros))]
-
-//#[cfg(test)]
-//extern crate quickcheck;
 
 extern crate elfloader;
 extern crate byteorder;
 extern crate core;
 extern crate rand;
 
+use std::sync::Arc;
+use std::fs::OpenOptions;
+use std::sync::Mutex;
 use rand::Rng;
 use std::fs::File;
 use std::io::Read;
@@ -23,7 +19,7 @@ mod table;
 
 use std::thread;
 
-fn run_tests(o: u8, n: u8) {
+fn run_tests(o: u8, n: u8, f: &Mutex<File>) {
 	let mut rnd = rand::thread_rng();
 	let mut xs = Vec::new();
 	while xs.len() < 16 {
@@ -31,18 +27,21 @@ fn run_tests(o: u8, n: u8) {
 	}
 	loop {
 		rnd.fill_bytes(&mut xs);
-		decoder::decode_test_allp(&xs);
+		decoder::decode_test_allp(&xs, f);
 	}
 }
 
 fn main() {
 	let n = 4;
 
+	let file = Arc::new(Mutex::new(OpenOptions::new().create(true).write(true).append(true).open("errors").unwrap()));
+
     let mut threads = vec![];
 
 	for i in 0..n {
+		let t_file = file.clone();
 	    threads.push(thread::spawn(move || {
-	    	run_tests(i, n);
+	    	run_tests(i, n, &*t_file);
 	    }));
 	}
 

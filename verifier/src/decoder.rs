@@ -1,5 +1,7 @@
 use table;
 use std::cmp;
+use std::fs::File;
+use std::sync::Mutex;
 
 #[derive(Copy, Clone)]
 pub struct Cursor<'s> {
@@ -45,8 +47,7 @@ fn ud(c: &mut Cursor, disp_off: u64) -> (String, usize) {
 	use std::process::Command;
 	use std::process::Stdio;
 	use std::io::Write;
-
-	let mut ud = Command::new("udcli")
+	let mut ud = Command::new("udis86/install/bin/udcli")
 						 .arg("-64")
 						 .arg("-o")
 						 .arg(format!("{:x}", c.offset as u64 + disp_off))
@@ -96,6 +97,7 @@ pub fn decode(data: &[u8], start: usize, size: usize, disp_off: u64) {
 		loop {
 			let start = c.offset;
 			print!("{:#08x}: ", start as u64 + disp_off);
+			let c_old = c.clone();
 			let (i, ud_len, ud_str) = inst(&mut c, disp_off);
 			let mut str = String::new();
 
@@ -112,15 +114,25 @@ pub fn decode(data: &[u8], start: usize, size: usize, disp_off: u64) {
 
 			print!("{}", str);
 
-			let i = i.unwrap_or_else(|| panic!("unknown opcode {:x} (ud: {})", c.next(), ud_str));
+			let print_debug = || {
+				unsafe { table::DEBUG = true };
+				inst(&mut c_old.clone(), disp_off);
+			};
+
+			let i = i.unwrap_or_else(|| {
+				print_debug();
+				panic!("unknown opcode {:x} (ud: {})", c.next(), ud_str)
+			});
 
 			println!("{}", i.desc);
 
-			if ud_str != i.desc {
+			if !ud2_match(&ud_str, &i) {
+				print_debug();
 				panic!("udis86 output didn't match |{}|", ud_str);
 			}
 
 			if ud_len != c.offset - start {
+				print_debug();
 				panic!("Instruction was of length {}, while udis86 was length {}", c.offset - start, ud_len);
 			}
 
@@ -153,41 +165,48 @@ pub fn decode(data: &[u8], start: usize, size: usize, disp_off: u64) {
 	}
 }
 
-fn decode_testrp(xs: &[u8], pre: &[u8], rex: &[u8]) {
+fn decode_testrp(xs: &[u8], pre: &[u8], rex: &[u8], f: &Mutex<File>) {
 	let mut s = Vec::new();
 	s.extend(pre);
 	s.extend(rex);
 	s.extend(xs);
-	decode_test(&s);
+	decode_test(&s, f);
 }
 
-fn decode_testp(xs: &[u8], pre: &[u8]) {
-	decode_testrp(xs, pre, &[]);
+fn decode_testp(xs: &[u8], pre: &[u8], f: &Mutex<File>) {
+	decode_testrp(xs, pre, &[], f);
 	for b in 0x40..0x4f {
-		decode_testrp(xs, pre, &[b]);
+		decode_testrp(xs, pre, &[b], f);
 	}
 }
 
-pub fn decode_test_allp(xs: &[u8]) {
-	decode_test(xs);
-	decode_testp(xs, &[0x64]);
-	decode_testp(xs, &[0x65]);
-	decode_testp(xs, &[0xF0]);
-	decode_testp(xs, &[0x66]);
-	decode_testp(xs, &[0x66, 0xF0]);
-	decode_testp(xs, &[0x65, 0xF0]);
-	decode_testp(xs, &[0x64, 0xF0]);
-	decode_testp(xs, &[0x64, 0x66]);
-	decode_testp(xs, &[0x65, 0x66]);
-	decode_testp(xs, &[0x64, 0x65]);
-	decode_testp(xs, &[0x64, 0x65, 0xF0]);
-	decode_testp(xs, &[0x64, 0x65, 0x66]);
-	decode_testp(xs, &[0x66, 0x65, 0xF0]);
-	decode_testp(xs, &[0x64, 0x66, 0xF0]);
-	decode_testp(xs, &[0x64, 0x66, 0x65, 0xF0]);
+pub fn decode_test_allp(xs: &[u8], f: &Mutex<File>) {
+	decode_testp(xs, &[], f);
+	decode_testp(xs, &[0x64], f);
+	decode_testp(xs, &[0x65], f);
+	decode_testp(xs, &[0xF0], f);
+	decode_testp(xs, &[0x66], f);
+	decode_testp(xs, &[0x66, 0xF0], f);
+	decode_testp(xs, &[0x65, 0xF0], f);
+	decode_testp(xs, &[0x64, 0xF0], f);
+	decode_testp(xs, &[0x64, 0x66], f);
+	decode_testp(xs, &[0x65, 0x66], f);
+	decode_testp(xs, &[0x64, 0x65], f);
+	decode_testp(xs, &[0x64, 0x65, 0xF0], f);
+	decode_testp(xs, &[0x64, 0x65, 0x66], f);
+	decode_testp(xs, &[0x66, 0x65, 0xF0], f);
+	decode_testp(xs, &[0x64, 0x66, 0xF0], f);
+	decode_testp(xs, &[0x64, 0x66, 0x65, 0xF0], f);
 }
 
-pub fn decode_test(xs: &[u8]) {
+fn ud2_match(ud: &str, inst: &table::Instruction) -> bool {
+	if inst.name == "out" || inst.name == "in" {
+		return true;
+	}
+	ud == inst.desc
+}
+
+pub fn decode_test(xs: &[u8], f: &Mutex<File>) {
 	use std::io::stderr;
 	use std::io::Write;
 
@@ -203,62 +222,14 @@ pub fn decode_test(xs: &[u8]) {
 			str.push_str(&format!("{:02x}", b));
 		}
 		//println!("testing {:?} = {}", &xs[..], i.desc);
-		if ud_str != i.desc {
+		if !ud2_match(&ud_str, &i) {
+			writeln!(f.lock().unwrap(), "{}", table::bytes(xs)).unwrap();
 			println!("On: {}; len:{} |{}|; udis86 output didn't match len:{} |{}|", str, c.offset, i.desc, ud_len, ud_str);
 			writeln!(&mut stderr(), "On: {}; len:{} |{}|; udis86 output didn't match len:{} |{}|", str, c.offset, i.desc, ud_len, ud_str).unwrap();
 		} else if ud_len != c.offset {
+			writeln!(f.lock().unwrap(), "{}", table::bytes(xs)).unwrap();
 			println!("On: {}; Instruction was of length {}, while udis86 was length {}", str, c.offset, ud_len);
 			writeln!(&mut stderr(), "On: {}; Instruction was of length {}, while udis86 was length {}", str, c.offset, ud_len).unwrap();
 		}
-	}
-}
-
-#[cfg(test)]
-mod tests {
-	use decoder::*;
-	use std::io::Write;
-
-	#[test]
-	fn cases() {
-		println!("cases...");
-		decode_n(&[0x64, 0x26]);
-	}
-/*
-	//#[quickcheck]
-	fn decode_q(xs: Vec<u8>) -> bool {
-		decode_n(&xs);
-		true
-	}
-*/
-	fn decode_n(xs: &[u8]) {
-		let mut v = Vec::new();
-		v.extend(xs);
-		while v.len() < 16 {
-			v.push(0);
-		}
-		decode_test(&v)
-	}
-
-	#[test]
-	fn decode_all() {
-		println!("starting decode_all...");
-		::std::io::stdout().flush().ok();
-		let mut xs = Vec::new();
-		while xs.len() < 16 {
-			xs.push(0);
-		}
-		while *xs.last().unwrap() != 255 {
-			decode_test(&xs);
-
-			for j in 0..xs.len() {
-				if xs[j] == 255 {
-					xs[j] = 0;
-				} else {
-					xs[j] += 1;
-					break;
-				}
-			}
-		}
-		decode_test(&xs);
 	}
 }

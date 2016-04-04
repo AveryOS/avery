@@ -1,13 +1,29 @@
 use decoder::Cursor;
 use std::cell::RefCell;
 
-//trace_macros!(true);
+pub static mut DEBUG: bool = false;
+
+macro_rules! debug {
+    ($($arg:tt)*) => (
+        if unsafe { DEBUG } {
+            print!($($arg)*);
+        }
+    );
+}
 
 #[derive(Copy, Clone)]
-enum RT {
+pub enum RT {
 	GP(usize),
 	SSE(usize),
 	CR(usize),
+}
+
+pub fn bytes(bs: &[u8]) -> String {
+	let mut str = String::new();
+	for b in bs.iter() {
+		str.push_str(&format!("{:02x}", b));
+	}
+	str
 }
 
 fn ext_bit(b: usize, i: usize, t: usize) -> usize {
@@ -16,6 +32,7 @@ fn ext_bit(b: usize, i: usize, t: usize) -> usize {
 
 #[derive(Clone)]
 pub struct Instruction {
+	pub name: String,
 	pub desc: String,
 	pub terminating: bool,
 	pub ops: Vec<(Operand, Size)>,
@@ -23,7 +40,7 @@ pub struct Instruction {
 }
 
 #[derive(Clone)]
-struct IndirectAccess {
+pub struct IndirectAccess {
 	base: Option<usize>,
 	index: Option<usize>,
 	scale: usize,
@@ -224,6 +241,8 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 	let operand_size_override = prefixes.contains(&P_OP_SIZE);
 	let fs_override = prefixes.contains(&P_SEG_FS);
 	let gs_override = prefixes.contains(&P_SEG_GS);
+
+	debug!("Instruction decoding failed\n");
 
 	if gs_override && fs_override {
 		return None;
@@ -573,6 +592,7 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 
 		if has_prefix(P_LOCK) {
 			if !LOCK_WHITELIST.contains(&name) {
+				debug!("Lock prefix on instruction not in whitelist\n");
 				return None;
 			} else {
 				prefix.push_str("lock ");
@@ -591,31 +611,46 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 					Operand::Direct(..) | Operand::Indirect(..) => s().prefix_whitelist.push(P_OP_SIZE),
 					_ => ()
 				}
+				match op {
+					Operand::Indirect(..) => {
+						s().prefix_whitelist.push(P_SEG_GS);
+						s().prefix_whitelist.push(P_SEG_FS);
+					}
+					_ => ()
+				}
 			}
 		}
 
-		if prefixes.iter().all(|p| sr().prefix_whitelist.contains(p)) {
+		if prefixes.iter().all(|p| {
+			let r = sr().prefix_whitelist.contains(p);
+			if !r {
+				debug!("Prefix {:02x} not allowed on instruction\n", p);
+			}
+			r
+		}) {
 			Some(prefix)
 		} else {
 			None
 		}
 	};
 
-	let do_op = |mut code: &[u8], name: &str, options: &[OpOption]| -> Option<Option<Instruction>> {
+	let do_op = |full_code: &[u8], name: &str, options: &[OpOption]| -> Option<Option<Instruction>> {
 		let mut prefix_len = 0;
-		while ALL_PREFIXES.contains(&code[prefix_len]) {
+		while ALL_PREFIXES.contains(&full_code[prefix_len]) {
 			prefix_len += 1;
 		}
-		let code_prefixes = &code[0..prefix_len];
-		code = &code[prefix_len..];
+		let code_prefixes = &full_code[0..prefix_len];
+		let code = &full_code[prefix_len..];
 
 		if prefixes.ends_with(code_prefixes) && sr().cursor.remaining().starts_with(code) {
+			debug!("Attempting to match {} op: {} prefixes: {}\n", name, bytes(full_code), bytes(code_prefixes));
 			let temp_state = sr().clone();
 			s().cursor.offset += code.len();
 			if opts(options) {
 				for p in code_prefixes {
 					s().matched_prefixes.push(*p);
 					s().prefix_whitelist.push(*p);
+					debug!("Instruction uses prefix {:02x} for the opcode encoding\n", *p);
 				}
 				let op_size_postfix = sr().op_size_postfix;
 				let iname = if op_size_postfix {
@@ -634,11 +669,12 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 					Some(p) => p,
 					None => {
 						*s() = temp_state;
-						return Some(None)
+						return None
 					}
 				};
 				let ops = sr().operands.iter().enumerate().map(|(i, _)| print_op(i)).collect::<Vec<String>>().join(", ");
 				return Some(Some(Instruction {
+					name: iname.clone(),
 					desc: format!("{}{}{}{}", prefix, iname, if sr().operands.is_empty() { "" } else { " " }, ops),
 					ops: sr().operands.clone(),
 					branch: sr().branch,
@@ -825,6 +861,9 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 
 	op!([0x0f, 0x28], "movaps", [SSE, Reg, Rm]);
 	op!([0x0f, 0x29], "movaps", [SSE, Rm, Reg]);
+
+	op!([0xf3, 0x0f, 0x7e], "movq", [SSE, Reg, Rm]);
+	op!([0x66, 0x0f, 0xd6], "movq", [SSE, Rm, Reg]);
 
 	op!([0x0f, 0x6e], "mov", [OpSizePostfix, MMX, Reg, OpSize(op_size_w), SSEOff, Rm]);
 	op!([0x0f, 0x7e], "mov", [OpSizePostfix, OpSize(op_size_w), Rm, MMX, Reg, OpSize(op_size_w)]);

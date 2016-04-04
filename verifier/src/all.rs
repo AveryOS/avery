@@ -1,18 +1,14 @@
-#![feature(core)]
-#![feature(trace_macros)]
 #![feature(log_syntax)]
 #![feature(plugin)]
-//#![cfg_attr(test, feature(plugin, custom_attribute))]
-//#![cfg_attr(test, plugin(quickcheck_macros))]
-
-//#[cfg(test)]
-//extern crate quickcheck;
 
 extern crate elfloader;
 extern crate byteorder;
 extern crate core;
 
+use std::sync::Arc;
+use std::sync::Mutex;
 use std::fs::File;
+use std::fs::OpenOptions;
 use std::io::Read;
 use elfloader::*;
 
@@ -21,7 +17,7 @@ mod table;
 
 use std::thread;
 
-fn run_tests(o: u8, n: u8) {
+fn run_tests(o: u8, n: u8, f: &Mutex<File>) {
 	let mut xs = Vec::new();
 	xs.push(o);
 	while xs.len() < 16 {
@@ -30,7 +26,7 @@ fn run_tests(o: u8, n: u8) {
 	while *xs.last().unwrap() != 255 {
 		println!("testing({})) {:?}", o, &xs[..]);
 
-		decoder::decode_test_allp(&xs);
+		decoder::decode_test_allp(&xs, f);
 
 		let n = xs[0].wrapping_add(n);
 
@@ -47,17 +43,20 @@ fn run_tests(o: u8, n: u8) {
 
 		xs[0] = n;
 	}
-	decoder::decode_test_allp(&xs);
+	decoder::decode_test_allp(&xs, f);
 }
 
 fn main() {
 	let n = 4;
 
+	let file = Arc::new(Mutex::new(OpenOptions::new().create(true).write(true).append(true).open("errors").unwrap()));
+
     let mut threads = vec![];
 
 	for i in 0..n {
+		let t_file = file.clone();
 	    threads.push(thread::spawn(move || {
-	    	run_tests(i, n);
+	    	run_tests(i, n, &*t_file);
 	    }));
 	}
 

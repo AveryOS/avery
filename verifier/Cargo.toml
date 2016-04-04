@@ -5,6 +5,7 @@ authors = ["John Kåre Alsaker <john.kare.alsaker@gmail.com>"]
 
 [dependencies]
 byteorder = "0.4.2"
+rustc-serialize = "0.3.18"
 rand = "*"
 
 [dependencies.elfloader]
@@ -13,6 +14,10 @@ path = "rust-elfloader"
 [dev-dependencies]
 quickcheck = "0.2"
 quickcheck_macros = "0.2"
+
+[[bin]]
+name = "cases"
+path = "src/cases.rs"
 
 [[bin]]
 name = "dump"

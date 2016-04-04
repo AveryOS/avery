@@ -339,7 +339,7 @@ task :deps_msys do
 	else
 		'mingw-w64-i686'
 	end
-	run *%W{pacman --needed --noconfirm -S ruby git tar gcc bison make texinfo patch diffutils autoconf #{mingw}-python2 #{mingw}-cmake #{mingw}-gcc #{mingw}-ninja}
+	run *%W{pacman --needed --noconfirm -S ruby git tar gcc bison make texinfo patch diffutils python2 libtool automake autoconf #{mingw}-python2 #{mingw}-cmake #{mingw}-gcc #{mingw}-ninja}
 end
 
 task :dep_cmake do
@@ -379,7 +379,7 @@ task :dep_llvm => :dep_cmake do
 end
 
 task :dep_udis86 do
-	build_submodule.("verifier/udis86", {unix: true}) do |src, prefix|
+	build_submodule.("verifier/udis86") do |src, prefix|
 		Dir.chdir(src) { run './autogen.sh' }
 		run File.join(src, 'configure'), "--prefix=#{prefix}"
 	end

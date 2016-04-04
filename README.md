@@ -11,6 +11,10 @@ Avery kernel
   * diffutils
   * texinfo
   * libssl-dev
+  * libtool
+  * autoconf
+  * automake
+  * python
   * gcc
   * cmake
   * rake

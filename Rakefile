@@ -449,6 +449,10 @@ task :verifier => :dep_udis86 do
 	run 'cargo', 'build'
 end
 
+task :test_verifier => :verifier do
+	run 'cargo', 'run', '--release', '--bin', 'rnd'
+end
+
 task :ci => [:user, :deps_other] do
 	case ENV['CI']
 		when 'VERIFIER'

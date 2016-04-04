@@ -48,7 +48,7 @@ matrix:
       - build/cargo/avery-sysroot-target
       - build/meta
     script: rake
-  - script: rake verifier
+  - script: rake test_verifier
     language: rust
     rust: nightly
     env:
