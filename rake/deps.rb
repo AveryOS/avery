@@ -446,7 +446,7 @@ task :dep_newlib => [:dep_llvm, :dep_automake, :dep_autoconf, :dep_binutils] do
 end
 
 task :avery_sysroot => [:dep_compiler_rt, :dep_newlib] do
-	rebuild("vendor/avery-sysroot/version", ["compiler-rt/x86_64-pc-avery", "newlib"]) do
+	rebuild("build/meta/os-native-sysroot", ["compiler-rt/x86_64-pc-avery", "newlib"]) do
 		run "rm", "-rf", "vendor/avery-sysroot"
 		mkdirs('vendor/avery-sysroot')
 		run 'cp', '-r', 'vendor/newlib/install/x86_64-pc-avery/.', "vendor/avery-sysroot"
@@ -578,7 +578,7 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 	Rake::Task["std"].invoke
 
 	# Reset cargo target dir if rust changes
-	rebuild("build/cargo/version", ["rust"]) do
+	rebuild("build/meta/cargo-target", ["rust"]) do
 		run "rm", "-rf", "build/cargo/target"
 	end
 end

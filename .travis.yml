@@ -28,3 +28,4 @@ cache:
   directories:
   - vendor/cache
   - build/cargo/avery-sysroot-target
+  - build/meta

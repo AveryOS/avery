@@ -236,7 +236,7 @@ build_kernel = proc do |skip = false|
 end
 
 task :std do
-	rebuild("vendor/cargo-sysroot/version", ["rust"]) do
+	rebuild("build/meta/os-rust-sysroot", ["rust"]) do
 		run "rm", "-rf", "build/cargo/avery-sysroot-target"
 		ENV['CC_x86_64-pc-avery'] = 'clang --target=x86_64-pc-avery'
 		ENV['CXX_x86_64-pc-avery'] = 'clang++ --target=x86_64-pc-avery'
