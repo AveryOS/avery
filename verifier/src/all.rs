@@ -1,5 +1,6 @@
 #![feature(log_syntax)]
 #![feature(plugin)]
+#![feature(const_fn)]
 
 extern crate elfloader;
 extern crate byteorder;

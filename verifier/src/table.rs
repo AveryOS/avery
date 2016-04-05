@@ -11,7 +11,7 @@ macro_rules! debug {
     );
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub enum RT {
 	GP(usize),
 	SSE(usize),
@@ -30,7 +30,7 @@ fn ext_bit(b: usize, i: usize, t: usize) -> usize {
 	((b >> i) & 1) << t
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Instruction {
 	pub name: String,
 	pub desc: String,
@@ -39,7 +39,7 @@ pub struct Instruction {
 	pub branch: bool,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct IndirectAccess {
 	base: Option<usize>,
 	index: Option<usize>,
@@ -48,7 +48,7 @@ pub struct IndirectAccess {
 	offset_wide: bool,
 }
 
-#[derive(Eq, PartialEq, Copy, Clone)]
+#[derive(Eq, PartialEq, Copy, Clone, Debug)]
 pub enum Size {
 	S8,
 	S16,
@@ -58,7 +58,7 @@ pub enum Size {
 }
 use self::Size::*;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Operand {
 	Direct(RT),
 	Indirect(IndirectAccess),
@@ -81,7 +81,7 @@ pub const ALL_PREFIXES: &'static [u8] = &[P_LOCK, P_REP, P_REPNE,
 	P_OP_SIZE, P_ADDR_SIZE,
 	P_SEG_CS, P_SEG_DS, P_SEG_ES, P_SEG_SS, P_SEG_FS, P_SEG_GS];
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 enum OpOption {
 	Rm,
 	SSE,
@@ -94,6 +94,7 @@ enum OpOption {
 	Cr(bool),
 	Prefix(u8),
 	OpSizePostfix,
+	NoOpSizeOverride,
 	Imm,
 	Addr,
 	Reg,
@@ -103,8 +104,10 @@ enum OpOption {
 	NoMem,
 	Mem(Option<usize>),
 	RmOpcode(usize),
+	OpSizeLimit32,
 	OpSize(Size),
 	OpSizeDef,
+	OpSizeToImmSize,
 	ImmSize(Size),
 	Term,
 }
@@ -242,14 +245,15 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 	let fs_override = prefixes.contains(&P_SEG_FS);
 	let gs_override = prefixes.contains(&P_SEG_GS);
 
-	debug!("Instruction decoding failed\n");
-
 	if gs_override && fs_override {
 		return None;
 	}
 
 	let op_size_w = if rex_w { S64 } else { S32 };
 	let op_size = if rex_w { S64 } else { if operand_size_override { S16 } else { S32 } };
+
+	debug!("Decoding instruction {} rex_w: {}, op_override: {}, opsize: {:?}, prefixes: {}\n", bytes(&in_cursor.remaining()[0..]), rex_w, operand_size_override, op_size, bytes(prefixes));
+
 	let state: RefCell<State> = RefCell::new(State {
 		cursor: in_cursor.clone(),
 		terminating: false,
@@ -424,7 +428,8 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 	let opts = |options: &[OpOption]| {
 		let mut allowed = true;
 		for opt in options.iter() {
-			let opsize = sr().operand_size;
+			let op_size = sr().operand_size;
+			debug!("Appling option {:?}, opsize = {:?}\n", opt, op_size);
 			let l_allowed = match *opt {
 				ImmSize(size) => {
 					s().imm_size = size;
@@ -438,6 +443,14 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 					let d = sr().def_op_size;
 					s().operand_size = d;
 					true
+				}
+				OpSizeToImmSize => {
+					let d = sr().imm_size;
+					s().operand_size = d;
+					true
+				}
+				NoOpSizeOverride => {
+					!operand_size_override
 				}
 				OpSizePostfix => {
 					s().op_size_postfix = true;
@@ -468,6 +481,10 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 					s().sse = true;
 					true
 				}
+				OpSizeLimit32 => {
+					s().operand_size = if op_size == S64 { S32 } else { op_size };
+					true
+				}
 				SSE => {
 					s().operand_size = S128;
 					s().sse = true;
@@ -486,16 +503,16 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 						reg += 8;
 					}
 					let r = reg_ref(reg);
-					s().operands.push((Operand::Direct(r), opsize));
+					s().operands.push((Operand::Direct(r), op_size));
 					true
 				}
 				FixReg(reg) => {
 					let r = reg_ref(reg);
-					s().operands.push((Operand::Direct(r), opsize));
+					s().operands.push((Operand::Direct(r), op_size));
 					true
 				}
 				FixImm(imm) => {
-					s().operands.push((Operand::Imm((imm, S8)), opsize));
+					s().operands.push((Operand::Imm((imm, S8)), op_size));
 					true
 				}
 				Cr(read) => {
@@ -519,13 +536,13 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 						offset: read_imm(&state, S64),
 						offset_wide: true,
 					};
-					s().operands.push((Operand::Indirect(a), opsize));
+					s().operands.push((Operand::Indirect(a), op_size));
 					true
 				}
 				Imm => {
 					let imm_size = sr().imm_size;
 					let imm = read_imm(&state, imm_size);
-					s().operands.push((Operand::Imm((imm, imm_size)), opsize));
+					s().operands.push((Operand::Imm((imm, imm_size)), op_size));
 					true
 				}
 				Branch => {
@@ -548,7 +565,7 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 					}
 					match indir {
 						Operand::Indirect(..) => {
-							s().operands.push((indir, opsize));
+							s().operands.push((indir, op_size));
 							true
 						}
 						_ => false,
@@ -556,24 +573,24 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 				}
 				Rm => {
 					let (indir, _) = modrm();
-					s().operands.push((indir, opsize));
+					s().operands.push((indir, op_size));
 					true
 				}
 				Reg => {
 					let (_, reg) = modrm();
 					let r = reg_ref(reg);
-					s().operands.push((Operand::Direct(r), opsize));
+					s().operands.push((Operand::Direct(r), op_size));
 					true
 				}
 				RmOpcode(opcode_ext) => {
 					let (indir, reg) = modrm();
-					s().operands.push((indir.clone(), opsize));
+					s().operands.push((indir.clone(), op_size));
 					//println!("RmOpcode {} {} {}", reg & 7, opcode_ext, print_op(sr().operands.len() - 1));
 					s().operands.pop();
 					if reg & 7 != opcode_ext {
 						false
 					} else {
-						s().operands.push((indir, opsize));
+						s().operands.push((indir, op_size));
 						true
 					}
 				}
@@ -643,7 +660,7 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 		let code = &full_code[prefix_len..];
 
 		if prefixes.ends_with(code_prefixes) && sr().cursor.remaining().starts_with(code) {
-			debug!("Attempting to match {} op: {} prefixes: {}\n", name, bytes(full_code), bytes(code_prefixes));
+			debug!("Attempting to match {} op: {} prefixes: {}, os: {:?}\n", name, bytes(full_code), bytes(code_prefixes), sr().operand_size);
 			let temp_state = sr().clone();
 			s().cursor.offset += code.len();
 			if opts(options) {
@@ -753,7 +770,6 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 		pair!([0xf6], instr, [RmOpcode(opcode)]);
 	}
 
-	op!([0x0f, 0xaf], "imul", [Reg, Rm]);
 
 	let nop_prefixes: Vec<OpOption> = ALL_PREFIXES.iter().filter(|&p| *p != P_LOCK).map(|v| Prefix(*v)).collect();
 
@@ -763,10 +779,10 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 
 	op!([0xeb], "jmp", [ImmSize(S8), Term, Disp]);
 	op!([0xe9], "jmp", [Term, disp_size.clone(), Disp]);
-	op!([0xff], "jmp", [OpSize(S64), RmOpcode(4), Term, Branch]);
+	op!([0xff], "jmp", [wide_op.clone(), RmOpcode(4), Term, Branch]);
 
 	op!([0xe8], "call", [disp_size.clone(), Disp]);
-	op!([0xff], "call", [OpSize(S64), RmOpcode(2), Branch]);
+	op!([0xff], "call", [wide_op.clone(), RmOpcode(2), Branch]);
 
 	for reg in 0..8 {
 		op!([0x50 + reg], "push", [wide_op.clone(), FixRegRex(reg as usize)]);
@@ -799,7 +815,8 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 	op!([0x0f, 0xba], "btr", [RmOpcode(6), ImmSize(S8), Imm]);
 	op!([0x0f, 0xba], "btc", [RmOpcode(7), ImmSize(S8), Imm]);
 
-	op!([0x69], "imul", [Reg, Rm, Imm]);
+	op!([0x0f, 0xaf], "imul", [Reg, Rm]);
+	op!([0x69], "imul", [Reg, Rm, OpSizeToImmSize, Imm]);
 	op!([0x6b], "imul", [Reg, Rm, ImmSize(S8), Imm]);
 
 	op!([0xf3, 0x90], "pause", []);
@@ -822,7 +839,7 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 	op!([0x0f, 0xbf], "movsx", [Reg, OpSize(S16), Rm]);
 
 	if rex_w || !verify { // It is useless without rex_w
-		op!([0x63], "movsxd", [Reg, OpSize(S32), Rm]);
+		op!([0x63], "movsxd", [NoOpSizeOverride, Reg, OpSize(S32), Rm]);
 	}
 
 	if rex_w {
@@ -853,8 +870,7 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 	// MMX/SSE
 
 	op!([0xf2, 0x0f, 0x10], "movsd", [SSE, Reg, OpSize(S64), Rm]);
-	// Should be SSE, OpSize(S64), Rm, OpSize(S128), Reg | udis doesn't print qword ptr on this
-	op!([0xf2, 0x0f, 0x11], "movsd", [SSE, Rm, OpSize(S128), Reg]); 
+	op!([0xf2, 0x0f, 0x11], "movsd", [SSE, OpSize(S64), Rm, OpSize(S128), Reg]); 
 
 	op!([0x66, 0x0f, 0x28], "movapd", [SSE, Reg, Rm]);
 	op!([0x66, 0x0f, 0x29], "movapd", [SSE, Rm, Reg]);
@@ -865,8 +881,8 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 	op!([0xf3, 0x0f, 0x7e], "movq", [SSE, Reg, Rm]);
 	op!([0x66, 0x0f, 0xd6], "movq", [SSE, Rm, Reg]);
 
-	op!([0x0f, 0x6e], "mov", [OpSizePostfix, MMX, Reg, OpSize(op_size_w), SSEOff, Rm]);
-	op!([0x0f, 0x7e], "mov", [OpSizePostfix, OpSize(op_size_w), Rm, MMX, Reg, OpSize(op_size_w)]);
+	op!([0x0f, 0x6e], "mov", [NoOpSizeOverride, OpSizePostfix, MMX, Reg, OpSize(op_size_w), SSEOff, Rm]);
+	op!([0x0f, 0x7e], "mov", [NoOpSizeOverride, OpSizePostfix, OpSize(op_size_w), Rm, MMX, Reg, OpSize(op_size_w)]);
 
 	op!([0x66, 0x0f, 0x6c], "punpcklqdq", [SSE, Reg, Rm]);
 	op!([0x66, 0x0f, 0x6d], "punpckhqdq", [SSE, Reg, Rm]);
@@ -907,13 +923,13 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 
 	op!([0xf4], "hlt", []);
 
-	op!([0xcd], "int", [ImmSize(S8), Imm]);
+	op!([0xcd], "int", [OpSize(S8), ImmSize(S8), Imm]);
 
-	pair!([0xe4], "in", [FixReg(0), OpSize(S8), ImmSize(S8), Imm]);
-	pair!([0xec], "in", [FixReg(0), OpSize(S16), FixReg(2)]);
+	pair!([0xe4], "in", [OpSizeLimit32, FixReg(0), OpSize(S8), ImmSize(S8), Imm]);
+	pair!([0xec], "in", [OpSizeLimit32, FixReg(0), OpSize(S16), FixReg(2)]);
 
-	pair!([0xe6], "out", [OpSize(S8), ImmSize(S8), Imm, OpSizeDef, FixReg(0)]);
-	pair!([0xee], "out", [OpSize(S16), FixReg(2), OpSizeDef, FixReg(0)]);
+	pair!([0xe6], "out", [OpSize(S8), ImmSize(S8), Imm, OpSizeDef, OpSizeLimit32, FixReg(0)]);
+	pair!([0xee], "out", [OpSize(S16), FixReg(2), OpSizeDef, OpSizeLimit32, FixReg(0)]);
 
 	None
 }

@@ -2,6 +2,7 @@ use table;
 use std::cmp;
 use std::fs::File;
 use std::sync::Mutex;
+use std::sync::atomic::{Ordering, AtomicBool};
 
 #[derive(Copy, Clone)]
 pub struct Cursor<'s> {
@@ -200,11 +201,19 @@ pub fn decode_test_allp(xs: &[u8], f: &Mutex<File>) {
 }
 
 fn ud2_match(ud: &str, inst: &table::Instruction) -> bool {
-	if inst.name == "out" || inst.name == "in" {
+	use table::*;
+	use table::Size::*;
+	if (inst.name == "out" && inst.ops[1].1 == S32) ||
+	   (inst.name == "in"  && inst.ops[0].1 == S32) {
+		return true;
+	}
+	if inst.name == "movsxd" && inst.ops[0].1 == S32 {
 		return true;
 	}
 	ud == inst.desc
 }
+
+pub static FOUND_ERRORS: AtomicBool = AtomicBool::new(false);
 
 pub fn decode_test(xs: &[u8], f: &Mutex<File>) {
 	use std::io::stderr;
@@ -221,15 +230,23 @@ pub fn decode_test(xs: &[u8], f: &Mutex<File>) {
 		for b in xs[0..ud_len].iter() {
 			str.push_str(&format!("{:02x}", b));
 		}
-		//println!("testing {:?} = {}", &xs[..], i.desc);
+		if unsafe { table::DEBUG } {
+			println!("Decoded {} = {}\n{:?}", table::bytes(&xs[..]), i.desc, i);
+		}
 		if !ud2_match(&ud_str, &i) {
+			FOUND_ERRORS.store(true, Ordering::SeqCst);
 			writeln!(f.lock().unwrap(), "{}", table::bytes(xs)).unwrap();
 			println!("On: {}; len:{} |{}|; udis86 output didn't match len:{} |{}|", str, c.offset, i.desc, ud_len, ud_str);
 			writeln!(&mut stderr(), "On: {}; len:{} |{}|; udis86 output didn't match len:{} |{}|", str, c.offset, i.desc, ud_len, ud_str).unwrap();
 		} else if ud_len != c.offset {
+			FOUND_ERRORS.store(true, Ordering::SeqCst);
 			writeln!(f.lock().unwrap(), "{}", table::bytes(xs)).unwrap();
 			println!("On: {}; Instruction was of length {}, while udis86 was length {}", str, c.offset, ud_len);
 			writeln!(&mut stderr(), "On: {}; Instruction was of length {}, while udis86 was length {}", str, c.offset, ud_len).unwrap();
+		}
+	} else {
+		if unsafe { table::DEBUG } {
+			println!("No decoding for {}", table::bytes(&xs[..]));
 		}
 	}
 }

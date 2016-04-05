@@ -1,7 +1,7 @@
-#![feature(core)]
 #![feature(trace_macros)]
 #![feature(log_syntax)]
 #![feature(plugin)]
+#![feature(const_fn)]
 //#![cfg_attr(test, feature(plugin, custom_attribute))]
 //#![cfg_attr(test, plugin(quickcheck_macros))]
 

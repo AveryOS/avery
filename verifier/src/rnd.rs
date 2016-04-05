@@ -1,5 +1,6 @@
 #![feature(log_syntax)]
 #![feature(plugin)]
+#![feature(const_fn)]
 
 extern crate elfloader;
 extern crate byteorder;
@@ -32,6 +33,13 @@ fn run_tests(o: u8, n: u8, f: &Mutex<File>) {
 }
 
 fn main() {
+	thread::spawn(|| {
+		std::thread::sleep(std::time::Duration::new(60 * 5, 0));
+		let errors = decoder::FOUND_ERRORS.load(std::sync::atomic::Ordering::SeqCst);
+	    println!("Terminating - found errors: {}", errors);
+	    std::process::exit(if errors { -1 } else { 0 });
+    });
+
 	let n = 4;
 
 	let file = Arc::new(Mutex::new(OpenOptions::new().create(true).write(true).append(true).open("errors").unwrap()));

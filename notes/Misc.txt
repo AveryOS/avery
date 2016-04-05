@@ -13,3 +13,5 @@ For global data T
 		s = Some(init_data());
 		return s.ptr();
 	}
+
+Compare disassembler with llvm-mc
