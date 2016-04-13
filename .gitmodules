@@ -25,3 +25,6 @@
 [submodule "verifier/udis86/src"]
 	path = verifier/udis86/src
 	url = https://github.com/AveryOS/udis86.git
+[submodule "verifier/capstone/src"]
+	path = verifier/capstone/src
+	url = https://github.com/aquynh/capstone.git

@@ -1,5 +1,10 @@
 use decoder::Cursor;
 use std::cell::RefCell;
+use effect::Inst;
+use effect::Effect;
+use effect::Size;
+use effect::Size::*;
+use effect::Operand;
 
 pub static mut DEBUG: bool = false;
 
@@ -18,6 +23,14 @@ pub enum RT {
 	CR(usize),
 }
 
+fn cat_bits(vals: &[usize], sizes: &[usize]) -> u8 {
+	let mut r = 0usize;
+	for (val, size) in vals.iter().zip(sizes.iter()) {
+		r = (r << size) | val;
+	}
+	r as u8
+}
+
 pub fn bytes(bs: &[u8]) -> String {
 	let mut str = String::new();
 	for b in bs.iter() {
@@ -26,49 +39,10 @@ pub fn bytes(bs: &[u8]) -> String {
 	str
 }
 
-fn ext_bit(b: usize, i: usize, t: usize) -> usize {
-	((b >> i) & 1) << t
-}
-
-#[derive(Clone, Debug)]
-pub struct Instruction {
-	pub name: String,
-	pub desc: String,
-	pub terminating: bool,
-	pub ops: Vec<(Operand, Size)>,
-	pub branch: bool,
-}
-
-#[derive(Clone, Debug)]
-pub struct IndirectAccess {
-	base: Option<usize>,
-	index: Option<usize>,
-	scale: usize,
-	offset: i64,
-	offset_wide: bool,
-}
-
-#[derive(Eq, PartialEq, Copy, Clone, Debug)]
-pub enum Size {
-	S8,
-	S16,
-	S32,
-	S64,
-	S128,
-}
-use self::Size::*;
-
-#[derive(Clone, Debug)]
-pub enum Operand {
-	Direct(RT),
-	Indirect(IndirectAccess),
-	Imm((i64, Size)),
-}
-
-const P_LOCK: u8 = 0xF0;
-const P_REP: u8 = 0xF3;
-const P_REPNE: u8 = 0xF2;
-const P_OP_SIZE: u8 = 0x66;
+pub const P_LOCK: u8 = 0xF0;
+pub const P_REP: u8 = 0xF3;
+pub const P_REPNE: u8 = 0xF2;
+pub const P_OP_SIZE: u8 = 0x66;
 const P_ADDR_SIZE: u8 = 0x67;
 const P_SEG_CS: u8 = 0x2E;
 const P_SEG_ES: u8 = 0x26;
@@ -87,6 +61,7 @@ enum OpOption {
 	SSE,
 	MMX,
 	SSEOff,
+	Read,
 	Clob(usize),
 	FixImm(i64),
 	FixReg(usize),
@@ -99,7 +74,6 @@ enum OpOption {
 	Addr,
 	Reg,
 	Disp,
-	Branch,
 	UnknownMem,
 	NoMem,
 	Mem(Option<usize>),
@@ -109,549 +83,130 @@ enum OpOption {
 	OpSizeDef,
 	OpSizeToImmSize,
 	ImmSize(Size),
-	Term,
 }
 
 use self::OpOption::*;
 
-fn cat_bits(vals: &[usize], sizes: &[usize]) -> u8 {
-	let mut r = 0usize;
-	for (val, size) in vals.iter().zip(sizes.iter()) {
-		r = (r << size) | val;
-	}
-	r as u8
-}
-
-fn sign_hex(i: i64, plus: bool) -> String {
-	if i < 0 {
-		format!("-{:#x}", -i)
-	} else {
-		format!("{}{:#x}", if plus { "+" } else { "" }, i)
-	}
-}
-
 #[derive(Clone)]
-struct State<'s> {
-	cursor: Cursor<'s>,
+struct State {
 	def_op_size: Size,
 	operand_size: Size,
 	prefix_whitelist: Vec<u8>,
 	matched_prefixes: Vec<u8>,
 	operands: Vec<(Operand, Size)>,
 	imm_size: Size,
-	terminating: bool,
-	modrm_cache: Option<(Operand, usize)>,
-	op_size_postfix: bool,
 	unknown_mem: bool,
+	read_only: bool,
 	branch: bool,
 	no_mem: bool,
 	sse: bool,
 }
 
-const REGS_CR: &'static [&'static str] = &["cr0", "cr1", "cr2", "cr3", "cr4", "cr5", "cr6", "cr7",
-	"cr8", "cr9", "cr10", "cr11", "cr12", "cr13", "cr14", "cr15"]; 
-const REGS_MMX: &'static [&'static str] = &["mm0", "mm1", "mm2", "mm3", "mm4", "mm5", "mm6", "mm7",
-	"mm8", "mm9", "mm10", "mm11", "mm12", "mm13", "mm14", "mm15"]; 
-const REGS_SSE: &'static [&'static str] = &["xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7",
-	"xmm8", "xmm9", "xmm10", "xmm11", "xmm12", "xmm13", "xmm14", "xmm15"]; 
-const REGS64: &'static [&'static str] = &["rax", "rcx", "rdx", "rbx", "rsp", "rbp", "rsi", "rdi",
-	  "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15",
-	  "rip"];  // RIP appended
-const REGS32: &'static [&'static str] = &["eax", "ecx", "edx", "ebx", "esp", "ebp", "esi", "edi",
-		  "r8d", "r9d", "r10d", "r11d", "r12d", "r13d", "r14d", "r15d"];
-const REGS16: &'static [&'static str] = &["ax", "cx", "dx", "bx", "sp", "bp", "si", "di",
-		  "r8w", "r9w", "r10w", "r11w", "r12w", "r13w", "r14w", "r15w"];
-const REGS8 : &'static [&'static str] = &["al", "cl", "dl", "bl", "spl", "bpl", "sil", "dil",
-				  "r8b", "r9b", "r10b", "r11b", "r12b", "r13b", "r14b", "r15b"];
-const REGS8_NOREX : &'static [&'static str] = &["al", "cl", "dl", "bl", "ah", "ch", "dh", "bh"];
-
-const LOCK_WHITELIST : &'static [&'static str] = &[
-    "adc", "add", "and", "btc", "btr", "bts",
-    "cmpxchg", "cmpxchg8b", "cmpxchg16b",
-    "dec", "inc",
-    "neg", "not", "or", "sbb", "sub",
-    "xadd", "xchg", "xor"];
-
-fn operand_ptr(size_known: bool, op_size: Size) -> &'static str {
-	if size_known {
-		return "";
-	};
-	match op_size {
-		S128 => panic!(),
-		S64 => "qword ",
-		S32 => "dword ",
-		S16 => "word ",
-		S8 => "byte ",
-	}
-}
-
-fn reg_name(r: RT, op_size: Size, rex: bool) -> &'static str  {
-	match r {
-		RT::GP(r) => match op_size {
-			S128 => panic!(),
-			S64 => REGS64[r],
-			S32 => REGS32[r],
-			S16 => REGS16[r],
-			S8 => if rex { REGS8[r] } else { REGS8_NOREX[r] },
-		},
-		RT::CR(r) => REGS_CR[r],
-		RT::SSE(r) => match op_size {
-			S128 => REGS_SSE[r],
-			S64 => REGS_MMX[r],
-			_ => panic!(),
-		}
-	}
-}
-
-fn read_imm(s: &RefCell<State>, size: Size) -> i64 {
-	let mut c = &mut s.borrow_mut().cursor;
-	match size {
-		S8 => {
-			c.next() as i8 as i64
-		}
-		S16 => {
-			let mut v = c.next() as u32;
-			v |= (c.next() as u32) << 8;
-			v as i32 as i64
-		}
-		S32 => {
-			let mut v = c.next() as u32;
-			v |= (c.next() as u32) << 8;
-			v |= (c.next() as u32) << 16;
-			v |= (c.next() as u32) << 24;
-			v as i32 as i64
-		}
-		S64 => {
-			let mut v = c.next() as u64;
-			v |= (c.next() as u64) << 8;
-			v |= (c.next() as u64) << 16;
-			v |= (c.next() as u64) << 24;
-			v |= (c.next() as u64) << 32;
-			v |= (c.next() as u64) << 40;
-			v |= (c.next() as u64) << 48;
-			v |= (c.next() as u64) << 56;
-			v as i64
-		}
-		_ => panic!(),
-	}
-}
-
-pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off: u64) -> Option<Instruction> {
-	let verify = false;
-	let rex = rex.unwrap_or(0);
-	let rex_w = ext_bit(rex as usize, 3, 0) != 0;
-	let rex_b = ext_bit(rex as usize, 0, 0) != 0;
-	let operand_size_override = prefixes.contains(&P_OP_SIZE);
-	let fs_override = prefixes.contains(&P_SEG_FS);
-	let gs_override = prefixes.contains(&P_SEG_GS);
-
-	if gs_override && fs_override {
-		return None;
-	}
-
-	let op_size_w = if rex_w { S64 } else { S32 };
-	let op_size = if rex_w { S64 } else { if operand_size_override { S16 } else { S32 } };
-
-	debug!("Decoding instruction {} rex_w: {}, op_override: {}, opsize: {:?}, prefixes: {}\n", bytes(&in_cursor.remaining()[0..]), rex_w, operand_size_override, op_size, bytes(prefixes));
-
-	let state: RefCell<State> = RefCell::new(State {
-		cursor: in_cursor.clone(),
-		terminating: false,
-		matched_prefixes: Vec::new(),
-		prefix_whitelist: vec![P_LOCK], // lock has it's own whitelist
-		operands: Vec::new(),
-		def_op_size: op_size, // overriden by pair!
-		operand_size: op_size,
-		imm_size: if op_size == S16 { S16 } else { S32 },
-		modrm_cache: None,
-		op_size_postfix: false,
-		unknown_mem: false,
-		branch: false,
-		no_mem: false,
-		sse: false,
-	});
-
-	let sr = || state.borrow();
-	let s = || state.borrow_mut();
-
-	let has_prefix = |p: u8| {
-		if sr().matched_prefixes.contains(&p) {
-			false
-		} else {
-			prefixes.contains(&p)
-		}
-	};
-
-	let print_op = |i: usize| {
-		let op = sr().operands[i].clone();
-		let known_size = sr().operands.iter().any(|&(ref o, s)| match o {
-			&Operand::Direct(..) => s == op.1,
-			_ => false,
-		});
-
-		match op.0 {
-			Operand::Direct(reg) => format!("{}", reg_name(reg, op.1, rex != 0)),
-			Operand::Indirect(indir) => {
-				let ptr = operand_ptr(!sr().unknown_mem && (known_size || sr().no_mem), op.1);
-
-				let scale = if indir.scale == 1 {
-					"".to_string()
-				} else {
-					format!("*{}", indir.scale)
-				};
-
-				let segment = if fs_override {
-					"fs:"
-				} else if gs_override {
-					"gs:"
-				} else {
-					""
-				};
-
-				let name = match &(indir.base, indir.index) {
-					&(Some(base), Some(index)) => format!("{}+{}{}", REGS64[base], REGS64[index], scale),
-					&(None, Some(index)) => format!("{}{}", REGS64[index], scale),
-					&(Some(base), None) => format!("{}", REGS64[base]),
-					&(None, None) => {
-						return if indir.offset_wide {
-							format!("{}[{}{:#x}]", ptr, segment, indir.offset)
-						} else {
-							format!("{}[{}{:#x}]", ptr, segment, indir.offset as i32)
-						}
-					},
-				};
-
-				if indir.offset != 0 {
-					format!("{}[{}{}{}]", ptr, segment, name, sign_hex(indir.offset, true))
-				} else {
-					format!("{}[{}{}]", ptr, segment, name)
-				}
-			}
-			Operand::Imm((im, size)) => match op.1 {
-				S8 => format!("{:#x}", im as i8),
-				S16 => format!("{:#x}", im as i16),
-				S32 => format!("{:#x}", im as i32),
-				S64 => format!("{:#x}", im),
-				_ => panic!(),
-			}
-		}
-	};
-
-	let reg_ref = |r: usize| {
-		if sr().sse {
+pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
+	let reg_ref = |r: usize, sse: bool| {
+		if sse {
 			RT::SSE(r)
 		} else {
 			RT::GP(r)
 		}
 	};
 
-	let modrm = || {
-		if !sr().modrm_cache.is_some() {
-			let modrm = s().cursor.next() as usize;
-			let mode = modrm >> 6;
-			let reg = ((modrm >> 3) & 7) | ext_bit(rex as usize, 2, 3);
-			let rm = modrm & 7 | ext_bit(rex as usize, 0, 3);
+	let opts = |options: &[OpOption], inst: &mut Inst, def_op_size: Size| {
+		let def_op_size = SOpSize;
+		let mut op_size = SOpSize;
+		let mut imm_size = SImmSize;
+		let mut sse = false;
 
-			//println!("mode:{} reg:{} rm: {}", mode ,reg ,rm);
-
-			let mut name = if mode != 3 && rm & 7 == 4 {
-				// Parse SIB byte
-
-				let sib = s().cursor.next() as usize;
-				let base = sib & 7 | ext_bit(rex as usize, 0, 3);
-				let index = ((sib >> 3) & 7) | ext_bit(rex as usize, 1, 3);
-				let scale = sib >> 6;
-
-				let reg_index = if index == 4 {
-					None
-				} else {
-					Some(index)
-				};
-				let (reg_base, off) = if mode == 0 && base & 7 == 5 {
-					(None, read_imm(&state, S32))
-				} else {
-					(Some(base), 0)
-				};
-
-				IndirectAccess {
-					base: reg_base,
-					index: reg_index,
-					scale: 1 << scale,
-					offset: off,
-					offset_wide: false,
-				}
-			} else {
-				if mode == 0 && rm & 7 == 5 { // RIP relative
-					let off = read_imm(&state, S32);
-
-					IndirectAccess {
-						base: Some(16), // RIP
-						index: None,
-						scale: 0,
-						offset: off,
-						offset_wide: false,
-					}
-				} else {
-					IndirectAccess {
-						base: Some(rm),
-						index: None,
-						scale: 0,
-						offset: 0,
-						offset_wide: false,
-					}
-				}
-			};
-
-			let off = match mode {
-				0 | 3 => name.offset,
-				1 => read_imm(&state, S8),
-				2 => read_imm(&state, S32),
-				_ => panic!(),
-			};
-
-			let indir = if mode == 3 {
-				Operand::Direct(RT::GP(rm))
-			} else {
-				name.offset = off;
-				Operand::Indirect(name)
-			};
-
-			s().modrm_cache = Some((indir, reg));
-		}
-
-		match sr().modrm_cache.as_ref().unwrap().clone() {
-			(Operand::Direct(RT::GP(v)), s) => (Operand::Direct(reg_ref(v)), s),
-			v => v,
-		}
-	};
-
-	let opts = |options: &[OpOption]| {
-		let mut allowed = true;
 		for opt in options.iter() {
-			let op_size = sr().operand_size;
-			debug!("Appling option {:?}, opsize = {:?}\n", opt, op_size);
-			let l_allowed = match *opt {
+			//debug!("Appling option {:?}, opsize = {:?}\n", opt, op_size);
+			match *opt {
 				ImmSize(size) => {
-					s().imm_size = size;
-					true
+					imm_size = size;
 				}
 				OpSize(size) => {
-					s().operand_size = size;
-					true
+					op_size = size;
 				}
 				OpSizeDef => {
-					let d = sr().def_op_size;
-					s().operand_size = d;
-					true
+					op_size = def_op_size;
 				}
 				OpSizeToImmSize => {
-					let d = sr().imm_size;
-					s().operand_size = d;
-					true
+					op_size = imm_size;
 				}
 				NoOpSizeOverride => {
-					!operand_size_override
+					// TODO: !operand_size_override
 				}
 				OpSizePostfix => {
-					s().op_size_postfix = true;
-					true
+					inst.op_size_postfix = true;
 				}
-				Clob(..) => {
-					true
-				}
-				Term => {
-					s().terminating = true;
-					true
+				Clob(r) => {
+					inst.operands.push((Operand::Clob(r), op_size));
 				}
 				Prefix(p) => {
-					s().prefix_whitelist.push(p);
-					true
+					inst.prefix_whitelist.push(p);
+				}
+				Read => {
+					inst.read_only = true;
 				}
 				SSEOff => {
-					s().operand_size = op_size;
-					s().sse = false;
-					true
+					op_size = op_size;
+					sse = false;
 				}
 				MMX => {
-					if operand_size_override {
-						s().operand_size = S128;
-					} else {
-						s().operand_size = S64;
-					}
-					s().sse = true;
-					true
+					op_size = SMMXSize;
+					sse = true;
 				}
 				OpSizeLimit32 => {
-					s().operand_size = if op_size == S64 { S32 } else { op_size };
-					true
+					op_size = if op_size == S64 { S32 } else { op_size };
 				}
 				SSE => {
-					s().operand_size = S128;
-					s().sse = true;
-					true
+					op_size = S128;
+					sse = true;
 				}
 				NoMem => {
-					s().no_mem = true;
-					true
+					inst.no_mem = true;
 				}
 				UnknownMem => {
-					s().unknown_mem = true;
-					true
+					inst.unknown_mem = true;
 				}
 				FixRegRex(mut reg) => {
-					if rex_b {
-						reg += 8;
-					}
-					let r = reg_ref(reg);
-					s().operands.push((Operand::Direct(r), op_size));
-					true
+					inst.operands.push((Operand::FixRegRex(reg, sse), op_size));
 				}
 				FixReg(reg) => {
-					let r = reg_ref(reg);
-					s().operands.push((Operand::Direct(r), op_size));
-					true
+					inst.operands.push((Operand::FixReg(reg, sse), op_size));
 				}
 				FixImm(imm) => {
-					s().operands.push((Operand::Imm((imm, S8)), op_size));
-					true
-				}
-				Cr(read) => {
-					let modrm = s().cursor.next() as usize;
-					let reg = ((modrm >> 3) & 7) | ext_bit(rex as usize, 2, 3);
-					let rm = modrm & 7 | ext_bit(rex as usize, 0, 3);
-					let (src, dst) = if read {
-						(RT::CR(reg), RT::GP(rm))
-					} else {
-						(RT::GP(rm), RT::CR(reg))
-					};
-					s().operands.push((Operand::Direct(dst), S64));
-					s().operands.push((Operand::Direct(src), S64));
-					true
+					inst.operands.push((Operand::FixImm(imm, S8), op_size));
 				}
 				Addr => {
-					let a = IndirectAccess {
-						base: None,
-						index: None,
-						scale: 0,
-						offset: read_imm(&state, S64),
-						offset_wide: true,
-					};
-					s().operands.push((Operand::Indirect(a), op_size));
-					true
+					inst.operands.push((Operand::Addr, op_size));
 				}
 				Imm => {
-					let imm_size = sr().imm_size;
-					let imm = read_imm(&state, imm_size);
-					s().operands.push((Operand::Imm((imm, imm_size)), op_size));
-					true
-				}
-				Branch => {
-					s().branch = true;
-					true
+					inst.operands.push((Operand::Imm(imm_size), op_size));
 				}
 				Disp => {
-					let imm_size = sr().imm_size;
-					let off = read_imm(&state, imm_size).wrapping_add(disp_off as i64).wrapping_add(s().cursor.offset as u64 as i64);
-					s().branch = true;
-					s().operands.push((Operand::Imm((off, imm_size)), S64));
-					true
-				}
-				Mem(opcode_ext) => {
-					let (indir, reg) = modrm();
-					if let Some(opcode_ext) = opcode_ext {
-						if reg & 7 != opcode_ext {
-							return false;
-						}
-					}
-					match indir {
-						Operand::Indirect(..) => {
-							s().operands.push((indir, op_size));
-							true
-						}
-						_ => false,
-					}
+					inst.operands.push((Operand::Disp(imm_size), S64));
 				}
 				Rm => {
-					let (indir, _) = modrm();
-					s().operands.push((indir, op_size));
-					true
+					inst.operands.push((Operand::Rm(sse), op_size));
 				}
 				Reg => {
-					let (_, reg) = modrm();
-					let r = reg_ref(reg);
-					s().operands.push((Operand::Direct(r), op_size));
-					true
+					inst.operands.push((Operand::Reg(sse), op_size));
 				}
 				RmOpcode(opcode_ext) => {
-					let (indir, reg) = modrm();
-					s().operands.push((indir.clone(), op_size));
-					//println!("RmOpcode {} {} {}", reg & 7, opcode_ext, print_op(sr().operands.len() - 1));
-					s().operands.pop();
-					if reg & 7 != opcode_ext {
-						false
-					} else {
-						s().operands.push((indir, op_size));
-						true
-					}
+					inst.opcode = Some(opcode_ext);
+					inst.operands.push((Operand::RmOpcode(opcode_ext), op_size));
 				}
+				Mem(opcode_ext) => {
+					inst.opcode = opcode_ext;
+					inst.operands.push((Operand::Mem(opcode_ext), op_size));
+				}
+				_ => panic!("unhandled {:?}", opt)
 			};
-
-			if !l_allowed {
-				allowed = false;
-				break;
-			}
 		}
-		allowed
+		inst.operand_size = op_size;
 	};
 
-	let valid_state = |name: &str| {
-		let mut prefix = String::new();
-
-		if has_prefix(P_LOCK) {
-			if !LOCK_WHITELIST.contains(&name) {
-				debug!("Lock prefix on instruction not in whitelist\n");
-				return None;
-			} else {
-				prefix.push_str("lock ");
-			}
-		}
-
-		if has_prefix(P_REP) {
-			prefix.push_str("rep ");
-		}
-
-		if !sr().no_mem {
-			let len = sr().operands.len();
-			for i in 0..len {
-				let op = sr().operands[i].0.clone();
-				match op {
-					Operand::Direct(..) | Operand::Indirect(..) => s().prefix_whitelist.push(P_OP_SIZE),
-					_ => ()
-				}
-				match op {
-					Operand::Indirect(..) => {
-						s().prefix_whitelist.push(P_SEG_GS);
-						s().prefix_whitelist.push(P_SEG_FS);
-					}
-					_ => ()
-				}
-			}
-		}
-
-		if prefixes.iter().all(|p| {
-			let r = sr().prefix_whitelist.contains(p);
-			if !r {
-				debug!("Prefix {:02x} not allowed on instruction\n", p);
-			}
-			r
-		}) {
-			Some(prefix)
-		} else {
-			None
-		}
-	};
-
-	let do_op = |full_code: &[u8], name: &str, options: &[OpOption]| -> Option<Option<Instruction>> {
+	let do_op = |full_code: &[u8], name: &str, options: &[OpOption], def_op_size: Size, ops: &mut Vec<Inst>| {
 		let mut prefix_len = 0;
 		while ALL_PREFIXES.contains(&full_code[prefix_len]) {
 			prefix_len += 1;
@@ -659,61 +214,86 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 		let code_prefixes = &full_code[0..prefix_len];
 		let code = &full_code[prefix_len..];
 
-		if prefixes.ends_with(code_prefixes) && sr().cursor.remaining().starts_with(code) {
-			debug!("Attempting to match {} op: {} prefixes: {}, os: {:?}\n", name, bytes(full_code), bytes(code_prefixes), sr().operand_size);
-			let temp_state = sr().clone();
-			s().cursor.offset += code.len();
-			if opts(options) {
-				for p in code_prefixes {
-					s().matched_prefixes.push(*p);
-					s().prefix_whitelist.push(*p);
-					debug!("Instruction uses prefix {:02x} for the opcode encoding\n", *p);
-				}
-				let op_size_postfix = sr().op_size_postfix;
-				let iname = if op_size_postfix {
-					s().prefix_whitelist.push(P_OP_SIZE);
-					name.to_string() + match sr().operand_size {
-						S128 => panic!(),
-						S64 => "q",
-						S32 => "d",
-						S16 => "w",
-						S8 => "b",
-					}
-				} else {
-					name.to_string()
-				};
-				let prefix = match valid_state(name) {
-					Some(p) => p,
-					None => {
-						*s() = temp_state;
-						return None
-					}
-				};
-				let ops = sr().operands.iter().enumerate().map(|(i, _)| print_op(i)).collect::<Vec<String>>().join(", ");
-				return Some(Some(Instruction {
-					name: iname.clone(),
-					desc: format!("{}{}{}{}", prefix, iname, if sr().operands.is_empty() { "" } else { " " }, ops),
-					ops: sr().operands.clone(),
-					branch: sr().branch,
-					terminating: sr().terminating,
-				}));
-			} else {
-				*s() = temp_state;
-			}
-		}
 
-		None
+		let mut inst = Inst {
+			prefix_bytes: code_prefixes.to_vec(),
+			bytes: code.to_vec(),
+			effects: Vec::new(),
+			opcode: None,
+			prefix_whitelist: vec![],
+			operands: Vec::new(),
+			decoded_operands: Vec::new(),
+			op_size_postfix: false,
+			unknown_mem: false,
+			read_only: false,
+			operand_size: SOpSize,
+			no_mem: false,
+			desc: "".to_string(),
+			name: name.to_string(),
+			len: 0,
+		};
+
+		opts(options, &mut inst, def_op_size);
+
+		let mut unknown = false;
+		let mut i = 0;
+		while i < inst.operands.len() {
+			let ops = &inst.operands[i..];
+
+			let e = match ops {
+				[(Operand::FixRegRex(_, false), _), ..] if name == "push" || name == "pop" => Some((1, Some(Effect::StackOp))),
+				[(Operand::FixReg(_, false), _), ..] if i == 1 || inst.read_only => Some((1, None)),
+				//[(Operand::FixRegRex(_, false), _), ..] if i == 1 || inst.read_only => Some((1, None)),
+				[(Operand::FixRegRex(c, false), _), ..] => Some((1, Some(Effect::ClobReg(c)))),
+				[(Operand::FixReg(0, false), _), ..] | [(Operand::Clob(0), _), ..] => Some((1, Some(Effect::ClobRAX))),
+				[(Operand::Clob(2), _), ..] => Some((1, Some(Effect::ClobRDX))),
+				[(Operand::FixImm(_, _), _), ..] => Some((1, None)),
+				[(Operand::Disp(S8), _), ..] => Some((1, Some(Effect::Jmp8))),
+				[(Operand::Disp(S32), _), ..] => Some((1, Some(if name == "call" { Effect::Call32 } else { Effect::Jmp32 }))),
+				[(Operand::Addr, _), ..] => Some((1, Some(Effect::ImmAddr))),
+				[(Operand::Imm(S8), _), ..] => Some((1, Some(Effect::Imm8))),
+				[(Operand::Imm(SOpSize), _), ..] => Some((1, Some(Effect::ImmMatchOp))),
+				[(Operand::Imm(SImmSize), _), ..] => Some((1, Some(Effect::ImmOp))),
+				[(Operand::RmOpcode(c), _), ..] => Some((1, Some(if name == "call" { Effect::CallRM } else { Effect::ClobRM_R }))),
+				[(Operand::Rm(false), _), (Operand::Reg(sse), _), ..] => Some((2, Some(if inst.read_only { Effect::ReadRM } else { if name == "mov" && !sse { Effect::MovRM_R } else { Effect::ClobRM_R }}))),
+				[(Operand::Reg(false), _), (Operand::Rm(sse), _), ..] => Some((2, Some(if inst.read_only { Effect::ReadRM } else { if name == "mov" && !sse { Effect::MovR_RM } else { Effect::ClobR_RM }}))),
+				[(Operand::Rm(true), _), (Operand::Reg(_), _), ..] => Some((2, None)),
+				[(Operand::Reg(true), _), (Operand::Rm(_), _), ..] => Some((2, None)),
+				[(Operand::Reg(false), _), (Operand::Mem(None), _), ..] => Some((2, Some(if name == "lea" { Effect::Lea } else { panic!() }))),
+				_ => None,
+			};
+
+			if let Some((s, e)) = e {
+				if let Some(e) = e {
+					inst.effects.push(e);
+				}
+				i += s;
+				continue;
+			}
+
+			println!("Unknown ops {:?}!", ops);
+
+			unknown = true;
+			i += 1;
+		}
+		debug!("{} ({}) => {:?}\n", name, bytes(full_code), inst);
+		let has_effects = true;/*inst.effects.len() > 0 ||
+			name == "nop" ||
+			name == "pause" ||
+			name == "mfence" ||
+			name == "int3" ||
+			name == "ud2";*/
+		if !unknown && has_effects {
+			//debug!("Adding {}\n", name);
+			ops.push(inst);
+		} else {
+			println!("Rejected {}!", name);
+		}
 	};
 
 	macro_rules! op {
 		($code:expr, $name:expr, $opts:expr) => ({
-			match do_op(&$code, $name, &$opts) {
-				Some(v) => {
-					*in_cursor = sr().cursor.clone();
-					return v;
-				}
-				None => (),
-			}
+			do_op(&$code, $name, &$opts, SOpSize, ops);
 		})
 	}
 
@@ -723,31 +303,35 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 			o.push(OpSize(S8));
 			o.push(ImmSize(S8));
 			o.extend($opts.iter().cloned());
-			s().def_op_size = S8;
 			let mut c = Vec::new();
 			c.extend(&$code);
 			*c.last_mut().unwrap() += 1;
-			op!($code, $name, *o);
-			s().def_op_size = op_size;
-			op!(c[..], $name, $opts);
+			do_op(&$code, $name, &o, S8, ops);
+			do_op(&c[..], $name, &$opts, SOpSize, ops);
 		})
 	}
 
-	let disp_size = ImmSize(if operand_size_override { S16 } else { S32 });
-	let wide_op = OpSize(if operand_size_override { S16 } else { S64 });
+	let disp_size = ImmSize(S32);
+	let wide_op = OpSize(S64);
 
 	for (arith_opcode, instr) in ["add", "or", "adc", "sbb", "and", "sub", "xor", "cmp"].iter().enumerate() {
 		for (format_num, format) in [[Rm, Reg].as_ref(), [Reg, Rm].as_ref(), [FixReg(0), Imm].as_ref()].iter().enumerate() {
 			let opcode = cat_bits(&[arith_opcode, format_num, 0], &[5, 2, 1]);
-			pair!([opcode], instr, *format)
+			let mut f = format.to_vec();
+			if *instr == "cmp" {
+				f.push(Read);
+			} else {
+				f.push(Prefix(P_LOCK));
+			}
+			pair!([opcode], instr, f[..])
 		}
 
 		pair!([0x80], instr, [RmOpcode(arith_opcode), Imm]);
 		op!([0x83], instr, [RmOpcode(arith_opcode), ImmSize(S8), Imm]);
 	}
 
-	pair!([0xfe], "inc", [RmOpcode(0)]);
-	pair!([0xfe], "dec", [RmOpcode(1)]);
+	pair!([0xfe], "inc", [Prefix(P_LOCK), RmOpcode(0)]);
+	pair!([0xfe], "dec", [Prefix(P_LOCK), RmOpcode(1)]);
 
 	for &(instr, opcode) in &[("rol", 0), ("ror", 1), ("rcl", 2), ("rcr", 3), ("shl", 4), ("shr", 5), ("sar", 7)] {
 		pair!([0xc0], instr, [RmOpcode(opcode), UnknownMem, OpSize(S8), ImmSize(S8), Imm]);
@@ -755,7 +339,7 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 		pair!([0xd2], instr, [RmOpcode(opcode), UnknownMem, OpSize(S8), FixReg(1)]);
 	}
 
-	let cond_codes = ["o", "no", "b", "ae", "z", "nz", "be", "a", "s", "ns", "p", "np", "l", "ge", "le", "g"];
+	let cond_codes = ["o", "no", "b", "ae", "e", "ne", "be", "a", "s", "ns", "p", "np", "l", "ge", "le", "g"];
 
 	for (cond_num, cond_name) in cond_codes.iter().enumerate() {
 		op!([0x70 + cond_num as u8], &format!("j{}", cond_name), [ImmSize(S8), Disp]);
@@ -764,12 +348,25 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 		op!([0x0f, 0x90 + cond_num as u8], &format!("set{}", cond_name), [OpSize(S8),RmOpcode(0)]);
 	}
 
-	pair!([0xa8], "test", [FixReg(0), Imm]);
-	pair!([0xf6], "test", [RmOpcode(0), Imm]);
-	for &(instr, opcode) in &[("not", 2), ("neg", 3), ("mul", 4), ("imul", 5), ("div", 6), ("idiv", 7)] {
-		pair!([0xf6], instr, [RmOpcode(opcode)]);
-	}
+	pair!([0xa8], "test", [Read, FixReg(0), Imm]);
+	pair!([0x84], "test", [Read, Rm, Reg]);
+	pair!([0xf6], "test", [Read, RmOpcode(0), Imm]);
 
+	for &(instr, opcode) in &[("not", 2), ("neg", 3), ("mul", 4), ("imul", 5), ("div", 6), ("idiv", 7)] {
+		let mut f8 = vec![OpSize(S8), ImmSize(S8), RmOpcode(opcode)];
+		let mut f = vec![RmOpcode(opcode)];
+		if opcode >= 4 {
+			f8.push(Clob(0));
+			f.push(Clob(0));
+			f.push(Clob(2));
+		}
+		if instr == "not" || instr == "neg" {
+			f8.push(Prefix(P_LOCK));
+			f.push(Prefix(P_LOCK));
+		}
+		op!([0xf6], instr, f8[..]);
+		op!([0xf7], instr, f[..]);
+	}
 
 	let nop_prefixes: Vec<OpOption> = ALL_PREFIXES.iter().filter(|&p| *p != P_LOCK).map(|v| Prefix(*v)).collect();
 
@@ -777,19 +374,20 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 	opts.extend([RmOpcode(0), NoMem].iter().cloned());
 	op!([0x0f, 0x1f], "nop", opts[..]);
 
-	op!([0xeb], "jmp", [ImmSize(S8), Term, Disp]);
-	op!([0xe9], "jmp", [Term, disp_size.clone(), Disp]);
-	op!([0xff], "jmp", [wide_op.clone(), RmOpcode(4), Term, Branch]);
+	op!([0xeb], "jmp", [ImmSize(S8), Disp]);
+	op!([0xe9], "jmp", [disp_size.clone(), Disp]);
+
+	if !verify {
+		op!([0xff], "jmp", [wide_op.clone(), RmOpcode(4)]);
+	}
 
 	op!([0xe8], "call", [disp_size.clone(), Disp]);
-	op!([0xff], "call", [wide_op.clone(), RmOpcode(2), Branch]);
+	op!([0xff], "call", [wide_op.clone(), RmOpcode(2)]);
 
 	for reg in 0..8 {
 		op!([0x50 + reg], "push", [wide_op.clone(), FixRegRex(reg as usize)]);
 		op!([0x58 + reg], "pop", [wide_op.clone(), FixRegRex(reg as usize)]);
 	}
-
-	pair!([0x84], "test", [Rm, Reg]);
 
 	op!([0x87, 0xc0], "nop", []); // Really xchg eax, eax which udis displays as nop
 	pair!([0x86], "xchg", [Rm, Reg]);
@@ -802,18 +400,18 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 
 	for reg in 0..8 {
 		op!([0xb0 + reg], "mov", [OpSize(S8), FixRegRex(reg as usize), ImmSize(S8), Imm]);
-		op!([0xb8 + reg], "mov", [FixRegRex(reg as usize), ImmSize(op_size), Imm]);
+		op!([0xb8 + reg], "mov", [FixRegRex(reg as usize), ImmSize(SOpSize), Imm]);
 	}
 
 	op!([0x0f, 0xa3], "bt", [Rm, Reg]);
-	op!([0x0f, 0xab], "bts", [Rm, Reg]);
-	op!([0x0f, 0xb3], "btr", [Rm, Reg]);
-	op!([0x0f, 0xbb], "btc", [Rm, Reg]);
+	op!([0x0f, 0xab], "bts", [Prefix(P_LOCK), Rm, Reg]);
+	op!([0x0f, 0xb3], "btr", [Prefix(P_LOCK), Rm, Reg]);
+	op!([0x0f, 0xbb], "btc", [Prefix(P_LOCK), Rm, Reg]);
 
 	op!([0x0f, 0xba], "bt", [RmOpcode(4), ImmSize(S8), Imm]);
-	op!([0x0f, 0xba], "bts", [RmOpcode(5), ImmSize(S8), Imm]);
-	op!([0x0f, 0xba], "btr", [RmOpcode(6), ImmSize(S8), Imm]);
-	op!([0x0f, 0xba], "btc", [RmOpcode(7), ImmSize(S8), Imm]);
+	op!([0x0f, 0xba], "bts", [Prefix(P_LOCK), RmOpcode(5), ImmSize(S8), Imm]);
+	op!([0x0f, 0xba], "btr", [Prefix(P_LOCK), RmOpcode(6), ImmSize(S8), Imm]);
+	op!([0x0f, 0xba], "btc", [Prefix(P_LOCK), RmOpcode(7), ImmSize(S8), Imm]);
 
 	op!([0x0f, 0xaf], "imul", [Reg, Rm]);
 	op!([0x69], "imul", [Reg, Rm, OpSizeToImmSize, Imm]);
@@ -822,8 +420,8 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 	op!([0xf3, 0x90], "pause", []);
 
 	for reg in 0..8 {
-		if reg == 0 && !rex_b && !rex_w {
-			op!([0x90], "nop", nop_prefixes[..])
+		if reg == 0 {
+			op!([0x90], "nop", nop_prefixes[..]) // MAY NOT BE NOP
 		} else {
 			op!([0x90 + reg as u8], "xchg", [FixRegRex(reg), FixReg(0)])
 		}
@@ -831,41 +429,35 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 
 	op!([0x8d], "lea", [NoMem, Reg, Mem(None)]);
 
-	op!([0xc3], "ret", [Term]);
+	if !verify {
+		op!([0xc3], "ret", []);
+	}
 
 	op!([0x0f, 0xb6], "movzx", [Reg, OpSize(S8), Rm]);
 	op!([0x0f, 0xb7], "movzx", [Reg, OpSize(S16), Rm]);
 	op!([0x0f, 0xbe], "movsx", [Reg, OpSize(S8), Rm]);
 	op!([0x0f, 0xbf], "movsx", [Reg, OpSize(S16), Rm]);
 
-	if rex_w || !verify { // It is useless without rex_w
-		op!([0x63], "movsxd", [NoOpSizeOverride, Reg, OpSize(S32), Rm]);
-	}
+	op!([0x63], "movsxd", [NoOpSizeOverride, Reg, OpSize(S32), Rm]);
 
-	if rex_w {
-		op!([0x98], "cdqe", [Clob(0)]);
-	} else {
-		op!([0x66, 0x98], "cbw", [Clob(0)]);
-		op!([0x98], "cwde", [Clob(0)]);
-	}
+	op!([0x66, 0x98], "cbw", [Clob(0)]);
+	op!([0x98], "cwde", [Clob(0)]); // Named 'cdqe' with rex_w
 
-	if rex_w {
-		op!([0x99], "cqo", [Clob(2)]);
-	} else {
-		op!([0x66, 0x99], "cwd", [Clob(2)]);
-		op!([0x99], "cdq", [Clob(2)]);
-	}
+	op!([0x66, 0x99], "cwd", [Clob(2)]);
+	op!([0x99], "cdq", [Clob(2)]); // Named 'cqo' with rex_w
 
 	op!([0xcc], "int3", []);
 
 	op!([0x0f, 0x0b], "ud2", []);
 
-	pair!([0x0f, 0xb0], "cmpxchg", [Rm, Reg]);
-	pair!([0x0f, 0xc0], "xadd", [Rm, Reg]);
+	pair!([0x0f, 0xb0], "cmpxchg", [Prefix(P_LOCK), Rm, Reg]);
+	pair!([0x0f, 0xc0], "xadd", [Prefix(P_LOCK), Rm, Reg]);
 
 	op!([0x0f, 0xae, 0xf0], "mfence", []);
 
-	pair!([0xa4], "movs", [OpSizePostfix, Prefix(P_REP)]);
+	if !verify {
+		pair!([0xa4], "movs", [OpSizePostfix, Prefix(P_REP)]);
+	}
 
 	// MMX/SSE
 
@@ -881,8 +473,11 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 	op!([0xf3, 0x0f, 0x7e], "movq", [SSE, Reg, Rm]);
 	op!([0x66, 0x0f, 0xd6], "movq", [SSE, Rm, Reg]);
 
-	op!([0x0f, 0x6e], "mov", [NoOpSizeOverride, OpSizePostfix, MMX, Reg, OpSize(op_size_w), SSEOff, Rm]);
-	op!([0x0f, 0x7e], "mov", [NoOpSizeOverride, OpSizePostfix, OpSize(op_size_w), Rm, MMX, Reg, OpSize(op_size_w)]);
+	op!([0x66, 0x0f, 0x6e], "mov", [OpSizePostfix, SSE, Reg, OpSize(SRexSize), SSEOff, Rm]);
+	op!([0x66, 0x0f, 0x7e], "mov", [OpSizePostfix, OpSize(SRexSize), Rm, SSE, Reg, OpSize(SRexSize)]);
+
+	//op!([0x0f, 0x6e], "mov", [OpSizePostfix, MMX, Reg, OpSize(SRexSize), SSEOff, Rm]);
+	//op!([0x0f, 0x7e], "mov", [OpSizePostfix, OpSize(SRexSize), Rm, MMX, Reg, OpSize(SRexSize)]);
 
 	op!([0x66, 0x0f, 0x6c], "punpcklqdq", [SSE, Reg, Rm]);
 	op!([0x66, 0x0f, 0x6d], "punpckhqdq", [SSE, Reg, Rm]);
@@ -902,9 +497,12 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 	op!([0x66, 0x0f, 0x57], "xorpd", [SSE, Reg, Rm]);
 	op!([0x0f, 0x57], "xorps", [SSE, Reg, Rm]);
 
+	// Used for syscalls for now
+	op!([0xcd], "int", [OpSize(S8), ImmSize(S8), Imm]);
+
 	// System Instructions
-	if verify {
-		return None;
+	if true {
+		return;
 	}
 
 	op!([0x0f, 0x00], "ltr", [NoMem, OpSize(S16), RmOpcode(3)]);
@@ -923,13 +521,9 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 
 	op!([0xf4], "hlt", []);
 
-	op!([0xcd], "int", [OpSize(S8), ImmSize(S8), Imm]);
-
 	pair!([0xe4], "in", [OpSizeLimit32, FixReg(0), OpSize(S8), ImmSize(S8), Imm]);
 	pair!([0xec], "in", [OpSizeLimit32, FixReg(0), OpSize(S16), FixReg(2)]);
 
 	pair!([0xe6], "out", [OpSize(S8), ImmSize(S8), Imm, OpSizeDef, OpSizeLimit32, FixReg(0)]);
 	pair!([0xee], "out", [OpSize(S16), FixReg(2), OpSizeDef, OpSizeLimit32, FixReg(0)]);
-
-	None
 }

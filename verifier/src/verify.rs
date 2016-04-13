@@ -2,8 +2,6 @@
 #![feature(log_syntax)]
 #![feature(plugin)]
 #![feature(const_fn)]
-#![feature(slice_patterns)]
-#![allow(dead_code)]
 //#![cfg_attr(test, feature(plugin, custom_attribute))]
 //#![cfg_attr(test, plugin(quickcheck_macros))]
 
@@ -18,19 +16,16 @@ use std::fs::File;
 use std::io::Read;
 use elfloader::*;
 
-mod effect;
 mod decoder;
-mod table;
-mod table2;
 mod disasm;
+mod table;
 
 fn main() {
 	let mut ops = Vec::new();
 
-	unsafe { table2::DEBUG = true };
+	table2::list_insts(&mut ops);
 
-	table2::list_insts(&mut ops, false);
-	
+
 	let path = std::env::args().nth(1).unwrap();
 	println!("Dumping {}", path);
 	let mut f = File::open(path).unwrap();
@@ -91,7 +86,7 @@ fn main() {
 		if let Some((data, offset, disp_off)) = dump {
 			println!("dumping symbol {} {:x} {}", name, offset, sym);
 			if sym.size != 0 {
-				decoder::decode(data, offset, sym.size as usize, disp_off, &ops);
+				decoder::decode(data, offset, sym.size as usize, disp_off);
 			}
 		}
 	});
