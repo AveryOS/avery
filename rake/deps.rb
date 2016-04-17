@@ -371,7 +371,7 @@ task :dep_llvm => :dep_cmake do
 	build_submodule.("vendor/llvm", {ninja: true, noclean: true, submodules: ["clang"]}) do |src, prefix|
 		#-DLLVM_ENABLE_ASSERTIONS=On  crashes on GCC 5.x + Release on Windows
 		#-DCMAKE_BUILD_TYPE=RelWithDebInfo
-		opts = %W{-DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_EXTERNAL_CLANG_SOURCE_DIR=#{hostpath(File.join(src, '../clang'))} -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=On -DCMAKE_INSTALL_PREFIX=#{prefix}}
+		opts = %W{-DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_EXTERNAL_CLANG_SOURCE_DIR=#{hostpath(File.join(src, '../clang'))} -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=On -DCMAKE_INSTALL_PREFIX=#{hostpath(prefix)}}
 		opts += ['-G',  'Ninja', '-DLLVM_PARALLEL_LINK_JOBS=1'] if NINJA
 		opts += %w{-DCMAKE_CXX_COMPILER=g++ -DCMAKE_C_COMPILER=gcc} if ON_WINDOWS_MINGW
 		run "cmake", src, *opts
@@ -382,6 +382,14 @@ task :dep_udis86 do
 	build_submodule.("verifier/udis86") do |src, prefix|
 		Dir.chdir(src) { run './autogen.sh' }
 		run File.join(src, 'configure'), "--prefix=#{prefix}"
+	end
+end
+
+task :dep_capstone do
+	build_submodule.("verifier/capstone") do |src, prefix|
+		opts = %W{-DCMAKE_INSTALL_PREFIX=#{hostpath(prefix)}}
+		opts += ['-G',  'MSYS Makefiles'] if ON_WINDOWS_MINGW
+		run "cmake", src, *opts
 	end
 end
 

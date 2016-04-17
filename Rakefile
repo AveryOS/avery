@@ -53,10 +53,13 @@ append_path(File.expand_path('../vendor/cargo/install/bin', __FILE__))
 append_path(File.expand_path("../vendor/rust/install/bin", __FILE__))
 append_path(File.expand_path("../vendor/autoconf/install/bin", __FILE__))
 append_path(File.expand_path("../vendor/automake/install/bin", __FILE__))
+append_path(File.expand_path("../vendor/bindgen/install/bin", __FILE__))
 
 sos = path("vendor/llvm/install/lib") + ":" + path("vendor/rust/install/lib")
 ENV['DYLD_LIBRARY_PATH'] = sos
 ENV['LD_LIBRARY_PATH'] = sos
+
+ENV['RUST_BACKTRACE'] = '1'
 
 # rustc build needs LLVM in PATH on Windows
 CLEANENV = ENV.to_hash
@@ -79,7 +82,6 @@ end
 ENV['CARGO_HOME'] = hostpath('build/cargo/home')
 ENV['CARGO_TARGET_DIR'] = File.expand_path('../build/cargo/target', __FILE__)
 ENV['RUST_TARGET_PATH'] = File.expand_path('../targets', __FILE__)
-ENV['RUST_BACKTRACE'] = '1'
 UNIX_EMU = [false]
 
 NINJA = which('ninja')
@@ -441,7 +443,7 @@ task :sh do
 	run 'bash'
 end
 
-task :verifier => :dep_udis86 do
+task :verifier => [:dep_capstone, :dep_udis86] do
 	Dir.chdir("verifier")
 	get_submodule('rust-elfloader')
 

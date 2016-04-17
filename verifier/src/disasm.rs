@@ -2,7 +2,7 @@ use decoder::Cursor;
 use std::cell::RefCell;
 use std::cmp;
 use std::iter;
-use effect::{DecodedOperand, Inst, IndirectAccess, RT, Mem, Disp, Effect2, Operand, Size};
+use effect::{DecodedOperand, Regs, Inst, IndirectAccess, RT, Mem, Disp, Effect2, Operand, Size};
 use effect::Size::*;
 use table;
 use table::bytes;
@@ -74,7 +74,7 @@ fn operand_ptr(size_known: bool, op_size: Size) -> &'static str {
 		return "";
 	};
 	match op_size {
-		S128 => panic!(),
+		S128 => "xmmword ptr ",
 		S64 => "qword ptr ",
 		S32 => "dword ptr ",
 		S16 => "word ptr ",
@@ -94,11 +94,7 @@ fn reg_name(r: RT, op_size: Size, rex: bool) -> &'static str  {
 			_ => panic!(),
 		},
 		RT::CR(r) => REGS_CR[r],
-		RT::SSE(r) => match op_size {
-			S128 => REGS_SSE[r],
-			S64 => REGS_MMX[r],
-			_ => panic!(),
-		}
+		RT::SSE(r) => REGS_SSE[r],
 	}
 }
 
@@ -273,29 +269,29 @@ pub fn gen_all(inst: &Inst, cases: &mut Vec<(Vec<u8>, Vec<Effect2>)>) {
 					let get_read = || get!(|m, _| Effect2::CheckMem(m), |r, _| Effect2::None);
 
 					i += match ops {
-						[(Operand::FixRegRex(mut reg, false), _), ..] if name == "push" => {
+						[(Operand::FixRegRex(mut reg, Regs::GP), _), ..] if name == "push" => {
 							if rex_b {
 								reg += 8;
 							}
 							effects.push(Effect2::Push(reg));
 							1
 						} 
-						[(Operand::FixRegRex(mut reg, false), _), ..] if name == "pop" => {
+						[(Operand::FixRegRex(mut reg, Regs::GP), _), ..] if name == "pop" => {
 							if rex_b {
 								reg += 8;
 							}
 							effects.push(Effect2::Pop(reg));
 							1
 						} 
-						[(Operand::FixRegRex(mut reg, false), _), ..] if !ro => {
+						[(Operand::FixRegRex(mut reg, Regs::GP), _), ..] if !ro => {
 							if rex_b {
 								reg += 8;
 							}
 							effects.push(Effect2::ClobReg(reg));
 							1
 						}
-						[(Operand::FixReg(_, false), _), ..] if ro => 1,
-						[(Operand::FixReg(c, false), _), ..] if !ro => {
+						[(Operand::FixReg(_, _), _), ..] if ro => 1,
+						[(Operand::FixReg(c, Regs::GP), _), ..] if !ro => {
 							effects.push(Effect2::ClobReg(c));
 							1
 						}
@@ -334,43 +330,42 @@ pub fn gen_all(inst: &Inst, cases: &mut Vec<(Vec<u8>, Vec<Effect2>)>) {
 
 						[(Operand::RmOpcode(c), _), ..] => {
 							effects.push(if name == "call" {
-								Effect2::None
-								// TODO: CFI - Effect2::Call(get_rm().1.unwrap())
+								get!(|m, _| Effect2::Call(m), |r, o| Effect2::None) // TODO: CFI
 							} else {
 								get_write()
 							});
 							1
 						}
 
-						[(Operand::Rm(false), _), (Operand::Reg(sse), _), ..] => {
+						[(Operand::Rm(Regs::GP), _), (Operand::Reg(regs), _), ..] => {
 							effects.push(if inst.read_only {
 								get_read()
-							} else if name == "mov" && !sse { 
+							} else if name == "mov" && regs == Regs::GP { 
 								get!(|m, o| Effect2::Store(m, o), |r, o| Effect2::Move(r, o))
 							} else {
 								get_write()
 							});
 							2
 						}
-						[(Operand::Reg(false), _), (Operand::Rm(sse), _), ..] => {
+						[(Operand::Reg(Regs::GP), _), (Operand::Rm(regs), _), ..] => {
 							effects.push(if inst.read_only {
 								get_read()
-							} else if name == "mov" && !sse { 
+							} else if name == "mov" && regs == Regs::GP { 
 								get!(|m, o| Effect2::Load(o, m), |r, o| Effect2::Move(o, r))
 							} else {
 								get_write()
 							});
 							2
 						}
-						[(Operand::Rm(true), _), (Operand::Reg(_), _), ..] => {
+						[(Operand::Rm(_), _), (Operand::Reg(_), _), ..] => {
 							effects.push(get_read());
 							2
 						}
-						[(Operand::Reg(true), _), (Operand::Rm(_), _), ..] => {
+						[(Operand::Reg(_), _), (Operand::Rm(_), _), ..] => {
 							effects.push(get_read());
 							2
 						} 
-						[(Operand::Reg(false), _), (Operand::Mem(None), _), ..] => {
+						[(Operand::Reg(Regs::GP), _), (Operand::Mem(None), _), ..] => {
 							assert!(name == "lea");
 							effects.push(get!(|m, _| Effect2::Lea(m), |_, _| panic!()));
 							2
@@ -481,7 +476,7 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 			DecodedOperand::Direct(reg) => format!("{}", reg_name(reg, op.1, rex != 0)),
 			DecodedOperand::Indirect(indir) => {
 				let size_known = !sr().inst.unknown_mem && (known_size || sr().inst.no_mem);
-				let ptr = operand_ptr(false, op.1);
+				let ptr = operand_ptr(sr().inst.no_mem, op.1);
 
 				let scale = if indir.scale == 1 {
 					"".to_string()
@@ -503,20 +498,21 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 					&(Some(base), None) => format!("{}", REGS64[base]),
 					&(None, None) => {
 						return if indir.offset_wide {
-							format!("{}[{}{:#x}]", ptr, segment, indir.offset)
+							format!("{}{}[{:#x}]", ptr, segment, indir.offset)
 						} else {
-							format!("{}[{}{:#x}]", ptr, segment, indir.offset as i32)
+							format!("{}{}[{:#x}]", ptr, segment, indir.offset as i32)
 						}
 					},
 				};
 
 				if indir.offset != 0 {
-					format!("{}[{}{}{}]", ptr, segment, name, sign_hex(indir.offset, true))
+					format!("{}{}[{}{}]", ptr, segment, name, sign_hex(indir.offset, true))
 				} else {
-					format!("{}[{}{}]", ptr, segment, name)
+					format!("{}{}[{}]", ptr, segment, name)
 				}
 			}
 			DecodedOperand::Imm(im, size) => match op.1 {
+				Lit1 => format!("{}", im as i8),
 				S8 => format!("{:#x}", im as i8),
 				S16 => format!("{:#x}", im as i16),
 				S32 => format!("{:#x}", im as i32),
@@ -526,15 +522,15 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 		}
 	};
 
-	let reg_ref = |r: usize, sse: bool| {
-		if sse {
-			RT::SSE(r)
-		} else {
-			RT::GP(r)
+	let reg_ref = |r: usize, regs: Regs| {
+		match regs {
+			Regs::GP => RT::GP(r),
+			Regs::SSE => RT::SSE(r),
+			_ => panic!(),
 		}
 	};
 
-	let modrm = |sse: bool| {
+	let modrm = |regs: Regs| {
 		if !sr().modrm_cache.is_some() {
 			let modrm = s().cursor.next() as usize;
 			let mode = modrm >> 6;
@@ -610,7 +606,7 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 		}
 
 		match sr().modrm_cache.as_ref().unwrap().clone() {
-			(DecodedOperand::Direct(RT::GP(v)), s) => (DecodedOperand::Direct(reg_ref(v, sse)), s),
+			(DecodedOperand::Direct(RT::GP(v)), s) => (DecodedOperand::Direct(reg_ref(v, regs)), s),
 			v => v,
 		}
 	};
@@ -631,15 +627,15 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 				let off = read_imm(&state, decode_size(size)).wrapping_add(disp_off as i64).wrapping_add(sr().cursor.offset as u64 as i64);
 				s().inst.decoded_operands.push((DecodedOperand::Imm(off, decode_size(size)), S64));
 			}
-			(Operand::FixReg(reg, sse), op_size) => {
-				let r = reg_ref(reg, sse);
+			(Operand::FixReg(reg, regs), op_size) => {
+				let r = reg_ref(reg, regs);
 				s().inst.decoded_operands.push((DecodedOperand::Direct(r), decode_size(op_size)));
 			}
-			(Operand::FixRegRex(mut reg, sse), op_size) => {
+			(Operand::FixRegRex(mut reg, regs), op_size) => {
 				if rex_b {
 					reg += 8;
 				}
-				let r = reg_ref(reg, sse);
+				let r = reg_ref(reg, regs);
 				s().inst.decoded_operands.push((DecodedOperand::Direct(r), decode_size(op_size)));
 			}
 			(Operand::Clob(reg), op_size) => {}
@@ -653,21 +649,21 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 				};
 				s().inst.decoded_operands.push((DecodedOperand::Indirect(a), decode_size(op_size)));
 			}
-			(Operand::Rm(sse), op_size) => {
-				let (indir, _) = modrm(sse);
+			(Operand::Rm(regs), op_size) => {
+				let (indir, _) = modrm(regs);
 				s().inst.decoded_operands.push((indir, decode_size(op_size)));
 			}
-			(Operand::Reg(sse), op_size) => {
-				let (_, reg) = modrm(sse);
-				let r = reg_ref(reg, sse);
+			(Operand::Reg(regs), op_size) => {
+				let (_, reg) = modrm(regs);
+				let r = reg_ref(reg, regs);
 				s().inst.decoded_operands.push((DecodedOperand::Direct(r), decode_size(op_size)));
 			}
 			(Operand::RmOpcode(reg), op_size) => {
-				let (indir, reg) = modrm(false);
+				let (indir, reg) = modrm(Regs::GP);
 				s().inst.decoded_operands.push((indir, decode_size(op_size)));
 			}
 			(Operand::Mem(_), op_size) => {
-				let (indir, reg) = modrm(false);
+				let (indir, reg) = modrm(Regs::GP);
 				match indir {
 					DecodedOperand::Indirect(..) => {
 						s().inst.decoded_operands.push((indir, decode_size(op_size)));

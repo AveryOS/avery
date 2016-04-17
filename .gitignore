@@ -29,4 +29,7 @@
 /vendor/newlib/build
 /vendor/newlib/install
 /verifier/target
+/verifier/capstone/build
+/verifier/capstone/meta
+/verifier/capstone/install
 /vendor/cargo-sysroot/version

@@ -1,5 +1,6 @@
 #[derive(Eq, PartialEq, Copy, Clone, Debug)]
 pub enum Size {
+	Lit1,
 	S8,
 	S16,
 	S32,
@@ -11,17 +12,24 @@ pub enum Size {
 	SOpSize,
 }
 
+#[derive(Eq, PartialEq, Copy, Clone, Debug)]
+pub enum Regs {
+	GP,
+	MMX,
+	SSE,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Operand {
 	Imm(Size),
 	FixImm(i64, Size),
 	Disp(Size),
-	FixReg(usize, bool),
-	FixRegRex(usize, bool),
+	FixReg(usize, Regs),
+	FixRegRex(usize, Regs),
 	Clob(usize),
 	Addr,
-	Rm(bool),
-	Reg(bool),
+	Rm(Regs),
+	Reg(Regs),
 	RmOpcode(usize),
 	Mem(Option<usize>),
 }
@@ -54,7 +62,6 @@ pub struct Inst {
 	pub prefix_bytes: Vec<u8>,
 	pub bytes: Vec<u8>,
 	pub opcode: Option<usize>,
-	pub effects: Vec<Effect>,
 	pub operands: Vec<(Operand, Size)>,
 	pub decoded_operands: Vec<(DecodedOperand, Size)>,
 	pub op_size_postfix: bool,

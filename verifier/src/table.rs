@@ -5,6 +5,7 @@ use effect::Effect;
 use effect::Size;
 use effect::Size::*;
 use effect::Operand;
+use effect::Regs;
 
 pub static mut DEBUG: bool = false;
 
@@ -14,13 +15,6 @@ macro_rules! debug {
             print!($($arg)*);
         }
     );
-}
-
-#[derive(Copy, Clone, Debug)]
-pub enum RT {
-	GP(usize),
-	SSE(usize),
-	CR(usize),
 }
 
 fn cat_bits(vals: &[usize], sizes: &[usize]) -> u8 {
@@ -99,23 +93,14 @@ struct State {
 	read_only: bool,
 	branch: bool,
 	no_mem: bool,
-	sse: bool,
 }
 
 pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
-	let reg_ref = |r: usize, sse: bool| {
-		if sse {
-			RT::SSE(r)
-		} else {
-			RT::GP(r)
-		}
-	};
-
 	let opts = |options: &[OpOption], inst: &mut Inst, def_op_size: Size| {
 		let def_op_size = SOpSize;
 		let mut op_size = SOpSize;
 		let mut imm_size = SImmSize;
-		let mut sse = false;
+		let mut regs = Regs::GP;
 
 		for opt in options.iter() {
 			//debug!("Appling option {:?}, opsize = {:?}\n", opt, op_size);
@@ -149,18 +134,18 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 				}
 				SSEOff => {
 					op_size = op_size;
-					sse = false;
+					regs = Regs::GP;
 				}
 				MMX => {
 					op_size = SMMXSize;
-					sse = true;
+					regs = Regs::MMX;
 				}
 				OpSizeLimit32 => {
 					op_size = if op_size == S64 { S32 } else { op_size };
 				}
 				SSE => {
 					op_size = S128;
-					sse = true;
+					regs = Regs::SSE;
 				}
 				NoMem => {
 					inst.no_mem = true;
@@ -169,13 +154,13 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 					inst.unknown_mem = true;
 				}
 				FixRegRex(mut reg) => {
-					inst.operands.push((Operand::FixRegRex(reg, sse), op_size));
+					inst.operands.push((Operand::FixRegRex(reg, regs), op_size));
 				}
 				FixReg(reg) => {
-					inst.operands.push((Operand::FixReg(reg, sse), op_size));
+					inst.operands.push((Operand::FixReg(reg, regs), op_size));
 				}
 				FixImm(imm) => {
-					inst.operands.push((Operand::FixImm(imm, S8), op_size));
+					inst.operands.push((Operand::FixImm(imm, Lit1), Lit1));
 				}
 				Addr => {
 					inst.operands.push((Operand::Addr, op_size));
@@ -187,10 +172,10 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 					inst.operands.push((Operand::Disp(imm_size), S64));
 				}
 				Rm => {
-					inst.operands.push((Operand::Rm(sse), op_size));
+					inst.operands.push((Operand::Rm(regs), op_size));
 				}
 				Reg => {
-					inst.operands.push((Operand::Reg(sse), op_size));
+					inst.operands.push((Operand::Reg(regs), op_size));
 				}
 				RmOpcode(opcode_ext) => {
 					inst.opcode = Some(opcode_ext);
@@ -218,7 +203,6 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 		let mut inst = Inst {
 			prefix_bytes: code_prefixes.to_vec(),
 			bytes: code.to_vec(),
-			effects: Vec::new(),
 			opcode: None,
 			prefix_whitelist: vec![],
 			operands: Vec::new(),
@@ -235,60 +219,7 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 
 		opts(options, &mut inst, def_op_size);
 
-		let mut unknown = false;
-		let mut i = 0;
-		while i < inst.operands.len() {
-			let ops = &inst.operands[i..];
-
-			let e = match ops {
-				[(Operand::FixRegRex(_, false), _), ..] if name == "push" || name == "pop" => Some((1, Some(Effect::StackOp))),
-				[(Operand::FixReg(_, false), _), ..] if i == 1 || inst.read_only => Some((1, None)),
-				//[(Operand::FixRegRex(_, false), _), ..] if i == 1 || inst.read_only => Some((1, None)),
-				[(Operand::FixRegRex(c, false), _), ..] => Some((1, Some(Effect::ClobReg(c)))),
-				[(Operand::FixReg(0, false), _), ..] | [(Operand::Clob(0), _), ..] => Some((1, Some(Effect::ClobRAX))),
-				[(Operand::Clob(2), _), ..] => Some((1, Some(Effect::ClobRDX))),
-				[(Operand::FixImm(_, _), _), ..] => Some((1, None)),
-				[(Operand::Disp(S8), _), ..] => Some((1, Some(Effect::Jmp8))),
-				[(Operand::Disp(S32), _), ..] => Some((1, Some(if name == "call" { Effect::Call32 } else { Effect::Jmp32 }))),
-				[(Operand::Addr, _), ..] => Some((1, Some(Effect::ImmAddr))),
-				[(Operand::Imm(S8), _), ..] => Some((1, Some(Effect::Imm8))),
-				[(Operand::Imm(SOpSize), _), ..] => Some((1, Some(Effect::ImmMatchOp))),
-				[(Operand::Imm(SImmSize), _), ..] => Some((1, Some(Effect::ImmOp))),
-				[(Operand::RmOpcode(c), _), ..] => Some((1, Some(if name == "call" { Effect::CallRM } else { Effect::ClobRM_R }))),
-				[(Operand::Rm(false), _), (Operand::Reg(sse), _), ..] => Some((2, Some(if inst.read_only { Effect::ReadRM } else { if name == "mov" && !sse { Effect::MovRM_R } else { Effect::ClobRM_R }}))),
-				[(Operand::Reg(false), _), (Operand::Rm(sse), _), ..] => Some((2, Some(if inst.read_only { Effect::ReadRM } else { if name == "mov" && !sse { Effect::MovR_RM } else { Effect::ClobR_RM }}))),
-				[(Operand::Rm(true), _), (Operand::Reg(_), _), ..] => Some((2, None)),
-				[(Operand::Reg(true), _), (Operand::Rm(_), _), ..] => Some((2, None)),
-				[(Operand::Reg(false), _), (Operand::Mem(None), _), ..] => Some((2, Some(if name == "lea" { Effect::Lea } else { panic!() }))),
-				_ => None,
-			};
-
-			if let Some((s, e)) = e {
-				if let Some(e) = e {
-					inst.effects.push(e);
-				}
-				i += s;
-				continue;
-			}
-
-			println!("Unknown ops {:?}!", ops);
-
-			unknown = true;
-			i += 1;
-		}
-		debug!("{} ({}) => {:?}\n", name, bytes(full_code), inst);
-		let has_effects = true;/*inst.effects.len() > 0 ||
-			name == "nop" ||
-			name == "pause" ||
-			name == "mfence" ||
-			name == "int3" ||
-			name == "ud2";*/
-		if !unknown && has_effects {
-			//debug!("Adding {}\n", name);
-			ops.push(inst);
-		} else {
-			println!("Rejected {}!", name);
-		}
+		ops.push(inst);
 	};
 
 	macro_rules! op {
@@ -395,8 +326,8 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 	pair!([0x88], "mov", [Rm, Reg]);
 	pair!([0x8a], "mov", [Reg, Rm]);
 	pair!([0xc6], "mov", [RmOpcode(0), Imm]);
-	pair!([0xa0], "mov", [FixReg(0), Addr]);
-	pair!([0xa2], "mov", [Addr, FixReg(0)]);
+	pair!([0xa0], "movabs", [FixReg(0), Addr]);
+	pair!([0xa2], "movabs", [Addr, FixReg(0)]);
 
 	for reg in 0..8 {
 		op!([0xb0 + reg], "mov", [OpSize(S8), FixRegRex(reg as usize), ImmSize(S8), Imm]);
@@ -438,7 +369,7 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 	op!([0x0f, 0xbe], "movsx", [Reg, OpSize(S8), Rm]);
 	op!([0x0f, 0xbf], "movsx", [Reg, OpSize(S16), Rm]);
 
-	op!([0x63], "movsxd", [NoOpSizeOverride, Reg, OpSize(S32), Rm]);
+	op!([0x63], "movsxd", [NoOpSizeOverride, Reg, OpSize(S32), Rm]); // Require rex_w here
 
 	op!([0x66, 0x98], "cbw", [Clob(0)]);
 	op!([0x98], "cwde", [Clob(0)]); // Named 'cdqe' with rex_w
@@ -470,8 +401,8 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 	op!([0x0f, 0x28], "movaps", [SSE, Reg, Rm]);
 	op!([0x0f, 0x29], "movaps", [SSE, Rm, Reg]);
 
-	op!([0xf3, 0x0f, 0x7e], "movq", [SSE, Reg, Rm]);
-	op!([0x66, 0x0f, 0xd6], "movq", [SSE, Rm, Reg]);
+	op!([0xf3, 0x0f, 0x7e], "movq", [SSE, OpSize(S64), Reg, Rm]);
+	op!([0x66, 0x0f, 0xd6], "movq", [SSE, OpSize(S64), Rm, Reg]);
 
 	op!([0x66, 0x0f, 0x6e], "mov", [OpSizePostfix, SSE, Reg, OpSize(SRexSize), SSEOff, Rm]);
 	op!([0x66, 0x0f, 0x7e], "mov", [OpSizePostfix, OpSize(SRexSize), Rm, SSE, Reg, OpSize(SRexSize)]);

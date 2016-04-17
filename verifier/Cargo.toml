@@ -1,12 +1,15 @@
 [package]
 name = "verifier"
 version = "0.1.0"
+build = "src/build.rs"
 authors = ["John Kåre Alsaker <john.kare.alsaker@gmail.com>"]
 
 [dependencies]
 byteorder = "0.4.2"
 rustc-serialize = "0.3.18"
+fst = "0.1"
 rand = "*"
+crossbeam = "0.2.5"
 
 [dependencies.elfloader]
 path = "rust-elfloader"
@@ -20,8 +23,12 @@ name = "cases"
 path = "src/cases.rs"
 
 [[bin]]
-name = "dump"
+name = "verify"
 path = "src/main.rs"
+
+[[bin]]
+name = "tablegen"
+path = "src/tablegen.rs"
 
 [[bin]]
 name = "compare"

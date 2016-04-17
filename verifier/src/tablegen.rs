@@ -20,7 +20,11 @@ use std::fs::File;
 use std::io::Read;
 use elfloader::*;
 
+#[link(name = "capstone", kind = "static")]
+extern {}
+
 #[path = "../capstone/capstone.rs"]
+#[allow(dead_code, non_camel_case_types)]
 mod capstone;
 
 mod effect;
@@ -72,7 +76,9 @@ fn main() {
 						data: &xs,
 						offset: 0,
 					};
+					//println!("testing {} {:?}", table::bytes(&xs), effects);
 					let inst = &decoder::inst(&mut c, 0, ops).0;
+					//println!("output  {}", inst.desc);
 					decoder::capstone(&mut cp, &xs, 0, &inst, effects);
 					//println!("{} ({}) ..{} => {:?}", table::bytes(&bytes), str, xs.len() - bytes.len(), effects);
 				}

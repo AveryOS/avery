@@ -87,19 +87,17 @@ pub fn capstone(handle: &mut csh, data: &[u8], disp_off: u64, inst: &Inst, effec
 			let desc = format!("{} {}", mnemonic, ops).trim().to_string();
 
 			if inst.desc != desc {
-				println!("on |{}| capstone output |{}| didn't match |{}|, inst {:?}",
-					table::bytes(data), desc, inst.desc, inst);
+				println!("on {}\n  c: {}\n  m: {}", table::bytes(data), desc, inst.desc);
 			}
 
 			if (*ci).size as usize != inst.len {
-				println!("on |{}| Instruction was of length {}, while capstone was length {}, inst: {:?}", 
-					table::bytes(data), inst.len, (*ci).size, inst);
+				println!("on {}\n  len(c): {}\n  len(m): {}", table::bytes(data), (*ci).size, inst.len);
 			}
 
 			cs_free(ci, count);
 		} else {
-			println!("on |{}| capstone output was invalid didn't match |{}|, inst {:?}",
-				table::bytes(data), inst.desc, inst);
+			println!("on {}\n  c: invalid\n  m: {}", table::bytes(data), inst.desc);
+			//println!("  inst {:?}", inst);
 		}
 	}
 }
@@ -190,7 +188,7 @@ pub fn decode(data: &[u8], start: usize, size: usize, disp_off: u64, insts: &[In
 
 			print!("{}", str);
 
-			println!("{: <40} {}", i.desc, format!("{: <40} {}", format!("{:?}", i.effects), format!("{:?}", i)));
+			println!("{: <40} {}", i.desc, format!("{}", format!("{:?}", i)));
 
 			if i.operands.iter().any(|o| match *o { (Operand::Disp(..), _) => true, _ => false }) {
 				let op: (DecodedOperand, Size) = i.decoded_operands.first().unwrap().clone();
