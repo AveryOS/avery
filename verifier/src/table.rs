@@ -1,7 +1,4 @@
-use decoder::Cursor;
-use std::cell::RefCell;
 use effect::Inst;
-use effect::Effect;
 use effect::Size;
 use effect::Size::*;
 use effect::Operand;
@@ -42,8 +39,8 @@ const P_SEG_CS: u8 = 0x2E;
 const P_SEG_ES: u8 = 0x26;
 const P_SEG_DS: u8 = 0x3E;
 const P_SEG_SS: u8 = 0x36;
-const P_SEG_FS: u8 = 0x64;
-const P_SEG_GS: u8 = 0x65;
+pub const P_SEG_FS: u8 = 0x64;
+pub const P_SEG_GS: u8 = 0x65;
 
 pub const ALL_PREFIXES: &'static [u8] = &[P_LOCK, P_REP, P_REPNE,
 	P_OP_SIZE, P_ADDR_SIZE,
@@ -97,7 +94,6 @@ struct State {
 
 pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 	let opts = |options: &[OpOption], inst: &mut Inst, def_op_size: Size| {
-		let def_op_size = SOpSize;
 		let mut op_size = SOpSize;
 		let mut imm_size = SImmSize;
 		let mut regs = Regs::GP;
@@ -153,7 +149,7 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 				UnknownMem => {
 					inst.unknown_mem = true;
 				}
-				FixRegRex(mut reg) => {
+				FixRegRex(reg) => {
 					inst.operands.push((Operand::FixRegRex(reg, regs), op_size));
 				}
 				FixReg(reg) => {

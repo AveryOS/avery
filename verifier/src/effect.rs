@@ -147,7 +147,7 @@ pub enum StackMem {
 // 10 bits for Mem + usize
 // 6 bits for rest
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum Effect2 {
+pub enum Effect {
 	None,
 	ClobReg(usize),
 	WriteMem(Mem),
@@ -169,76 +169,24 @@ pub enum Effect2 {
 	Jmp8,
 }
 
-impl Effect2 {
+impl Effect {
 	pub fn trailing_bytes(self) -> usize {
 		match self {
-			Effect2::CheckAddr => 8,
-			Effect2::Imm8 => 1,
-			Effect2::Call32 => 4,
-			Effect2::Jmp32 => 4,
-			Effect2::Jmp8 => 1,
-			Effect2::Imm16 => 2,
-			Effect2::Imm32 => 4,
-			Effect2::Imm64 => 8,
-			Effect2::WriteMem(mem) |
-			Effect2::CheckMem(mem) |
-			Effect2::Store(mem, _) |
-			Effect2::Load(_, mem) |
-			Effect2::Lea(mem)  |
-			Effect2::Call(mem) => mem.trailing_bytes(),
-			_ => 0,
-		}
-	}
-}
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum Effect {
-	ClobRAX,
-	ClobRDX,
-	ClobReg(usize),
-	ClobRM_R,
-	ClobR_RM,
-	MovRM_R,
-	MovR_RM,
-	ReadRM,
-	ImmMatchOp,
-	ImmOp,
-	Imm8,
-	CallRM,
-	Call32,
-	Jmp32,
-	Jmp8,
-	StackOp,
-	Lea,
-	ImmAddr,
-}
-
-impl Effect {
-	pub fn trailing_bytes(self, op_size: bool) -> usize {
-		let imm_size = if op_size { 2 } else { 4 };
-		match self {
-			Effect::ImmAddr => 8,
+			Effect::CheckAddr => 8,
 			Effect::Imm8 => 1,
 			Effect::Call32 => 4,
 			Effect::Jmp32 => 4,
 			Effect::Jmp8 => 1,
-			Effect::ImmOp => imm_size,
-			Effect::ImmMatchOp => 4,
-			Effect::ClobRM_R |
-				Effect::ClobR_RM |
-				Effect::MovRM_R |
-				Effect::MovR_RM |
-				Effect::ReadRM |
-				Effect::CallRM |
-				Effect::Lea => 5,
+			Effect::Imm16 => 2,
+			Effect::Imm32 => 4,
+			Effect::Imm64 => 8,
+			Effect::WriteMem(mem) |
+			Effect::CheckMem(mem) |
+			Effect::Store(mem, _) |
+			Effect::Load(_, mem) |
+			Effect::Lea(mem)  |
+			Effect::Call(mem) => mem.trailing_bytes(),
 			_ => 0,
-		}
-	}
-
-	pub fn need_rex_w(self) -> bool {
-		match self {
-			Effect::ImmAddr => true,
-			_ => false,
 		}
 	}
 }

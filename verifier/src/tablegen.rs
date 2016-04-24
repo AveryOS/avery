@@ -17,9 +17,7 @@ extern crate crossbeam;
 
 use crossbeam::scope;
 use std::fs::File;
-use std::io::Read;
 use std::ptr;
-use elfloader::*;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -27,7 +25,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 extern {}
 
 #[path = "../capstone/capstone.rs"]
-#[allow(dead_code, non_camel_case_types)]
+#[allow(dead_code, non_snake_case, non_camel_case_types)]
 mod capstone;
 
 mod effect;
@@ -37,6 +35,8 @@ mod table;
 
 use capstone::csh;
 use effect::*;
+use std::io;
+use fst::{IntoStreamer, Streamer, Map, MapBuilder};
 
 fn capstone_open() -> csh {
 	use capstone::*;
@@ -62,7 +62,7 @@ fn capstone_close(mut handle: csh) {
 	}
 }
 
-fn capstone(handle: &mut csh, data: &[u8], disp_off: u64, inst: &Inst, effects: &[Effect2]) -> bool {
+fn capstone(handle: &mut csh, data: &[u8], disp_off: u64, inst: &Inst, effects: &[Effect]) -> bool {
 	use std::ffi::CStr;
 	use capstone::*;
 
@@ -100,13 +100,8 @@ fn capstone(handle: &mut csh, data: &[u8], disp_off: u64, inst: &Inst, effects: 
 }
 
 fn main() {
-	use std::fs::File;
-	use std::io;
-
-	use fst::{IntoStreamer, Streamer, Map, MapBuilder};
-
 	// This is where we'll write our map to.
-	let mut wtr = io::BufWriter::new(File::create("table.fst").unwrap());
+	let wtr = io::BufWriter::new(File::create("table.fst").unwrap());
 
 	let mut ops = Vec::new();
 
