@@ -378,13 +378,6 @@ task :dep_llvm => :dep_cmake do
 	end
 end
 
-task :dep_udis86 do
-	build_submodule.("verifier/udis86") do |src, prefix|
-		Dir.chdir(src) { run './autogen.sh' }
-		run File.join(src, 'configure'), "--prefix=#{prefix}"
-	end
-end
-
 task :dep_capstone do
 	build_submodule.("verifier/capstone") do |src, prefix|
 		opts = %W{-DCMAKE_INSTALL_PREFIX=#{hostpath(prefix)}}

@@ -443,16 +443,16 @@ task :sh do
 	run 'bash'
 end
 
-task :verifier => [:dep_capstone, :dep_udis86] do
+task :verifier => [:dep_capstone] do
 	Dir.chdir("verifier")
 	get_submodule('rust-elfloader')
 
 	ENV['CARGO_TARGET_DIR'] = nil
-	run 'cargo', 'build'
+	run 'cargo', 'build', '--release'
 end
 
 task :test_verifier => :verifier do
-	run 'cargo', 'run', '--release', '--bin', 'rnd'
+	run 'cargo', 'run', '--release', '--bin', 'tablegen'
 end
 
 task :ci => [:user, :deps_other] do

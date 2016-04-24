@@ -6,7 +6,6 @@ use std::sync::Mutex;
 use std::sync::atomic::{Ordering, AtomicBool};
 use effect::{DecodedOperand, Operand, Inst, Size, Effect2};
 use disasm;
-use capstone::csh;
 
 #[derive(Copy, Clone)]
 pub struct Cursor<'s> {
@@ -48,60 +47,6 @@ fn prefixes<'s>(c: &mut Cursor<'s>) -> &'s [u8] {
 	&c.data[s..c.offset]
 }
 
-pub fn capstone_open() -> csh {
-	use capstone::*;
-
-	unsafe {
-		let mut handle: csh = 0;
-
-		if cs_open(Enum_cs_arch::CS_ARCH_X86, Enum_cs_mode::CS_MODE_64, &mut handle) as u32 != 0 {
-			panic!();
-		}
-
-		cs_option(handle, Enum_cs_opt_type::CS_OPT_DETAIL, Enum_cs_opt_value::CS_OPT_ON as u64);
-
-		handle
-	}
-}
-
-pub fn capstone_close(mut handle: csh) {
-	use capstone::*;
-
-	unsafe {
-		cs_close(&mut handle);
-	}
-}
-
-pub fn capstone(handle: &mut csh, data: &[u8], disp_off: u64, inst: &Inst, effects: &[Effect2]) {
-	use std::ffi::CStr;
-	use capstone::*;
-
-	unsafe {
-		let mut ci: *mut cs_insn = ptr::null_mut();
-
-		let count = cs_disasm(*handle, data.as_ptr(), data.len() as u64, disp_off, 0, &mut ci);
-
-		if count > 0 {
-			let mnemonic = CStr::from_ptr((*ci).mnemonic[..].as_ptr()).to_str().unwrap();
-			let ops = CStr::from_ptr((*ci).op_str[..].as_ptr()).to_str().unwrap();
-			let desc = format!("{} {}", mnemonic, ops).trim().to_string();
-
-			if inst.desc != desc {
-				println!("on {}\n  c: {}\n  m: {}", table::bytes(data), desc, inst.desc);
-			}
-
-			if (*ci).size as usize != inst.len {
-				println!("on {}\n  len(c): {}\n  len(m): {}", table::bytes(data), (*ci).size, inst.len);
-			}
-
-			cs_free(ci, count);
-		} else {
-			println!("on {}\n  c: invalid\n  m: {}", table::bytes(data), inst.desc);
-			//println!("  inst {:?}", inst);
-		}
-	}
-}
-
 pub fn ud(c: &mut Cursor, disp_off: u64) -> (String, usize) {
 	use std::process::Command;
 	use std::process::Stdio;
@@ -126,10 +71,9 @@ pub fn ud(c: &mut Cursor, disp_off: u64) -> (String, usize) {
 	(l[len.len()..].trim().to_string(), len.parse().unwrap())
 }
 
-pub fn inst(c: &mut Cursor, disp_off: u64, insts: &[Inst]) -> (Inst, usize, String) {
+pub fn inst(c: &mut Cursor, disp_off: u64, insts: &[Inst]) -> Inst {
 	let start = c.offset;
 	let mut c_old = c.clone();
-	let (ud_str, ud_len) = ud(c, disp_off);
 	let pres = prefixes(c);
 	let rex = c.peek();
 	let rex = match rex {
@@ -148,11 +92,11 @@ pub fn inst(c: &mut Cursor, disp_off: u64, insts: &[Inst]) -> (Inst, usize, Stri
 
 	let mut inst = inst.unwrap_or_else(|| {
 		print_debug(&mut c_old);
-		panic!("on |{}| unknown opcode {:x} (ud: {})", table::bytes(c_old.remaining()), c.next(), ud_str)
+		panic!("on |{}| unknown opcode {:x}", table::bytes(c_old.remaining()), c.next());
 	});
 
 	inst.len = c.offset - start;
-	(inst, ud_len, ud_str)
+	inst
 }
 
 pub fn decode(data: &[u8], start: usize, size: usize, disp_off: u64, insts: &[Inst]) {
@@ -172,7 +116,9 @@ pub fn decode(data: &[u8], start: usize, size: usize, disp_off: u64, insts: &[In
 		loop {
 			let start = c.offset;
 			print!("{:#08x}: ", start as u64 + disp_off);
-			let (i, ud_len, ud_str) = inst(&mut c, disp_off, insts);
+			let i = inst(&mut c, disp_off, insts);
+			let ud_len = 0;
+			let ud_str = String::new();
 			let mut str = String::new();
 
 			let byte_print_len = cmp::min(8, ud_len);
@@ -279,7 +225,9 @@ pub fn decode_test(xs: &[u8], f: &Mutex<File>, insts: &[Inst]) {
 		data: &xs[..],
 		offset: 0,
 	};
-	let (i, ud_len, ud_str) = inst(&mut c, 0, insts);
+	let i = inst(&mut c, 0, insts);
+	let ud_len = 0;
+	let ud_str = String::new();
 
 	let mut str = String::new();
 	for b in xs[0..ud_len].iter() {

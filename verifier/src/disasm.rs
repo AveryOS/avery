@@ -178,10 +178,16 @@ pub fn gen_all(inst: &Inst, cases: &mut Vec<(Vec<u8>, Vec<Effect2>)>) {
 			};
 
 			let mut modrm_type = None;
+			let mut mod_rm_ro = inst.read_only;
 
 			for (i, op) in inst.operands.iter().enumerate() {
+				let ro = i >= 1;
+
 				match *op {
 					(Operand::Rm(_), _) => {
+						if ro {
+							mod_rm_ro = true;
+						}
 						modrm_type = Some(None);
 					}
 					(Operand::Reg(_), _) => {
@@ -191,6 +197,9 @@ pub fn gen_all(inst: &Inst, cases: &mut Vec<(Vec<u8>, Vec<Effect2>)>) {
 						modrm_type = Some(Some(Some(reg)));
 					}
 					(Operand::Mem(_), _) => {
+						if ro {
+							mod_rm_ro = true;
+						}
 						modrm_type = Some(Some(None));
 					}
 					_ => {}
@@ -243,7 +252,7 @@ pub fn gen_all(inst: &Inst, cases: &mut Vec<(Vec<u8>, Vec<Effect2>)>) {
 			'inner: for modrm in modrms {
 				if prefixes.contains(&P_LOCK) {
 					match modrm {
-						Some((_, Ok(_), _)) => (),
+						Some((_, Ok(_), _)) if !mod_rm_ro => (),
 						_ => continue,
 					}
 				}

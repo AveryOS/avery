@@ -24,4 +24,4 @@
 	url = https://github.com/AveryOS/cargo.git
 [submodule "verifier/capstone/src"]
 	path = verifier/capstone/src
-	url = https://github.com/aquynh/capstone.git
+	url = https://github.com/AveryOS/capstone.git

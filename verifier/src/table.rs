@@ -302,7 +302,7 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 	let nop_prefixes: Vec<OpOption> = ALL_PREFIXES.iter().filter(|&p| *p != P_LOCK).map(|v| Prefix(*v)).collect();
 
 	let mut opts = nop_prefixes.clone();
-	opts.extend([RmOpcode(0), NoMem].iter().cloned());
+	opts.extend([RmOpcode(0)].iter().cloned());
 	op!([0x0f, 0x1f], "nop", opts[..]);
 
 	op!([0xeb], "jmp", [ImmSize(S8), Disp]);
@@ -320,7 +320,6 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 		op!([0x58 + reg], "pop", [wide_op.clone(), FixRegRex(reg as usize)]);
 	}
 
-	op!([0x87, 0xc0], "nop", []); // Really xchg eax, eax which udis displays as nop
 	pair!([0x86], "xchg", [Rm, Reg]);
 
 	pair!([0x88], "mov", [Rm, Reg]);
@@ -354,7 +353,7 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 		if reg == 0 {
 			op!([0x90], "nop", nop_prefixes[..]) // MAY NOT BE NOP
 		} else {
-			op!([0x90 + reg as u8], "xchg", [FixRegRex(reg), FixReg(0)])
+			op!([0x90 + reg as u8], "xchg", [FixReg(0), FixRegRex(reg)])
 		}
 	}
 

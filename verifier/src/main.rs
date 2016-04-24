@@ -21,15 +21,14 @@ use elfloader::*;
 mod effect;
 mod decoder;
 mod table;
-mod table2;
 mod disasm;
 
 fn main() {
 	let mut ops = Vec::new();
 
-	unsafe { table2::DEBUG = true };
+	unsafe { table::DEBUG = true };
 
-	table2::list_insts(&mut ops, false);
+	table::list_insts(&mut ops, false);
 	
 	let path = std::env::args().nth(1).unwrap();
 	println!("Dumping {}", path);
