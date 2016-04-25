@@ -380,7 +380,7 @@ end
 
 task :dep_capstone do
 	build_submodule.("verifier/capstone") do |src, prefix|
-		opts = %W{-DCMAKE_INSTALL_PREFIX=#{hostpath(prefix)}}
+		opts = %W{-DCMAKE_INSTALL_PREFIX=#{hostpath(prefix)} -DCMAKE_C_FLAGS=-fPIC}
 		opts += ['-G',  'MSYS Makefiles'] if ON_WINDOWS_MINGW
 		run "cmake", src, *opts
 	end
