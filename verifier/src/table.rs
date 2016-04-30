@@ -255,7 +255,7 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 			let opcode = cat_bits(&[arith_opcode, format_num, 0], &[5, 2, 1]);
 			let mut f = format.to_vec();
 			if *instr == "cmp" {
-				f.push(Read);
+				f.insert(0, Read);
 			} else {
 				f.push(Prefix(P_LOCK));
 			}
@@ -330,8 +330,8 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 	pair!([0x88], "mov", [Prefix(P_SEG_GS), Rm, Reg]);
 	pair!([0x8a], "mov", [Prefix(P_SEG_GS), Reg, Rm]);
 	pair!([0xc6], "mov", [Prefix(P_SEG_GS), RmOpcode(0), Imm]);
-	pair!([0xa0], "movabs", [Prefix(P_SEG_GS), FixReg(0), Addr]);
-	pair!([0xa2], "movabs", [Prefix(P_SEG_GS), Addr, FixReg(0)]);
+	pair!([0xa0], "mov", [Prefix(P_SEG_GS), FixReg(0), Addr]);
+	pair!([0xa2], "mov", [Prefix(P_SEG_GS), Addr, FixReg(0)]);
 
 	for reg in 0..8 {
 		op!([0xb0 + reg], "mov", [Prefix(P_SEG_GS), OpSize(S8), FixRegRex(reg as usize), ImmSize(S8), Imm]);

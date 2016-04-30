@@ -25,27 +25,53 @@ impl<'s> Cursor<'s> {
 	}
 }
 
+fn capstone(data: &[u8], disp_off: u64) -> (String, usize) {
+	use std::ffi::CStr;
+	use std::ptr;
+	use capstone::*;
+
+	unsafe {
+		let mut handle: csh = 0;
+
+		if cs_open(Enum_cs_arch::CS_ARCH_X86, Enum_cs_mode::CS_MODE_64, &mut handle) as u32 != 0 {
+			panic!();
+		}
+
+		cs_option(handle, Enum_cs_opt_type::CS_OPT_DETAIL, Enum_cs_opt_value::CS_OPT_ON as u64);
+
+		let mut ci: *mut cs_insn = ptr::null_mut();
+
+		let count = cs_disasm(handle, data.as_ptr(), data.len() as u64, disp_off, 0, &mut ci);
+
+		let r = if count > 0 {
+			let mnemonic = CStr::from_ptr((*ci).mnemonic[..].as_ptr()).to_str().unwrap();
+			let ops = CStr::from_ptr((*ci).op_str[..].as_ptr()).to_str().unwrap();
+			let desc = format!("{} {} (length: {})", mnemonic, ops, (*ci).size).trim().to_string();
+			cs_free(ci, count);
+			(desc, (*ci).size as usize)
+		} else {
+			("invalid".to_string(), 1)
+		};
+
+		cs_close(&mut handle);
+
+		r
+	}
+}
+
 pub fn inst(c: &mut Cursor, disp_off: u64, cases: &[(Vec<u8>, Vec<Effect>, InstFormat)]) -> (DecodedInst, Vec<Effect>) {
-	let start = c.offset;
-	let case = cases.iter().find(|i| c.remaining().starts_with(&i.0[..])).unwrap();
+	let case = cases.iter().find(|i| c.remaining().starts_with(&i.0[..])).unwrap_or_else(|| {
+		let data = &c.remaining()[0..cmp::min(16, c.remaining().len())];
+		let (desc, len) = capstone(data, 0);
+		let bytes = table::bytes(&c.remaining()[0..len]);
+
+		println!("unknown |{}| capstone: {}", bytes, desc);
+		panic!("unknown |{}| capstone: {}", bytes, desc);
+	});
 
 	c.offset += case.2.bytes.len();
 
-	let mut c_old = c.clone();
-
 	let inst = disasm::parse(c, disp_off, &case.2);
-
-	let print_debug = |c: &mut Cursor| {
-		unsafe { disasm::DEBUG = true };
-		disasm::parse(c, disp_off, &case.2);
-	};
-
-	let mut inst = inst.unwrap_or_else(|| {
-		print_debug(&mut c_old);
-		panic!("on |{}| unknown opcode {:x}", table::bytes(c_old.remaining()), c.next());
-	});
-
-	inst.len = c.offset - start;
 	(inst, case.1.clone())
 }
 

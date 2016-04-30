@@ -19,6 +19,13 @@ use std::fs::File;
 use std::io::Read;
 use elfloader::*;
 
+#[link(name = "capstone", kind = "static")]
+extern {}
+
+#[path = "../capstone/capstone.rs"]
+#[allow(dead_code, non_snake_case, non_camel_case_types)]
+mod capstone;
+
 mod effect;
 mod decoder;
 mod table;

@@ -54,10 +54,18 @@ pub enum RT {
 	CR(usize),
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct IndirectAccessFormat {
+	pub base: Option<usize>,
+	pub index: Option<usize>,
+	pub scale: usize,
+	pub disp: Disp,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum OperandFormat {
 	Direct(RT, Size),
-	Indirect(Mem, Size),
+	Indirect(IndirectAccessFormat, Size),
 	IndirectAddr,
 	FixImm(i64),
 	Imm(Size),
@@ -200,7 +208,7 @@ pub enum Effect {
 	ReadStack(Mem), // Can be limited to RBP/RSP accesses (StackMem)
 	Store(Mem, usize), // Can be limited to RBP/RSP accesses (StackMem)
 	Load(usize, Mem), // Can be limited to RBP/RSP accesses (StackMem)
-	Lea(Mem),
+	Lea(usize, Mem),
 	Push(usize),
 	Pop(usize),
 	CheckAddr,
@@ -224,7 +232,7 @@ impl Effect {
 			Effect::ReadMem(mem) |
 			Effect::Store(mem, _) |
 			Effect::Load(_, mem) |
-			Effect::Lea(mem)  |
+			Effect::Lea(_, mem)  |
 			Effect::Call(mem) => mem.encode(),
 			_ => 0,
 		};
@@ -248,7 +256,7 @@ impl Effect {
 			Effect::ReadMem(mem) |
 			Effect::Store(mem, _) |
 			Effect::Load(_, mem) |
-			Effect::Lea(mem)  |
+			Effect::Lea(_, mem)  |
 			Effect::Call(mem) => mem.trailing_bytes(),
 			_ => 0,
 		}

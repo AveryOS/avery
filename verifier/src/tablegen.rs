@@ -196,7 +196,7 @@ fn main() {
 						offset: bytes.len(),
 					};
 
-					let inst = disasm::parse(&mut c, 0, format).unwrap();
+					let inst = disasm::parse(&mut c, 0, format);
 					//println!("Instruction {} {} => {:?}", table::bytes(&xs), inst.desc, effects);
 
 					if capstone(&mut cp, &xs, 0, &inst, effects) {
