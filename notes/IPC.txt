@@ -134,3 +134,65 @@ Message passing stack allocation with block indexed by 'i' with 'n' stacks - Thr
 
 Have diverging functions in Rust which drops all variables on the frame
 Have diverging IPC which can only return to some higher non-diverging IPC call
+
+What IPC must do:
+	Check that there is free call stack space, return an error if not (could call something to allocate more space and use segmented stacks)
+	Check that the target server is swapped in. Mark is as active.
+	Switch GS segment to the target server
+	Ensure that the caller has access to the server, return an error if not
+	Call the server IPC entry point
+	Switch the GS segment back
+
+Exceptions and IRQs should use async seL4-like IPC
+
+Store capabilities and excess messages in a TCB buffer. It can only be accessed by the current process the thread is in
+	Allow capability store methods to directly address this buffer?
+
+Store the function to call in the endpoint?
+	So endpoints = (Process, Function, Badge)
+	Process = 32bit pointer into kernel heap
+	Store a process/function pair into a kernel object? (have that be the endpoint instead?)
+	Endpoint = (Process, Function)
+	Object = (Endpoint, Badge)
+	Add a syscall to extract Function, Badge given (Process, Object)?
+
+Have 'Portal' capabilties which is the only capabiltiy which can be invoked
+	The 'Portal' capability stores the process and the function to call when invoked.
+
+	'ObjectType' is a kernel object which stores a process ID and a word.
+
+	The 'Object' capability stores an ObjectType pointer and a word. <- Could store a 32-bit process ID and a 32-bit type ID?
+
+	A syscall extracts the ObjectType word and the Object word given an Object if the current process owns the ObjectType.
+
+	('ObjectType' might also store a descriptive string, for debugging purposes)
+
+	A process can create Portal, ObjectType and Object capabilties at will.
+
+	Doesn't work for talking to different server using the same interface....
+
+An Interface stores the process, a word and an array of functions to call.
+	An Object stores an Interface pointer and a word.
+	A RPC takes an Object capability and a index into the function arra, and calls the selected function. It passes the Object word as an argument to the called function.
+	A syscall extracts the Interface word and the Object word given an Object if the current process owns the Interface.
+
+Any capabilties management happens through direct syscalls and not using IPC. Other kernel services should use IPC.
+
+<Zoxc> I think I have capabilities for my RPC figured out.
+<Zoxc> The 'Portal' capability stores the process and the function to call when invoked.
+<Zoxc> The ELF loader will set those up so each Portal corresponds to a function to call in a server. (Like file_open, file_close, etc.)
+<Zoxc> 'ObjectType' is a kernel object which stores a process ID and a word.
+<Zoxc> The 'Object' capability stores an ObjectType pointer and a word.
+<Zoxc> A syscall extracts the ObjectType word and the Object word given an Object if the current process owns the ObjectType.
+<Zoxc> A process can create Portal, ObjectType and Object capabilties at will.
+<Zoxc> There is a fixed size capability store in the TCB. The current process can access that store.
+<Zoxc> Since the thread doesn't change during a RPC, only the process. That can be used to transfer capabilities.
+
+Object words can hold pointers, and server can encrypt those pointers to avoid leaking addresses.
+How can we identify clients in this scheme?
+Do we need to identify clients? Can we just pass along a process ID?
+
+How to free data for clients when we run out of resources or processes exit?
+How can a server free resources belonging to a process if that process exits? Given that a client can transfer capabilities to another process without informing the server
+
+Have a buffer object which can reference some other process' pages and a journal of changes. Rope structure?

@@ -3,6 +3,7 @@
 #![feature(plugin)]
 #![feature(const_fn)]
 #![feature(slice_patterns)]
+#![feature(inclusive_range_syntax)]
 #![allow(dead_code)]
 //#![cfg_attr(test, feature(plugin, custom_attribute))]
 //#![cfg_attr(test, plugin(quickcheck_macros))]
@@ -30,6 +31,12 @@ fn main() {
 
 	table::list_insts(&mut ops, false);
 	
+	let mut cases = Vec::new();
+
+	for op in &ops {
+		disasm::gen_all(op, &mut cases)
+	}
+
 	let path = std::env::args().nth(1).unwrap();
 	println!("Dumping {}", path);
 	let mut f = File::open(path).unwrap();
@@ -90,7 +97,7 @@ fn main() {
 		if let Some((data, offset, disp_off)) = dump {
 			println!("dumping symbol {} {:x} {}", name, offset, sym);
 			if sym.size != 0 {
-				decoder::decode(data, offset, sym.size as usize, disp_off, &ops);
+				decoder::decode(data, offset, sym.size as usize, disp_off, &cases);
 			}
 		}
 	});

@@ -1,0 +1,6 @@
+To verify jump targets:
+	Have a sorted list of jump targets per function in the object file. (It need not be checked to be sorted)
+	Have a pointer into this list.
+	When decoding an address, see if it matches the target of the pointer. If so, bump the pointer.
+	When the last instruction is decoded, ensure that the pointer is at the end.
+	When a jmp instruction is found. Do a binary search into the list of jump targets.

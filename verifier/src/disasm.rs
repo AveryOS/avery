@@ -1,8 +1,7 @@
 use decoder::Cursor;
 use std::cell::RefCell;
-use std::cmp;
 use std::iter;
-use effect::{DecodedOperand, Regs, Inst, IndirectAccess, RT, Mem, Disp, Effect, Operand, Size};
+use effect::*;
 use effect::Size::*;
 use table::{self, bytes, P_LOCK, P_SEG_GS, P_SEG_FS, P_OP_SIZE, P_REP};
 
@@ -31,8 +30,7 @@ fn sign_hex(i: i64, plus: bool) -> String {
 #[derive(Clone)]
 struct State<'s> {
 	cursor: Cursor<'s>,
-	inst: Inst,
-	modrm_cache: Option<(DecodedOperand, usize)>,
+	operands: Vec<(DecodedOperand, Size)>,
 }
 
 const REGS_CR: &'static [&'static str] = &["cr0", "cr1", "cr2", "cr3", "cr4", "cr5", "cr6", "cr7",
@@ -81,8 +79,7 @@ fn reg_name(r: RT, op_size: Size, rex: bool) -> &'static str  {
 	}
 }
 
-fn read_imm(s: &RefCell<State>, size: Size) -> i64 {
-	let mut c = &mut s.borrow_mut().cursor;
+fn read_imm(c: &mut Cursor, size: Size) -> i64 {
 	match size {
 		S8 => {
 			c.next() as i8 as i64
@@ -114,14 +111,16 @@ fn read_imm(s: &RefCell<State>, size: Size) -> i64 {
 	}
 }
 
-pub fn gen_all(inst: &Inst, cases: &mut Vec<(Vec<u8>, Vec<Effect>)>) {
+pub fn gen_all(inst: &Inst, cases: &mut Vec<(Vec<u8>, Vec<Effect>, InstFormat)>) {
 	let name = &inst.name[..];
+	//unsafe { DEBUG = name == "mov"; };
+	debug!("Generating all {} {}\n", name, table::bytes(&inst.bytes));
 
 	for prefixes in &[
 		&[][..], &[P_LOCK], &[P_LOCK, P_SEG_GS], &[P_SEG_GS],
 		&[P_OP_SIZE], &[P_OP_SIZE, P_LOCK], &[P_OP_SIZE, P_LOCK, P_SEG_GS], &[P_OP_SIZE, P_SEG_GS]
 	] {
-		for rex_byte in (0x41..0x48u8).map(|r| Some(r)).chain(iter::once(None)) {
+		for rex_byte in (0x41...0x4Fu8).map(|r| Some(r)).chain(iter::once(None)) {
 			if inst.prefix_bytes.iter().any(|p| prefixes.contains(p)) {
 				continue;
 			}
@@ -130,49 +129,32 @@ pub fn gen_all(inst: &Inst, cases: &mut Vec<(Vec<u8>, Vec<Effect>)>) {
 				continue;
 			}
 
-			if rex_byte.is_some() {
+			// REX doesn't work if the instruction uses prefixes as the opcode
+			if rex_byte.is_some() && !inst.prefix_bytes.is_empty() {
 				continue;
 			}
 
-			let rex = rex_byte.unwrap_or(0);
-			let rex_w = ext_bit(rex as usize, 3, 0) != 0;
-			let rex_b = ext_bit(rex as usize, 0, 0) != 0;
-			let operand_size_override = prefixes.contains(&P_OP_SIZE);
-
-			let op_size = if rex_w { S64 } else { if operand_size_override { S16 } else { S32 } };
-			let imm_size = if op_size == S16 { S16 } else { S32 };
-
-			let decode_size = |s: Size| {
-				match s {
-					SMMXSize => if operand_size_override { S128 } else { S64 },
-					SRexSize => if rex_w { S64 } else { S32 },
-					SImmSize => imm_size,
-					SOpSize => op_size,
-					_ => s
-				}
-			};
-
+			let rex_val = rex_byte.unwrap_or(0) as usize;
+			
 			let mut modrm_type = None;
-			let mut mod_rm_ro = inst.read_only;
+			let mut mod_rm_ro = false;
 
-			for (i, op) in inst.operands.iter().enumerate() {
-				let ro = i >= 1;
-
+			for op in &inst.operands {
 				match *op {
-					(Operand::Rm(_), _) => {
-						if ro {
+					(Operand::Rm(_), _, access) => {
+						if access == Access::Read {
 							mod_rm_ro = true;
 						}
 						modrm_type = Some(None);
 					}
-					(Operand::Reg(_), _) => {
+					(Operand::Reg(_), _, _) => {
 						modrm_type = Some(None);
 					}
-					(Operand::RmOpcode(reg), _) => {
+					(Operand::RmOpcode(reg), _, _) => {
 						modrm_type = Some(Some(Some(reg)));
 					}
-					(Operand::Mem(_), _) => {
-						if ro {
+					(Operand::Mem(_), _, access) => {
+						if access == Access::Read {
 							mod_rm_ro = true;
 						}
 						modrm_type = Some(Some(None));
@@ -186,8 +168,11 @@ pub fn gen_all(inst: &Inst, cases: &mut Vec<(Vec<u8>, Vec<Effect>)>) {
 			if let Some(kind) = modrm_type {
 				for modrm in 0..256usize {
 					let mode = modrm >> 6;
-					let reg = ((modrm >> 3) & 7) | ext_bit(rex as usize, 2, 3);
-					let rm = modrm & 7 | ext_bit(rex as usize, 0, 3);
+					let reg_rex = ext_bit(rex_val, 2, 3);
+					let reg = ((modrm >> 3) & 7) | reg_rex;
+					let rm_rex = ext_bit(rex_val, 0, 3);
+					let rm = modrm & 7 | rm_rex;
+					let mut use_rex = (reg_rex | rm_rex) != 0;
 
 					if let Some(Some(opcode)) = kind {
 						if opcode != reg {
@@ -205,6 +190,7 @@ pub fn gen_all(inst: &Inst, cases: &mut Vec<(Vec<u8>, Vec<Effect>)>) {
 						continue;
 					} else {
 						if mode == 0 && rm & 7 == 5 { // RIP relative
+							use_rex = reg_rex != 0; // rm rex bit not used here
 							Some(Mem::Rip)
 						} else if mode == 3 { // reg
 							None
@@ -218,7 +204,9 @@ pub fn gen_all(inst: &Inst, cases: &mut Vec<(Vec<u8>, Vec<Effect>)>) {
 						}
 					};
 
-					modrms.push(Some((modrm, indir.ok_or(rm), reg)));
+					// TODO: Ensure that the values dervied from the REX bytes are actually used in the instruction
+
+					modrms.push(Some((modrm, indir.ok_or(rm), reg, use_rex)));
 				}
 			} else {
 				modrms.push(None);
@@ -227,79 +215,101 @@ pub fn gen_all(inst: &Inst, cases: &mut Vec<(Vec<u8>, Vec<Effect>)>) {
 			'inner: for modrm in modrms {
 				if prefixes.contains(&P_LOCK) {
 					match modrm {
-						Some((_, Ok(_), _)) if !mod_rm_ro => (),
+						Some((_, Ok(_), _, _)) if !mod_rm_ro => (),
 						_ => continue,
 					}
 				}
 
+				debug!("REX Byte {:?} on {} {}\n", rex_byte, name, table::bytes(&inst.bytes));
+
+				let used_rex = RefCell::new(false);
+
+				match modrm {
+					Some((_, _, _, true)) => *used_rex.borrow_mut() = true,
+					_ => (),
+				}
+
+				let rex_w = || {
+					let r = ext_bit(rex_val, 3, 0) != 0;
+					if r {
+						*used_rex.borrow_mut() = true;
+					}
+					r
+				};
+
+				let rex_b = || {
+					let r = ext_bit(rex_val, 0, 0) != 0;
+					if r {
+						*used_rex.borrow_mut() = true;
+					}
+					r
+				};
+
+				let operand_size_override = prefixes.contains(&P_OP_SIZE);
+
+				let op_size = || if rex_w() { S64 } else { if operand_size_override { S16 } else { S32 } };
+				let imm_size = || if op_size() == S16 { S16 } else { S32 };
+
+				let decode_size = |s: Size| {
+					match s {
+						SRexSize => if rex_w() { S64 } else { S32 },
+						SImmSize => imm_size(),
+						SOpSize => {
+
+						debug!("Use OpSIZE\n");;
+							op_size()},
+						_ => s
+					}
+				};
+
 				let mut effects = Vec::new();
 
-				let mut i = 0;
-				while i < inst.operands.len() {
-					let ops = &inst.operands[i..];
-					let ro = i >= 1 || inst.read_only;
+				// TODO: Check for redundant instructions like mov eax, eax
 
-					macro_rules! get {
-					    ($mem:expr, $reg:expr) => (match modrm {
-							Some((_, Ok(mem), other)) => $mem(mem, other),
-							Some((_, Err(reg), other)) => $reg(reg, other),
-							None => panic!(),
-						})
+				// TODO: Generate DecodedOperands and use that to check for 8-bit registers with/without REX so REX 40 can be added if required
+
+				let reg_ref = |r: usize, regs: Regs, op_size: Size| {
+					OperandFormat::Direct(match regs {
+						Regs::GP => RT::GP(r),
+						Regs::SSE => RT::SSE(r),
+					}, decode_size(op_size))
+				};
+
+				macro_rules! get {
+					($mem:expr, $reg:expr) => (match modrm {
+						Some((_, Ok(mem), other, _)) => $mem(mem, other),
+						Some((_, Err(reg), other, _)) => $reg(reg, other),
+						None => panic!(),
+					})
+				}
+
+				let modrm_operand = |regs: Regs, op_size: Size| {
+					get!(|m, other| (OperandFormat::Indirect(m, decode_size(op_size)), other), |reg, other| (reg_ref(reg, regs, op_size), other))
+				};
+
+				let gs = prefixes.contains(&P_SEG_GS);
+
+				let get_write = || get!(|m, _| if gs { Effect::WriteMem(m) } else { Effect::WriteStack(m) }, |r, _| Effect::ClobReg(r));
+				let get_read = || get!(|m, _| if gs { Effect::ReadMem(m) } else { Effect::ReadStack(m) }, |_, _| Effect::None);
+				let get_rm = |access| {
+					match access {
+						Access::Read => get_read(),
+						_ => get_write(),
 					}
+				};
 
-					let get_write = || get!(|m, _| Effect::WriteMem(m), |r, _| Effect::ClobReg(r));
-					let get_read = || get!(|m, _| Effect::CheckMem(m), |_, _| Effect::None);
+				let mut operands = Vec::new();
 
-					i += match ops {
-						[(Operand::FixRegRex(mut reg, Regs::GP), _), ..] if name == "push" => {
-							if rex_b {
-								reg += 8;
-							}
-							effects.push(Effect::Push(reg));
-							1
-						} 
-						[(Operand::FixRegRex(mut reg, Regs::GP), _), ..] if name == "pop" => {
-							if rex_b {
-								reg += 8;
-							}
-							effects.push(Effect::Pop(reg));
-							1
-						} 
-						[(Operand::FixRegRex(mut reg, Regs::GP), _), ..] if !ro => {
-							if rex_b {
-								reg += 8;
-							}
-							effects.push(Effect::ClobReg(reg));
-							1
-						}
-						[(Operand::FixReg(_, _), _), ..] if ro => 1,
-						[(Operand::FixReg(c, Regs::GP), _), ..] if !ro => {
-							effects.push(Effect::ClobReg(c));
-							1
-						}
+				for access in &inst.accesses {
+					match *access {
+						(reg, Access::ReadWrite) | (reg, Access::Write) => effects.push(Effect::ClobReg(reg)),
+						_ => {},
+					}
+				}
 
-						[(Operand::Clob(c), _), ..] =>  {
-							effects.push(Effect::ClobReg(c));
-							1
-						}
-
-						[(Operand::FixImm(_, _), _), ..] => 1,
-
-						[(Operand::Disp(S8), _), ..] => {
-							effects.push(Effect::Jmp8);
-							1
-						}
-						[(Operand::Disp(S32), _), ..] =>  {
-							effects.push(if name == "call" { Effect::Call32 } else { Effect::Jmp32 });
-							1
-						}
-						
-						[(Operand::Addr, _), ..] => {
-							effects.push(Effect::CheckAddr);
-							1
-						}
-						
-						[(Operand::Imm(size), _), ..] => {
+				for op in &inst.operands {
+					match *op {
+						(Operand::Imm(size), _, access) => {
 							effects.push(match decode_size(size) {
 								S64 => Effect::Imm64,
 								S32 => Effect::Imm32,
@@ -307,81 +317,145 @@ pub fn gen_all(inst: &Inst, cases: &mut Vec<(Vec<u8>, Vec<Effect>)>) {
 								S8 => Effect::Imm8,
 								_ => panic!(),
 							});
-							1
+							operands.push((OperandFormat::Imm(decode_size(size)), access));
 						}
+						(Operand::FixImm(imm, _), _, access) => {
+							operands.push((OperandFormat::FixImm(imm), access));
+						}
+						(Operand::Disp(size), _, access) => {
+							match size {
+								S8 => effects.push(Effect::Jmp8),
+								S32 => effects.push(if name == "call" { Effect::Call32 } else { Effect::Jmp32 }),
+								_ => panic!(),
+							}
+							operands.push((OperandFormat::Disp(decode_size(size)), access));
+						}
+						(Operand::FixReg(reg, regs), op_size, access) => {
+							let r = reg_ref(reg, regs, op_size);
+							operands.push((r, access));
+							if access != Access::Read && regs == Regs::GP {
+								effects.push(Effect::ClobReg(reg));
+							}
+						}
+						(Operand::FixRegRex(mut reg, regs), op_size, access) => {
+							if rex_b() {
+								reg += 8;
+							}
+							let r = reg_ref(reg, regs, op_size);
+							operands.push((r, access));
+							if name == "push" {
+								effects.push(Effect::Push(reg));
+							} else if name == "pop" {
+								effects.push(Effect::Pop(reg));
+							} else if access != Access::Read && regs == Regs::GP {
+								effects.push(Effect::ClobReg(reg));
+							}
+						}
+						(Operand::Addr, _, access) => {
+							effects.push(Effect::CheckAddr);
+							operands.push((OperandFormat::IndirectAddr, access));
+						}
+						(Operand::Rm(regs), op_size, access) => {
+							effects.push(if name == "mov" && regs == Regs::GP && !gs { 
+								get!(|m, o| Effect::Store(m, o), |r, o| Effect::Move(r, o))
+							} else {
+								get_rm(access)
+							});
 
-						[(Operand::RmOpcode(_), _), ..] => {
+							let (indir, _) = modrm_operand(regs, op_size);
+							operands.push((indir, access));
+						}
+						// TODO: Ensure that Operand::Rm is present and has the opposite access if Operand::Reg is present
+						(Operand::Reg(regs), op_size, access) => { 
+							let (_, reg) = modrm_operand(regs, op_size);
+							let r = reg_ref(reg, regs, op_size);
+							operands.push((r, access));
+						}
+						(Operand::RmOpcode(_), op_size, access) => {
 							effects.push(if name == "call" {
 								get!(|m, _| Effect::Call(m), |_, _| Effect::None) // TODO: CFI
 							} else {
-								get_write()
+								get_rm(access)
 							});
-							1
-						}
 
-						[(Operand::Rm(Regs::GP), _), (Operand::Reg(regs), _), ..] => {
-							effects.push(if inst.read_only {
-								get_read()
-							} else if name == "mov" && regs == Regs::GP { 
-								get!(|m, o| Effect::Store(m, o), |r, o| Effect::Move(r, o))
-							} else {
-								get_write()
-							});
-							2
+							let (indir, _) = modrm_operand(Regs::GP, op_size);
+							operands.push((indir, access));
 						}
-						[(Operand::Reg(Regs::GP), _), (Operand::Rm(regs), _), ..] => {
-							effects.push(if inst.read_only {
-								get_read()
-							} else if name == "mov" && regs == Regs::GP { 
-								get!(|m, o| Effect::Load(o, m), |r, o| Effect::Move(o, r))
-							} else {
-								get_write()
-							});
-							2
-						}
-						[(Operand::Rm(_), _), (Operand::Reg(_), _), ..] => {
-							effects.push(get_read());
-							2
-						}
-						[(Operand::Reg(_), _), (Operand::Rm(_), _), ..] => {
-							effects.push(get_read());
-							2
-						} 
-						[(Operand::Reg(Regs::GP), _), (Operand::Mem(None), _), ..] => {
+						(Operand::Mem(_), op_size, access) => {
 							assert!(name == "lea");
+							if !rex_w() {
+								continue 'inner;
+							}
 							effects.push(get!(|m, _| Effect::Lea(m), |_, _| panic!()));
-							2
+
+							let (indir, _) = modrm_operand(Regs::GP, op_size);
+							match indir {
+								OperandFormat::Indirect(..) => {
+									operands.push((indir, access));
+								}
+								_ => panic!(),
+							}
 						}
-						_ => {
-							println!("Unknown ops {:?} on {:?}!", ops, inst);
-							continue 'inner;
-						},
 					}
+				}
+
+				if rex_byte.is_some() && !*used_rex.borrow() {
+					continue;
 				}
 
 				let mut bytes = Vec::new();
 
 				bytes.extend_from_slice(prefixes);
-				rex_byte.map(|r| bytes.push(r));
 				bytes.extend_from_slice(&inst.prefix_bytes);
+				rex_byte.map(|r| bytes.push(r));
 				bytes.extend_from_slice(&inst.bytes);
-				if let Some((b, _, _)) = modrm {
+				if let Some((b, _, _, _)) = modrm {
 					bytes.push(b as u8);
 				}
 
+				let mut name = inst.name.clone();
+
+				if name == "cwde" && rex_w() { // TODO: Don't cause REX usage
+					name = "cdqe".to_string();
+				} else if name == "cdq" && rex_w() {
+					name = "cqo".to_string();
+				}
+
+				let op_size = decode_size(inst.operand_size); // TODO: Don't cause REX usage
+
+				if inst.op_size_postfix {
+					name = name.clone() + match op_size {
+						S128 => panic!(),
+						S64 => "q",
+						S32 => "d",
+						S16 => "w",
+						S8 => "b",
+						_ => panic!(),
+					}
+				}
 
 				debug!("Adding {} ({}) => {:?}\n", name, table::bytes(&bytes), effects);
 
-				cases.push((bytes, effects));
+				let format = InstFormat {
+					prefix_bytes: inst.prefix_bytes.clone(),
+					bytes: bytes.clone(),
+					prefixes: prefixes.to_vec(),
+					operands: operands,
+					name: name,
+					no_mem: inst.no_mem,
+					op_size: op_size,
+					rex: rex_byte.is_some(),
+				};
+
+				cases.push((bytes, effects, format));
 			}
 		}
 	}
 }
 
-pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off: u64, insts: &[Inst]) -> Option<Inst> {	let rex = rex.unwrap_or(0);
-	let rex_w = ext_bit(rex as usize, 3, 0) != 0;
-	let rex_b = ext_bit(rex as usize, 0, 0) != 0;
-	let operand_size_override = prefixes.contains(&P_OP_SIZE);
+pub fn parse(cursor: &mut Cursor, disp_off: u64, format: &InstFormat) -> Option<DecodedInst> {
+	let start = cursor.offset;
+	let prefixes = &format.prefixes[..];
 	let fs_override = prefixes.contains(&P_SEG_FS);
 	let gs_override = prefixes.contains(&P_SEG_GS);
 
@@ -389,70 +463,76 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 		return None;
 	}
 
-	let op_size = if rex_w { S64 } else { if operand_size_override { S16 } else { S32 } };
-	let imm_size = if op_size == S16 { S16 } else { S32 };
-
-	let input = &in_cursor.remaining();
-	let input = &input[..cmp::min(16, input.len())];
-
-	debug!("Decoding instruction {} rex_w: {}, op_override: {}, opsize: {:?}, prefixes: {}\n", bytes(input), rex_w, operand_size_override, op_size, bytes(prefixes));
-
-	let i = insts.iter().find(|i| {
-		if in_cursor.data[in_cursor.offset..].starts_with(&i.bytes) {
-			debug!("t {} instruction {} rex_w: {}, op_override: {}, opsize: {:?}, prefixes: {}\n", i.name, bytes(input), rex_w, operand_size_override, op_size, bytes(prefixes));
-		}
-		if in_cursor.data[in_cursor.offset..].starts_with(&i.bytes) && prefixes.ends_with(&i.prefix_bytes[..]) {
-			if let Some(o) = i.opcode {
-				((in_cursor.remaining()[i.bytes.len()] >> 3) & 7) as usize == o
-			} else {
-			    true
-			}
-		} else {
-			false
-		}
-	});
-	let i = if let Some(i) = i { i.clone() } else { return None };
-
-	debug!("Testing instruction {:?}\n", i);
-
-	let len = i.bytes.len();
-
-	let state = RefCell::new(State {
-		cursor: in_cursor.clone(),
-		inst: i,
-		modrm_cache: None,
-	});
-
-	let sr = || state.borrow();
-	let s = || state.borrow_mut();
-
-	s().cursor.offset += len;
-
-	let decode_size = |s: Size| {
-		match s {
-			SMMXSize => if operand_size_override { S128 } else { S64 },
-			SRexSize => if rex_w { S64 } else { S32 },
-			SImmSize => imm_size,
-			SOpSize => op_size,
-			_ => s
-		}
-	};
-
 	let has_prefix = |p: u8| {
-		if sr().inst.prefix_bytes.contains(&p) {
+		if format.prefix_bytes.contains(&p) {
 			false
 		} else {
 			prefixes.contains(&p)
 		}
 	};
 
+	let mut operands: Vec<(DecodedOperand, Size)> = Vec::new();
+
+	for op in &format.operands {
+		match *op {
+			(OperandFormat::Imm(size), _) => {
+				let imm = read_imm(cursor, size);
+				operands.push((DecodedOperand::Imm(imm, size), format.op_size));
+			}
+			(OperandFormat::FixImm(imm), _) => {
+				operands.push((DecodedOperand::Imm(imm, Lit1), Lit1));
+			}
+			(OperandFormat::Disp(size), _) => {
+				let off = read_imm(cursor, size).wrapping_add(disp_off as i64).wrapping_add(cursor.offset as u64 as i64);
+				operands.push((DecodedOperand::Imm(off, size), S64));
+			}
+			(OperandFormat::Direct(reg, op_size), _) => {
+				operands.push((DecodedOperand::Direct(reg), op_size));
+			}
+			(OperandFormat::Indirect(Mem::Mem(reg, disp), op_size), _) => {
+				let a = IndirectAccess {
+					base: Some(reg),
+					index: None,
+					scale: 0,
+					offset: match disp {
+						Disp::None => 0,
+						Disp::Imm8 => read_imm(cursor, S8),
+						Disp::Imm32 => read_imm(cursor, S32),
+					},
+					offset_wide: false,
+				};
+				operands.push((DecodedOperand::Indirect(a), op_size));
+			}
+			(OperandFormat::Indirect(Mem::Rip, op_size), _) => {
+				let a = IndirectAccess {
+					base: Some(16),
+					index: None,
+					scale: 0,
+					offset: read_imm(cursor, S32),
+					offset_wide: false,
+				};
+				operands.push((DecodedOperand::Indirect(a), op_size));
+			}
+			(OperandFormat::IndirectAddr, _) => {
+				let a = IndirectAccess {
+					base: None,
+					index: None,
+					scale: 0,
+					offset: read_imm(cursor, S64),
+					offset_wide: true,
+				};
+				operands.push((DecodedOperand::Indirect(a), S64));
+			}
+		}
+	}
+
 	let print_op = |i: usize| {
-		let op = sr().inst.decoded_operands[i].clone();
+		let op: (DecodedOperand, Size) = operands[i].clone();
 
 		match op.0 {
-			DecodedOperand::Direct(reg) => format!("{}", reg_name(reg, op.1, rex != 0)),
+			DecodedOperand::Direct(reg) => format!("{}", reg_name(reg, op.1, format.rex)),
 			DecodedOperand::Indirect(indir) => {
-				let ptr = operand_ptr(sr().inst.no_mem, op.1);
+				let ptr = operand_ptr(format.no_mem, op.1);
 
 				let scale = if indir.scale == 1 {
 					"".to_string()
@@ -498,226 +578,22 @@ pub fn parse(in_cursor: &mut Cursor, rex: Option<u8>, prefixes: &[u8], disp_off:
 		}
 	};
 
-	let reg_ref = |r: usize, regs: Regs| {
-		match regs {
-			Regs::GP => RT::GP(r),
-			Regs::SSE => RT::SSE(r),
-			_ => panic!(),
-		}
-	};
+	let mut prefix = String::new();
 
-	let modrm = |regs: Regs| {
-		if !sr().modrm_cache.is_some() {
-			let modrm = s().cursor.next() as usize;
-			let mode = modrm >> 6;
-			let reg = ((modrm >> 3) & 7) | ext_bit(rex as usize, 2, 3);
-			let rm = modrm & 7 | ext_bit(rex as usize, 0, 3);
-
-			//println!("mode:{} reg:{} rm: {}", mode ,reg ,rm);
-
-			let mut name = if mode != 3 && rm & 7 == 4 {
-				println!("\nSIB-byte used!\n");
-				// Parse SIB byte
-
-				let sib = s().cursor.next() as usize;
-				let base = sib & 7 | ext_bit(rex as usize, 0, 3);
-				let index = ((sib >> 3) & 7) | ext_bit(rex as usize, 1, 3);
-				let scale = sib >> 6;
-
-				let reg_index = if index == 4 {
-					None
-				} else {
-					Some(index)
-				};
-				let (reg_base, off) = if mode == 0 && base & 7 == 5 {
-					(None, read_imm(&state, S32))
-				} else {
-					(Some(base), 0)
-				};
-
-				IndirectAccess {
-					base: reg_base,
-					index: reg_index,
-					scale: 1 << scale,
-					offset: off,
-					offset_wide: false,
-				}
-			} else {
-				if mode == 0 && rm & 7 == 5 { // RIP relative
-					let off = read_imm(&state, S32);
-
-					IndirectAccess {
-						base: Some(16), // RIP
-						index: None,
-						scale: 0,
-						offset: off,
-						offset_wide: false,
-					}
-				} else {
-					IndirectAccess {
-						base: Some(rm),
-						index: None,
-						scale: 0,
-						offset: 0,
-						offset_wide: false,
-					}
-				}
-			};
-
-			let off = match mode {
-				0 | 3 => name.offset,
-				1 => read_imm(&state, S8),
-				2 => read_imm(&state, S32),
-				_ => panic!(),
-			};
-
-			let indir = if mode == 3 {
-				DecodedOperand::Direct(RT::GP(rm))
-			} else {
-				name.offset = off;
-				DecodedOperand::Indirect(name)
-			};
-
-			s().modrm_cache = Some((indir, reg));
-		}
-
-		match sr().modrm_cache.as_ref().unwrap().clone() {
-			(DecodedOperand::Direct(RT::GP(v)), s) => (DecodedOperand::Direct(reg_ref(v, regs)), s),
-			v => v,
-		}
-	};
-
-	let len = sr().inst.operands.len();
-
-	for i in 0..len {
-		let op = sr().inst.operands[i].clone();
-		match op {
-			(Operand::Imm(size), op_size) => {
-				let imm = read_imm(&state, decode_size(size));
-				s().inst.decoded_operands.push((DecodedOperand::Imm(imm, decode_size(size)), decode_size(op_size)));
-			}
-			(Operand::FixImm(imm, size), op_size) => {
-				s().inst.decoded_operands.push((DecodedOperand::Imm(imm, decode_size(size)), decode_size(op_size)));
-			}
-			(Operand::Disp(size), _) => {
-				let off = read_imm(&state, decode_size(size)).wrapping_add(disp_off as i64).wrapping_add(sr().cursor.offset as u64 as i64);
-				s().inst.decoded_operands.push((DecodedOperand::Imm(off, decode_size(size)), S64));
-			}
-			(Operand::FixReg(reg, regs), op_size) => {
-				let r = reg_ref(reg, regs);
-				s().inst.decoded_operands.push((DecodedOperand::Direct(r), decode_size(op_size)));
-			}
-			(Operand::FixRegRex(mut reg, regs), op_size) => {
-				if rex_b {
-					reg += 8;
-				}
-				let r = reg_ref(reg, regs);
-				s().inst.decoded_operands.push((DecodedOperand::Direct(r), decode_size(op_size)));
-			}
-			(Operand::Clob(_), _) => {}
-			(Operand::Addr, op_size) => {
-				let a = IndirectAccess {
-					base: None,
-					index: None,
-					scale: 0,
-					offset: read_imm(&state, S64),
-					offset_wide: true,
-				};
-				s().inst.decoded_operands.push((DecodedOperand::Indirect(a), decode_size(op_size)));
-			}
-			(Operand::Rm(regs), op_size) => {
-				let (indir, _) = modrm(regs);
-				s().inst.decoded_operands.push((indir, decode_size(op_size)));
-			}
-			(Operand::Reg(regs), op_size) => {
-				let (_, reg) = modrm(regs);
-				let r = reg_ref(reg, regs);
-				s().inst.decoded_operands.push((DecodedOperand::Direct(r), decode_size(op_size)));
-			}
-			(Operand::RmOpcode(_), op_size) => {
-				let (indir, _) = modrm(Regs::GP);
-				s().inst.decoded_operands.push((indir, decode_size(op_size)));
-			}
-			(Operand::Mem(_), op_size) => {
-				let (indir, _) = modrm(Regs::GP);
-				match indir {
-					DecodedOperand::Indirect(..) => {
-						s().inst.decoded_operands.push((indir, decode_size(op_size)));
-					}
-					_ => panic!(),
-				}
-			}
-		}
+	if has_prefix(P_LOCK) {
+		prefix.push_str("lock ");
 	}
 
-	let valid_state = || {
-		let mut prefix = String::new();
-
-		if has_prefix(P_LOCK) {
-			prefix.push_str("lock ");
-		}
-
-		if has_prefix(P_REP) {
-			prefix.push_str("rep ");
-		}
-
-		if !sr().inst.no_mem {
-			let len = sr().inst.decoded_operands.len();
-			for i in 0..len {
-				let op = sr().inst.decoded_operands[i].0.clone();
-				match op {
-					DecodedOperand::Direct(..) | DecodedOperand::Indirect(..) => s().inst.prefix_whitelist.push(P_OP_SIZE),
-					_ => ()
-				}
-				match op {
-					DecodedOperand::Indirect(..) => {
-						s().inst.prefix_whitelist.push(P_SEG_GS);
-						s().inst.prefix_whitelist.push(P_SEG_FS);
-					}
-					_ => ()
-				}
-			}
-		}
-
-		if prefixes.iter().all(|p| {
-			let r = sr().inst.prefix_whitelist.contains(p) || sr().inst.prefix_bytes.contains(p);
-			if !r {
-				print!("Prefix {:02x} not allowed on instruction\n", p);
-			}
-			r
-		}) {
-			Some(prefix)
-		} else {
-			None
-		}
-	};
-
-	let mut i = sr().inst.clone();
-
-	if i.name == "cwde" && rex_w {
-		i.name = "cdqe".to_string();
-	} else if i.name == "cdq" && rex_w {
-		i.name = "cqo".to_string();
+	if has_prefix(P_REP) {
+		prefix.push_str("rep ");
 	}
 
-	*in_cursor = sr().cursor.clone();
-
-	let op_size_postfix = sr().inst.op_size_postfix;
-	let iname = if op_size_postfix {
-		s().inst.prefix_whitelist.push(P_OP_SIZE);
-		i.name.clone() + match decode_size(sr().inst.operand_size) {
-			S128 => panic!(),
-			S64 => "q",
-			S32 => "d",
-			S16 => "w",
-			S8 => "b",
-			_ => panic!(),
-		}
-	} else {
-		i.name.clone()
-	};
-	let prefix = if let Some(p) = valid_state() { p } else { return None };
-	let ops = sr().inst.decoded_operands.iter().enumerate().map(|(i, _)| print_op(i)).collect::<Vec<String>>().join(", ");
-	i.desc = format!("{}{}{}{}", prefix, iname, if sr().inst.decoded_operands.is_empty() { "" } else { " " }, ops);
-	Some(i)
+	let ops = operands.iter().enumerate().map(|(i, _)| print_op(i)).collect::<Vec<String>>().join(", ");
+	let desc = format!("{}{}{}{}", prefix, format.name, if operands.is_empty() { "" } else { " " }, ops);
+	Some(DecodedInst {
+		operands: operands.clone(),
+		desc: desc,
+		name: format.name.clone(),
+		len: cursor.offset - start + format.bytes.len(),
+	})
 }

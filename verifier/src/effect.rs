@@ -7,7 +7,6 @@ pub enum Size {
 	S64,
 	S128,
 	SRexSize, // S32 without REX_W, S64 with
-	SMMXSize,
 	SImmSize,
 	SOpSize,
 }
@@ -15,8 +14,14 @@ pub enum Size {
 #[derive(Eq, PartialEq, Copy, Clone, Debug)]
 pub enum Regs {
 	GP,
-	MMX,
 	SSE,
+}
+
+#[derive(Eq, PartialEq, Copy, Clone, Debug)]
+pub enum Access {
+	Read,
+	Write,
+	ReadWrite,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -26,7 +31,6 @@ pub enum Operand {
 	Disp(Size),
 	FixReg(usize, Regs),
 	FixRegRex(usize, Regs),
-	Clob(usize),
 	Addr,
 	Rm(Regs),
 	Reg(Regs),
@@ -51,10 +55,25 @@ pub enum RT {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum DecodedOperand {
-	Direct(RT),
-	Indirect(IndirectAccess),
-	Imm(i64, Size),
+pub enum OperandFormat {
+	Direct(RT, Size),
+	Indirect(Mem, Size),
+	IndirectAddr,
+	FixImm(i64),
+	Imm(Size),
+	Disp(Size),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InstFormat {
+	pub bytes: Vec<u8>,
+	pub prefixes: Vec<u8>,
+	pub prefix_bytes: Vec<u8>,
+	pub operands: Vec<(OperandFormat, Access)>,
+	pub name: String,
+	pub no_mem: bool,
+	pub op_size: Size,
+	pub rex: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -62,16 +81,31 @@ pub struct Inst {
 	pub prefix_bytes: Vec<u8>,
 	pub bytes: Vec<u8>,
 	pub opcode: Option<usize>,
-	pub operands: Vec<(Operand, Size)>,
+	pub accesses: Vec<(usize, Access)>,
+	pub operands: Vec<(Operand, Size, Access)>,
 	pub decoded_operands: Vec<(DecodedOperand, Size)>,
 	pub op_size_postfix: bool,
 	pub name: String,
-	pub read_only: bool,
 	pub no_mem: bool,
 	pub unknown_mem: bool,
 	pub prefix_whitelist: Vec<u8>,
 	pub desc: String,
 	pub operand_size: Size,
+	pub len: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DecodedOperand {
+	Direct(RT),
+	Indirect(IndirectAccess),
+	Imm(i64, Size),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DecodedInst {
+	pub operands: Vec<(DecodedOperand, Size)>,
+	pub desc: String,
+	pub name: String,
 	pub len: usize,
 }
 
@@ -127,6 +161,15 @@ pub enum Mem {
 }
 
 impl Mem {
+	pub fn encode(self) -> u8 {
+		match self {
+			Mem::Rip => 0,
+			Mem::Mem(r, Disp::None) => 1 | (r as u8) << 2,
+			Mem::Mem(r, Disp::Imm8) => 2 | (r as u8) << 2,
+			Mem::Mem(r, Disp::Imm32) => 3 | (r as u8) << 2,
+		}
+	}
+	
 	pub fn trailing_bytes(self) -> usize {
 		match self {
 			Mem::Rip => 4,
@@ -151,8 +194,10 @@ pub enum Effect {
 	None,
 	ClobReg(usize),
 	WriteMem(Mem),
-	CheckMem(Mem),
+	ReadMem(Mem),
 	Move(usize, usize),
+	WriteStack(Mem), // Can be limited to RBP/RSP accesses (StackMem)
+	ReadStack(Mem), // Can be limited to RBP/RSP accesses (StackMem)
 	Store(Mem, usize), // Can be limited to RBP/RSP accesses (StackMem)
 	Load(usize, Mem), // Can be limited to RBP/RSP accesses (StackMem)
 	Lea(Mem),
@@ -170,6 +215,23 @@ pub enum Effect {
 }
 
 impl Effect {
+	pub fn encode(self) -> u64 {
+		// 10 bits for mem
+		let mem = match self {
+			Effect::WriteStack(mem) |
+			Effect::ReadStack(mem) |
+			Effect::WriteMem(mem) |
+			Effect::ReadMem(mem) |
+			Effect::Store(mem, _) |
+			Effect::Load(_, mem) |
+			Effect::Lea(mem)  |
+			Effect::Call(mem) => mem.encode(),
+			_ => 0,
+		};
+
+		mem as u64
+	}
+
 	pub fn trailing_bytes(self) -> usize {
 		match self {
 			Effect::CheckAddr => 8,
@@ -180,8 +242,10 @@ impl Effect {
 			Effect::Imm16 => 2,
 			Effect::Imm32 => 4,
 			Effect::Imm64 => 8,
+			Effect::WriteStack(mem) |
+			Effect::ReadStack(mem) |
 			Effect::WriteMem(mem) |
-			Effect::CheckMem(mem) |
+			Effect::ReadMem(mem) |
 			Effect::Store(mem, _) |
 			Effect::Load(_, mem) |
 			Effect::Lea(mem)  |

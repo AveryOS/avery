@@ -3,6 +3,7 @@ use effect::Size;
 use effect::Size::*;
 use effect::Operand;
 use effect::Regs;
+use effect::Access;
 
 pub static mut DEBUG: bool = false;
 
@@ -50,10 +51,11 @@ pub const ALL_PREFIXES: &'static [u8] = &[P_LOCK, P_REP, P_REPNE,
 enum OpOption {
 	Rm,
 	SSE,
-	MMX,
 	SSEOff,
 	Read,
-	Clob(usize),
+	ReadWrite,
+	Write,
+	Implicit(usize, Access),
 	FixImm(i64),
 	FixReg(usize),
 	FixRegRex(usize),
@@ -87,7 +89,6 @@ struct State {
 	operands: Vec<(Operand, Size)>,
 	imm_size: Size,
 	unknown_mem: bool,
-	read_only: bool,
 	branch: bool,
 	no_mem: bool,
 }
@@ -97,8 +98,15 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 		let mut op_size = SOpSize;
 		let mut imm_size = SImmSize;
 		let mut regs = Regs::GP;
+		let mut access = Access::Write;
+		let mut to_read = false;
 
 		for opt in options.iter() {
+			if inst.operands.len() >= 1 && !to_read {
+				to_read = true;
+				access = Access::Read;
+			}
+
 			//debug!("Appling option {:?}, opsize = {:?}\n", opt, op_size);
 			match *opt {
 				ImmSize(size) => {
@@ -119,22 +127,24 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 				OpSizePostfix => {
 					inst.op_size_postfix = true;
 				}
-				Clob(r) => {
-					inst.operands.push((Operand::Clob(r), op_size));
+				Implicit(r, access) => {
+					inst.accesses.push((r, access));
 				}
 				Prefix(p) => {
 					inst.prefix_whitelist.push(p);
 				}
 				Read => {
-					inst.read_only = true;
+					access = Access::Read;
+				}
+				ReadWrite => {
+					access = Access::ReadWrite;
+				}
+				Write => {
+					access = Access::Write;
 				}
 				SSEOff => {
 					op_size = op_size;
 					regs = Regs::GP;
-				}
-				MMX => {
-					op_size = SMMXSize;
-					regs = Regs::MMX;
 				}
 				OpSizeLimit32 => {
 					op_size = if op_size == S64 { S32 } else { op_size };
@@ -150,36 +160,36 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 					inst.unknown_mem = true;
 				}
 				FixRegRex(reg) => {
-					inst.operands.push((Operand::FixRegRex(reg, regs), op_size));
+					inst.operands.push((Operand::FixRegRex(reg, regs), op_size, access));
 				}
 				FixReg(reg) => {
-					inst.operands.push((Operand::FixReg(reg, regs), op_size));
+					inst.operands.push((Operand::FixReg(reg, regs), op_size, access));
 				}
 				FixImm(imm) => {
-					inst.operands.push((Operand::FixImm(imm, Lit1), Lit1));
+					inst.operands.push((Operand::FixImm(imm, Lit1), Lit1, access));
 				}
 				Addr => {
-					inst.operands.push((Operand::Addr, op_size));
+					inst.operands.push((Operand::Addr, op_size, access));
 				}
 				Imm => {
-					inst.operands.push((Operand::Imm(imm_size), op_size));
+					inst.operands.push((Operand::Imm(imm_size), op_size, access));
 				}
 				Disp => {
-					inst.operands.push((Operand::Disp(imm_size), S64));
+					inst.operands.push((Operand::Disp(imm_size), S64, access));
 				}
 				Rm => {
-					inst.operands.push((Operand::Rm(regs), op_size));
+					inst.operands.push((Operand::Rm(regs), op_size, access));
 				}
 				Reg => {
-					inst.operands.push((Operand::Reg(regs), op_size));
+					inst.operands.push((Operand::Reg(regs), op_size, access));
 				}
 				RmOpcode(opcode_ext) => {
 					inst.opcode = Some(opcode_ext);
-					inst.operands.push((Operand::RmOpcode(opcode_ext), op_size));
+					inst.operands.push((Operand::RmOpcode(opcode_ext), op_size, access));
 				}
 				Mem(opcode_ext) => {
 					inst.opcode = opcode_ext;
-					inst.operands.push((Operand::Mem(opcode_ext), op_size));
+					inst.operands.push((Operand::Mem(opcode_ext), op_size, access));
 				}
 				_ => panic!("unhandled {:?}", opt)
 			};
@@ -195,7 +205,6 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 		let code_prefixes = &full_code[0..prefix_len];
 		let code = &full_code[prefix_len..];
 
-
 		let mut inst = Inst {
 			prefix_bytes: code_prefixes.to_vec(),
 			bytes: code.to_vec(),
@@ -205,7 +214,7 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 			decoded_operands: Vec::new(),
 			op_size_postfix: false,
 			unknown_mem: false,
-			read_only: false,
+			accesses: Vec::new(),
 			operand_size: SOpSize,
 			no_mem: false,
 			desc: "".to_string(),
@@ -283,9 +292,9 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 		let mut f8 = vec![OpSize(S8), ImmSize(S8), RmOpcode(opcode)];
 		let mut f = vec![RmOpcode(opcode)];
 		if opcode >= 4 {
-			f8.push(Clob(0));
-			f.push(Clob(0));
-			f.push(Clob(2));
+			f8.push(Implicit(0, Access::Write));
+			f.push(Implicit(0, Access::Write));
+			f.push(Implicit(2, Access::Write));
 		}
 		if instr == "not" || instr == "neg" {
 			f8.push(Prefix(P_LOCK));
@@ -318,15 +327,15 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 
 	pair!([0x86], "xchg", [Rm, Reg]);
 
-	pair!([0x88], "mov", [Rm, Reg]);
-	pair!([0x8a], "mov", [Reg, Rm]);
-	pair!([0xc6], "mov", [RmOpcode(0), Imm]);
-	pair!([0xa0], "movabs", [FixReg(0), Addr]);
-	pair!([0xa2], "movabs", [Addr, FixReg(0)]);
+	pair!([0x88], "mov", [Prefix(P_SEG_GS), Rm, Reg]);
+	pair!([0x8a], "mov", [Prefix(P_SEG_GS), Reg, Rm]);
+	pair!([0xc6], "mov", [Prefix(P_SEG_GS), RmOpcode(0), Imm]);
+	pair!([0xa0], "movabs", [Prefix(P_SEG_GS), FixReg(0), Addr]);
+	pair!([0xa2], "movabs", [Prefix(P_SEG_GS), Addr, FixReg(0)]);
 
 	for reg in 0..8 {
-		op!([0xb0 + reg], "mov", [OpSize(S8), FixRegRex(reg as usize), ImmSize(S8), Imm]);
-		op!([0xb8 + reg], "mov", [FixRegRex(reg as usize), ImmSize(SOpSize), Imm]);
+		op!([0xb0 + reg], "mov", [Prefix(P_SEG_GS), OpSize(S8), FixRegRex(reg as usize), ImmSize(S8), Imm]);
+		op!([0xb8 + reg], "mov", [Prefix(P_SEG_GS), FixRegRex(reg as usize), ImmSize(SOpSize), Imm]);
 	}
 
 	op!([0x0f, 0xa3], "bt", [Rm, Reg]);
@@ -347,7 +356,7 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 
 	for reg in 0..8 {
 		if reg == 0 {
-			op!([0x90], "nop", nop_prefixes[..]) // MAY NOT BE NOP
+			op!([0x90], "nop", nop_prefixes[..]) // Check which prefixes are useful here
 		} else {
 			op!([0x90 + reg as u8], "xchg", [FixReg(0), FixRegRex(reg)])
 		}
@@ -366,11 +375,11 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 
 	op!([0x63], "movsxd", [NoOpSizeOverride, Reg, OpSize(S32), Rm]); // Require rex_w here
 
-	op!([0x66, 0x98], "cbw", [Clob(0)]);
-	op!([0x98], "cwde", [Clob(0)]); // Named 'cdqe' with rex_w
+	op!([0x66, 0x98], "cbw", [Implicit(0, Access::Write)]);
+	op!([0x98], "cwde", [Implicit(0, Access::Write)]); // Named 'cdqe' with rex_w
 
-	op!([0x66, 0x99], "cwd", [Clob(2)]);
-	op!([0x99], "cdq", [Clob(2)]); // Named 'cqo' with rex_w
+	op!([0x66, 0x99], "cwd", [Implicit(2, Access::Write)]);
+	op!([0x99], "cdq", [Implicit(2, Access::Write)]); // Named 'cqo' with rex_w
 
 	op!([0xcc], "int3", []);
 
@@ -401,9 +410,6 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 
 	op!([0x66, 0x0f, 0x6e], "mov", [OpSizePostfix, SSE, Reg, OpSize(SRexSize), SSEOff, Rm]);
 	op!([0x66, 0x0f, 0x7e], "mov", [OpSizePostfix, OpSize(SRexSize), Rm, SSE, Reg, OpSize(SRexSize)]);
-
-	//op!([0x0f, 0x6e], "mov", [OpSizePostfix, MMX, Reg, OpSize(SRexSize), SSEOff, Rm]);
-	//op!([0x0f, 0x7e], "mov", [OpSizePostfix, OpSize(SRexSize), Rm, MMX, Reg, OpSize(SRexSize)]);
 
 	op!([0x66, 0x0f, 0x6c], "punpcklqdq", [SSE, Reg, Rm]);
 	op!([0x66, 0x0f, 0x6d], "punpckhqdq", [SSE, Reg, Rm]);

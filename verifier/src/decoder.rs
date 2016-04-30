@@ -1,6 +1,6 @@
 use table;
 use std::cmp;
-use effect::{DecodedOperand, Operand, Inst, Size};
+use effect::{Effect, DecodedOperand, Size, InstFormat, DecodedInst};
 use disasm;
 
 #[derive(Copy, Clone)]
@@ -25,41 +25,19 @@ impl<'s> Cursor<'s> {
 	}
 }
 
-fn prefixes<'s>(c: &mut Cursor<'s>) -> &'s [u8] {
-	let mut prefixes = Vec::new();
-	let s = c.offset;
-	for _ in 0..3 {
-		let byte = c.peek();
-		if table::ALL_PREFIXES.contains(&byte) { 
-			if prefixes.contains(&byte) {
-				break
-			}
-			c.next();
-			prefixes.push(byte);
-		} else {
-			break
-		}
-	}
-	&c.data[s..c.offset]
-}
-
-pub fn inst(c: &mut Cursor, disp_off: u64, insts: &[Inst]) -> Inst {
+pub fn inst(c: &mut Cursor, disp_off: u64, cases: &[(Vec<u8>, Vec<Effect>, InstFormat)]) -> (DecodedInst, Vec<Effect>) {
 	let start = c.offset;
+	let case = cases.iter().find(|i| c.remaining().starts_with(&i.0[..])).unwrap();
+
+	c.offset += case.2.bytes.len();
+
 	let mut c_old = c.clone();
-	let pres = prefixes(c);
-	let rex = c.peek();
-	let rex = match rex {
-		0x40...0x4F => {
-			c.next();
-			Some(rex)
-		}
-		_ => None
-	};
-	let inst = disasm::parse(c, rex, pres, disp_off, insts);
+
+	let inst = disasm::parse(c, disp_off, &case.2);
 
 	let print_debug = |c: &mut Cursor| {
 		unsafe { disasm::DEBUG = true };
-		disasm::parse(c, rex, pres, disp_off, insts);
+		disasm::parse(c, disp_off, &case.2);
 	};
 
 	let mut inst = inst.unwrap_or_else(|| {
@@ -68,10 +46,14 @@ pub fn inst(c: &mut Cursor, disp_off: u64, insts: &[Inst]) -> Inst {
 	});
 
 	inst.len = c.offset - start;
-	inst
+	(inst, case.1.clone())
 }
 
-pub fn decode(data: &[u8], start: usize, size: usize, disp_off: u64, insts: &[Inst]) {
+pub fn find_effect(cursor: &Cursor, cases: &[(Vec<u8>, Vec<Effect>)]) -> Option<Vec<Effect>> {
+	cases.iter().find(|i| cursor.remaining().starts_with(&i.0[..])).map(|i| i.1.clone())
+}
+
+pub fn decode(data: &[u8], start: usize, size: usize, disp_off: u64, cases: &[(Vec<u8>, Vec<Effect>, InstFormat)]) {
 	let mut targets = Vec::new();
 	targets.push(start);
 
@@ -88,7 +70,7 @@ pub fn decode(data: &[u8], start: usize, size: usize, disp_off: u64, insts: &[In
 		loop {
 			let start = c.offset;
 			print!("{:#08x}: ", start as u64 + disp_off);
-			let i = inst(&mut c, disp_off, insts);
+			let (i, effects) = inst(&mut c, disp_off, cases);
 			let mut str = String::new();
 
 			let byte_print_len = cmp::min(8, i.len);
@@ -104,10 +86,10 @@ pub fn decode(data: &[u8], start: usize, size: usize, disp_off: u64, insts: &[In
 
 			print!("{}", str);
 
-			println!("{: <40} {}", i.desc, format!("{}", format!("{:?}", i)));
+			println!("{: <40} {:?}", i.desc, effects);
 
-			if i.operands.iter().any(|o| match *o { (Operand::Disp(..), _) => true, _ => false }) {
-				let op: (DecodedOperand, Size) = i.decoded_operands.first().unwrap().clone();
+			if effects.iter().any(|o| match *o { Effect::Jmp32 | Effect::Jmp8 => true, _ => false }) {
+				let op: (DecodedOperand, Size) = i.operands.first().unwrap().clone();
 				let off = match op.0 {
 					DecodedOperand::Imm(off, _) => {
 						Some(off as u64)
