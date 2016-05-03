@@ -1,0 +1,7 @@
+[package]
+name = "rlib_ir"
+version = "0.1.0"
+authors = ["John Kåre Alsaker <john.kare.alsaker@gmail.com>"]
+
+[dependencies]
+flate = { path = "../../vendor/rust/src/src/libflate" }
