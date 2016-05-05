@@ -4,3 +4,8 @@ To verify jump targets:
 	When decoding an address, see if it matches the target of the pointer. If so, bump the pointer.
 	When the last instruction is decoded, ensure that the pointer is at the end.
 	When a jmp instruction is found. Do a binary search into the list of jump targets.
+
+On the decoding DFA, can we store output words only on unique state transitions?
+	Store a bit in the target state which indicates if there's a word which changes the output register?
+
+	For each state -> state transition map, split it in two and ?

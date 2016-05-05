@@ -196,3 +196,46 @@ How to free data for clients when we run out of resources or processes exit?
 How can a server free resources belonging to a process if that process exits? Given that a client can transfer capabilities to another process without informing the server
 
 Have a buffer object which can reference some other process' pages and a journal of changes. Rope structure?
+
+Can we avoid allocating slots for capabilities when doing IPC?
+	Store capabilities on the stack and pass a pointer to them to the IPC dispatcher?
+	We can't easily
+
+	Pass along a buffer on the stack to the IPC dispatcher. Analyzer will ensure it's valid.
+	IPC dispatcher will fill it with the passed capability pointers. It will save the TCB pointer to the capability buffer on the stack.
+	It will then set the TCB pointer to the capability buffer to the buffer on the stack.
+	If we disallow the same process to call itself twice. We can refer to the capabilities with a LocalCap<'c> lifetime where the entry point is generic in 'c.
+		If we have a limited stack of pointers to capabilities buffers, we can allow reentrancy - very ugly
+
+	How will this work on the Mill?
+
+	<Zoxc> I was thinking of adding a ThreadLocalCap<'s> type, which points to a capability in the TCB
+	<Zoxc> RPC entry points are generic in 's and produces instances of that type by overwritting the capabilities in the TCB
+	<Zoxc> Would it be possible for a RPC entry points to access ThreadLocalCap of a entry point higher up in the stack?
+		Could transfer the ThreadLocalCap as raw bytes to the RPC below, but that requires unsafe and is unusual.
+
+	Can the TCB store a pointer into the capability storage of the caller?
+		Can be used for input/output
+
+		Separate input/output so the server can't read output slots?
+			Also could prevent server from changing inputs, allowing those to be reused
+
+		Pass in the input count and zero the rest of the capabilities?
+
+Make it easy to revokate an Object by having copies be pointers to the original?
+	Could be unified with server heap dellocation of objects?
+
+
+How will indirect Endpoints work on the Mill? It only has hardcoded portals?
+	Each Endpoint will create a Portal in a IPC service which has access to capabilities.
+	Each process has a Portal into the IPC server to do a RPC.
+	The function pointed to by the Endpoint will dispatch to the correct method in the server.
+
+	The IPC server can store passed capabilities on its stack
+
+	Could Mill have a separate CSpace capability on memory, portal calls could take an unforgable argument from there?
+
+During a portal call, how can we ensure that there's enough spiller space?
+
+How are capabilities allocated in hardware with grant?
+	How can we ensure that the caller has access to the pass()-ed or granted capability with a RPC?
