@@ -35,11 +35,11 @@ pub const P_LOCK: u8 = 0xF0;
 pub const P_REP: u8 = 0xF3;
 pub const P_REPNE: u8 = 0xF2;
 pub const P_OP_SIZE: u8 = 0x66;
-const P_ADDR_SIZE: u8 = 0x67;
-const P_SEG_CS: u8 = 0x2E;
-const P_SEG_ES: u8 = 0x26;
-const P_SEG_DS: u8 = 0x3E;
-const P_SEG_SS: u8 = 0x36;
+pub const P_ADDR_SIZE: u8 = 0x67;
+pub const P_SEG_CS: u8 = 0x2E;
+pub const P_SEG_ES: u8 = 0x26;
+pub const P_SEG_DS: u8 = 0x3E;
+pub const P_SEG_SS: u8 = 0x36;
 pub const P_SEG_FS: u8 = 0x64;
 pub const P_SEG_GS: u8 = 0x65;
 
@@ -292,6 +292,8 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 		let mut f8 = vec![OpSize(S8), ImmSize(S8), RmOpcode(opcode)];
 		let mut f = vec![RmOpcode(opcode)];
 		if opcode >= 4 {
+			f.insert(0, Read);
+			f8.insert(0, Read);
 			f8.push(Implicit(0, Access::Write));
 			f.push(Implicit(0, Access::Write));
 			f.push(Implicit(2, Access::Write));

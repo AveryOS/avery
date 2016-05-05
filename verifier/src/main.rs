@@ -14,17 +14,13 @@
 extern crate elfloader;
 extern crate byteorder;
 extern crate core;
+extern crate getopts;
 
+use getopts::Options;
 use std::fs::File;
+use std::path::Path;
 use std::io::Read;
 use elfloader::*;
-
-#[link(name = "capstone", kind = "static")]
-extern {}
-
-#[path = "../capstone/capstone.rs"]
-#[allow(dead_code, non_snake_case, non_camel_case_types)]
-mod capstone;
 
 mod effect;
 mod decoder;
@@ -32,6 +28,19 @@ mod table;
 mod disasm;
 
 fn main() {
+	let args: Vec<String> = std::env::args().collect();
+
+	let mut opts = Options::new();
+	opts.optflag("b", "brief", "print a brief error on stderr");
+	opts.reqopt("f", "file", "the file to verify", "<file>");
+	let matches = match opts.parse(&args[1..]) {
+		Ok(m) => m,
+		Err(f) => {
+			println!("{}", f.to_string());
+			return
+		}
+	};
+
 	let mut ops = Vec::new();
 
 	unsafe { table::DEBUG = true };
@@ -44,29 +53,20 @@ fn main() {
 		disasm::gen_all(op, &mut cases)
 	}
 
-	let path = std::env::args().nth(1).unwrap();
+	if matches.opt_present("b") {
+		unsafe {
+			decoder::BRIEF = true;
+		}
+	}
+
+	let path = matches.opt_str("f").unwrap();
+
+	 std::env::args().nth(1).unwrap();
 	println!("Dumping {}", path);
 	let mut f = File::open(path).unwrap();
 	let mut buffer = Vec::new();
 	f.read_to_end(&mut buffer).unwrap();
 	let bin = elfloader::Image::new(unsafe { std::mem::transmute(&buffer[..])} ).unwrap();
-	/*println!("hi {:?}", bin);
-	for h in bin.program_headers() {
-		println!("program_header {}", h);
-	}*/
-	let mut sections = Vec::new();
-	for h in bin.sections {
-		let mut program = None;
-
-		for p in bin.segments {
-			if h.offset == p.offset {
-				//println!("matching program header {} EXEC:{}", p, p.flags.0 & elf::PF_X.0 != 0);
-				program = Some(p.flags.0 & elf::PF_X.0 != 0);
-			}
-		}
-		sections.push(program.unwrap_or(false));
-		//println!("section_header {} {}", bin.section_name(h), h);
-	}
 
 	bin.for_each_symbol(|sym, section| {
 		let name = bin.symbol_name(sym, section).unwrap();
@@ -75,27 +75,18 @@ fn main() {
 			return;
 		}
 
-		match sym.section_index.section() {
-			Some(s) => {
-				if !bin.section_name(&bin.sections[s]).unwrap().starts_with(".text") {
-					return;
-				}
-			}
-			None => (),
-		}
-
 		let dump = if bin.header.unwrap().elftype == elf::ET_REL {
 			match sym.section_index.section() {
 				Some(s) => {
-					if sections[s] {
+					let section = &bin.sections[s];
+					if section.shtype == elf::SHT_PROGBITS && (section.flags.0 & elf::SHF_EXECINSTR.0 != 0)  {
 				 		Some((bin.sections[s].data(&bin), sym.value as usize, 0))
 					} else {
 						None
 					}
 				}
-				None => None,
+				None => None
 			}
-
 		} else {
 			let p = bin.segments.iter().find(|p| p.vaddr <= sym.value && sym.value + sym.size < p.vaddr + p.filesz && p.flags.executable());
 			p.map(|p| (p.data(&bin), (sym.value - p.vaddr) as usize, p.vaddr))

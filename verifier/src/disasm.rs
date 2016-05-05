@@ -3,7 +3,7 @@ use std::cell::RefCell;
 use std::iter;
 use effect::*;
 use effect::Size::*;
-use table::{self, bytes, P_LOCK, P_SEG_GS, P_SEG_FS, P_OP_SIZE, P_REP};
+use table::{self, bytes, P_LOCK, P_SEG_GS, P_SEG_FS, P_SEG_CS, P_OP_SIZE, P_REP};
 
 pub static mut DEBUG: bool = false;
 
@@ -17,14 +17,6 @@ macro_rules! debug {
 
 fn ext_bit(b: usize, i: usize, t: usize) -> usize {
 	((b >> i) & 1) << t
-}
-
-fn sign_hex(i: i64, plus: bool) -> String {
-	if i < 0 {
-		format!(" - {:#x}", -i)
-	} else {
-		format!("{}{:#x}", if plus { " + " } else { "" }, i)
-	}
 }
 
 #[derive(Clone)]
@@ -120,13 +112,34 @@ enum ModRM {
 
 pub fn gen_all(inst: &Inst, cases: &mut Vec<(Vec<u8>, Vec<Effect>, InstFormat)>) {
 	let name = &inst.name[..];
-	//unsafe { DEBUG = name == "xadd"; };
+	unsafe { DEBUG = name == "lea"; };
+	//unsafe { DEBUG = name == "mov" && !inst.prefix_bytes.is_empty(); };
 	debug!("Generating all {} {}\n", name, table::bytes(&inst.bytes));
 
-	for prefixes in &[
-		&[][..], &[P_LOCK], &[P_SEG_GS, P_LOCK], &[P_SEG_GS],
-		&[P_OP_SIZE], &[P_OP_SIZE, P_LOCK], &[P_SEG_GS, P_OP_SIZE, P_LOCK], &[P_SEG_GS, P_OP_SIZE]
-	] {
+	let normal_prefixes = [
+		&[][..],
+		&[P_LOCK],
+		&[P_SEG_GS, P_LOCK],
+		&[P_SEG_GS],
+		&[P_OP_SIZE],
+		&[P_OP_SIZE, P_LOCK],
+		&[P_SEG_GS, P_OP_SIZE, P_LOCK],
+		&[P_SEG_GS, P_OP_SIZE],
+	];
+
+	let nop_prefixes = [
+		&[][..],
+		&[P_OP_SIZE],
+		&[P_OP_SIZE, P_SEG_CS],
+		&[P_OP_SIZE, P_OP_SIZE, P_SEG_CS],
+		&[P_OP_SIZE, P_OP_SIZE, P_OP_SIZE, P_SEG_CS],
+		&[P_OP_SIZE, P_OP_SIZE, P_OP_SIZE, P_OP_SIZE, P_SEG_CS],
+		&[P_OP_SIZE, P_OP_SIZE, P_OP_SIZE, P_OP_SIZE, P_OP_SIZE, P_SEG_CS],
+	];
+
+	let p_prefixes = if name == "nop" { &nop_prefixes[..] } else { &normal_prefixes[..] };
+
+	for prefixes in p_prefixes {
 		if inst.prefix_bytes.iter().any(|p| prefixes.contains(p)) {
 			debug!("Rejected prefixes {:?}: Contained in opcode\n", table::bytes(prefixes));
 			continue;
@@ -137,10 +150,11 @@ pub fn gen_all(inst: &Inst, cases: &mut Vec<(Vec<u8>, Vec<Effect>, InstFormat)>)
 			continue;
 		}
 
-		for rex_byte in (0x41...0x4Fu8).map(|r| Some(r)).chain(iter::once(None)) {
+		for rex_byte in (0x40...0x4Fu8).map(|r| Some(r)).chain(iter::once(None)) {
 			// REX doesn't work if the instruction uses prefixes as the opcode
 			if rex_byte.is_some() && !inst.prefix_bytes.is_empty() {
-				continue;
+				// Not true in all cases, or none? TODO: Fix
+				//continue;
 			}
 
 			let rex_val = rex_byte.unwrap_or(0) as usize;
@@ -323,9 +337,22 @@ pub fn gen_all(inst: &Inst, cases: &mut Vec<(Vec<u8>, Vec<Effect>, InstFormat)>)
 						_ => None,
 					};
 
-					let operand_size_override = prefixes.contains(&P_OP_SIZE);
+					let used_opsize = RefCell::new(false);
+					let used_gs = RefCell::new(false);
 
-					let op_size = || if rex_w() { S64 } else { if operand_size_override { S16 } else { S32 } };
+					let operand_size_override = || {
+						*used_opsize.borrow_mut() = true;
+						prefixes.contains(&P_OP_SIZE)
+					};
+
+					let gs_val = prefixes.contains(&P_OP_SIZE);
+
+					let gs = || {
+						*used_gs.borrow_mut() = true;
+						gs_val
+					};
+
+					let op_size = || if rex_w() { S64 } else { if operand_size_override() { S16 } else { S32 } };
 					let imm_size = || if op_size() == S16 { S16 } else { S32 };
 
 					let decode_size = |s: Size| {
@@ -341,6 +368,10 @@ pub fn gen_all(inst: &Inst, cases: &mut Vec<(Vec<u8>, Vec<Effect>, InstFormat)>)
 					};
 
 					let mut effects = Vec::new();
+
+					if name == "ud2" {
+						effects.push(Effect::Ud2);
+					}
 
 					// TODO: Check for redundant instructions like mov eax, eax
 
@@ -365,19 +396,25 @@ pub fn gen_all(inst: &Inst, cases: &mut Vec<(Vec<u8>, Vec<Effect>, InstFormat)>)
 						get!(|m, other| (OperandFormat::Indirect(m, decode_size(op_size)), other), |reg, other| (reg_ref(reg, regs, op_size), other))
 					};
 
-					let gs = prefixes.contains(&P_SEG_GS);
-
 					let to_mem = |i: IndirectAccessFormat| {
 						match i {
-							IndirectAccessFormat { base: Some(16), index: None, scale: 0, disp: Disp::None } => Mem::Rip,
-							IndirectAccessFormat { base: Some(r), index: None, scale: 1, disp: d } => Mem::Mem(r, d),
-							IndirectAccessFormat { base: Some(r), index: None, scale: 0, disp: d } => Mem::Mem(r, d),
+							IndirectAccessFormat { base: Some(16), index: None, scale: 0, disp: Disp::Imm32 } => Mem::Rip,
+							IndirectAccessFormat { base: Some(r), index: None, scale: 1, disp: d } if r < 16 => Mem::Mem(r, d),
+							IndirectAccessFormat { base: Some(r), index: None, scale: 0, disp: d } if r < 16 => Mem::Mem(r, d),
 							_ => panic!("Unknown form {:?}", i),
 						}
 					};
 
-					let get_write = || get!(|m, _| if gs { Effect::WriteMem(to_mem(m)) } else { Effect::WriteStack(to_mem(m)) }, |r, _| Effect::ClobReg(r));
-					let get_read = || get!(|m, _| if gs { Effect::ReadMem(to_mem(m)) } else { Effect::ReadStack(to_mem(m)) }, |_, _| Effect::None);
+					let ignore_mem = |i: IndirectAccessFormat| {
+						match i.disp {
+							Disp::None => Effect::None,
+							Disp::Imm8 => Effect::Imm8,
+							Disp::Imm32 => Effect::Imm32,
+						}
+					};
+
+					let get_write = || get!(|m, _| if gs() { Effect::CheckMem(to_mem(m)) } else { Effect::WriteStack(to_mem(m)) }, |r, _| Effect::ClobReg(r));
+					let get_read = || get!(|m, _| if gs() { Effect::CheckMem(to_mem(m)) } else { Effect::ReadStack(to_mem(m)) }, |_, _| Effect::None);
 					let get_rm = |access| {
 						match access {
 							Access::Read => get_read(),
@@ -443,15 +480,17 @@ pub fn gen_all(inst: &Inst, cases: &mut Vec<(Vec<u8>, Vec<Effect>, InstFormat)>)
 								operands.push((OperandFormat::IndirectAddr, access));
 							}
 							(Operand::Rm(regs), op_size, access) => {
-								effects.push(if name == "mov" && regs == Regs::GP && !gs {
+								effects.push(if name == "mov" && regs == Regs::GP && !gs_val && op_size == S64 {
 									get!(|m, o| {
 										match access {
 											Access::Read => Effect::Load(o, to_mem(m)),
 											_ => Effect::Store(to_mem(m), o),
 										}
 									}, |r, o| Effect::Move(r, o))
-								} else {
+								} else if regs == Regs::GP {
 									get_rm(access)
+								} else {
+									get!(|m, _| ignore_mem(m), |_, _| Effect::None)
 								});
 
 								let (indir, _) = modrm_operand(regs, op_size);
@@ -462,30 +501,42 @@ pub fn gen_all(inst: &Inst, cases: &mut Vec<(Vec<u8>, Vec<Effect>, InstFormat)>)
 								let (_, reg) = modrm_operand(regs, op_size);
 								let r = reg_ref(reg, regs, op_size);
 								operands.push((r, access));
+
+								effects.push(if name == "mov" && regs == Regs::GP && !gs_val && op_size == S64 {
+									// Handled in the Rm case
+									Effect::None
+								} else if regs == Regs::GP {
+										match access {
+											Access::Read => Effect::None,
+											_ => Effect::ClobReg(reg),
+										}
+								} else {
+									Effect::None
+								});
 							}
 							(Operand::RmOpcode(_), op_size, access) => {
 								if name == "nop" {
-									continue;
-								}
-								effects.push(if name == "call" {
-									get!(|m, _| Effect::Call(to_mem(m)), |_, _| Effect::None) // TODO: CFI
+									effects.push(get!(|m, _| ignore_mem(m), |_, _| Effect::None));
 								} else {
-									get_rm(access)
-								});
+									effects.push(if name == "call" {
+										get!(|m, _| Effect::Call(to_mem(m)), |_, _| Effect::None) // TODO: CFI
+									} else {
+										get_rm(access)
+									});
+								}
 
 								let (indir, _) = modrm_operand(Regs::GP, op_size);
 								operands.push((indir, access));
 							}
 							(Operand::Mem(_), op_size, access) => {
 								assert!(name == "lea");
-								if !rex_w() {
-									continue 'inner;
-								}
-								if fancy_sib {
-									effects.push(get!(|_, r| Effect::ClobReg(r), |_, _| panic!()));
-								} else {
-									effects.push(get!(|m, r| Effect::Lea(r, to_mem(m)), |_, _| panic!()));
-								}
+								//if fancy_sib || !rex_w() {
+									get!(|m, r| {
+										effects.push(ignore_mem(m));
+									}, |_, _| panic!());
+								/*} else {
+									effects.push(get!(|m, r| Effect::ClobReg(r)/* Effect::Lea(r, to_mem(m))*/, |_, _| panic!()));
+								}*/
 
 								let (indir, _) = modrm_operand(Regs::GP, op_size);
 								match indir {
@@ -496,6 +547,34 @@ pub fn gen_all(inst: &Inst, cases: &mut Vec<(Vec<u8>, Vec<Effect>, InstFormat)>)
 								}
 							}
 						}
+					}
+
+					debug!("REX BYTE {:02x} OPS {:?}\n", rex_val, operands);
+
+					// Check for 8-bit registers which changes with the REX byte
+					for op in &operands {
+						match *op {
+							(OperandFormat::Direct(RT::GP(r), S8), _) if r >= 4 && rex_byte == Some(0x40) => {
+								*used_rex.borrow_mut() = true;
+							}
+							_ => (),
+						}
+					}
+
+					let mut name = inst.name.clone();
+
+					if name == "cwde" && rex_w() {
+						name = "cdqe".to_string();
+					} else if name == "cdq" && rex_w() {
+						name = "cqo".to_string();
+					}
+
+					if gs_val && !*used_gs.borrow() {
+						continue;
+					}
+
+					if prefixes.contains(&P_OP_SIZE) && !*used_opsize.borrow() {
+						continue;
 					}
 
 					if rex_byte.is_some() && !*used_rex.borrow() {
@@ -518,14 +597,6 @@ pub fn gen_all(inst: &Inst, cases: &mut Vec<(Vec<u8>, Vec<Effect>, InstFormat)>)
 						bytes.push(sib as u8);
 					}
 
-					let mut name = inst.name.clone();
-
-					if name == "cwde" && rex_w() { // TODO: Don't cause REX usage
-						name = "cdqe".to_string();
-					} else if name == "cdq" && rex_w() {
-						name = "cqo".to_string();
-					}
-
 					let op_size = decode_size(inst.operand_size); // TODO: Don't cause REX usage
 
 					if inst.op_size_postfix {
@@ -539,7 +610,14 @@ pub fn gen_all(inst: &Inst, cases: &mut Vec<(Vec<u8>, Vec<Effect>, InstFormat)>)
 						}
 					}
 
-					debug!("Adding {} ({}) => {:?}\n", name, table::bytes(&bytes), effects);
+					if name == "mov" && operands.iter().any(|o| match *o { (OperandFormat::Imm(S64), _) => true, _ => false }) {
+						name = "movabs".to_string();
+					}
+
+					effects.retain(|v| *v != Effect::None);
+					effects.sort_by_key(|k| k.sort_key());
+
+					debug!("Adding {} ({}) => {:?} ({:?})\n", name, table::bytes(&bytes), effects, operands);
 
 					let format = InstFormat {
 						prefix_bytes: inst.prefix_bytes.clone(),
@@ -559,11 +637,31 @@ pub fn gen_all(inst: &Inst, cases: &mut Vec<(Vec<u8>, Vec<Effect>, InstFormat)>)
 	}
 }
 
+fn sign_hex(i: i64, plus: bool, space: bool) -> String {
+	let space = if space { " " } else { "" };
+	let plus = if plus { format!("{}+{}", space, space) } else { "".to_string() };
+
+	if i < 0 {
+		if i > -10 {
+			format!("{}-{}{}", space, space, -i)
+		} else {
+			format!("{}-{}{:#x}", space, space, -i)
+		}
+	} else {
+		if i < 10 {
+			format!("{}{}", plus, i)
+		} else {
+			format!("{}{:#x}", plus, i)
+		}
+	}
+}
+
 pub fn parse(cursor: &mut Cursor, disp_off: u64, format: &InstFormat) -> DecodedInst {
 	let start = cursor.offset;
 	let prefixes = &format.prefixes[..];
 	let fs_override = prefixes.contains(&P_SEG_FS);
 	let gs_override = prefixes.contains(&P_SEG_GS);
+	let cs_override = prefixes.contains(&P_SEG_CS);
 
 	let has_prefix = |p: u8| {
 		if format.prefix_bytes.contains(&p) {
@@ -585,7 +683,9 @@ pub fn parse(cursor: &mut Cursor, disp_off: u64, format: &InstFormat) -> Decoded
 				operands.push((DecodedOperand::Imm(imm, Lit1), Lit1));
 			}
 			(OperandFormat::Disp(size), _) => {
-				let off = read_imm(cursor, size).wrapping_add(disp_off as i64).wrapping_add(cursor.offset as u64 as i64);
+				let off = read_imm(cursor, size).wrapping_add(disp_off as i64);
+				let len = cursor.offset - start + format.bytes.len();
+				let off = off.wrapping_add(len as u64 as i64);
 				operands.push((DecodedOperand::Imm(off, size), S64));
 			}
 			(OperandFormat::Direct(reg, op_size), _) => {
@@ -636,6 +736,8 @@ pub fn parse(cursor: &mut Cursor, disp_off: u64, format: &InstFormat) -> Decoded
 					"fs:"
 				} else if gs_override {
 					"gs:"
+				} else if cs_override {
+					"cs:"
 				} else {
 					""
 				};
@@ -654,18 +756,36 @@ pub fn parse(cursor: &mut Cursor, disp_off: u64, format: &InstFormat) -> Decoded
 				};
 
 				if indir.offset != 0 {
-					format!("{}{}[{}{}]", ptr, segment, name, sign_hex(indir.offset, true))
+					format!("{}{}[{}{}]", ptr, segment, name, sign_hex(indir.offset, true, true))
 				} else {
 					format!("{}{}[{}]", ptr, segment, name)
 				}
 			}
-			DecodedOperand::Imm(im, _) => match op.1 {
-				Lit1 => format!("{}", im as i8),
-				S8 => format!("{:#x}", im as i8),
-				S16 => format!("{:#x}", im as i16),
-				S32 => format!("{:#x}", im as i32),
-				S64 => format!("{:#x}", im),
-				_ => panic!(),
+			DecodedOperand::Imm(im, _) => {
+				/*let zim = match op.1 {
+					S8 => im as i8 as u8 as u64,
+					S16 => im as i16 as u16 as u64,
+					S32 => im as i32 as u32 as u64,
+					S64 => im as u64,
+					_ => panic!(),
+				};
+				let sim = zim as i64;*/
+
+				let bits = match &format.name[..] {
+					/*"mov" |*/ "movabs" | "and" | "xor" | "or" => true,
+					_ => op.1 == S8,
+				};
+				if bits && !(im >= 0 && im < 10) {
+					match op.1 {
+						S8 => format!("{:#x}", im as i8),
+						S16 => format!("{:#x}", im as i16),
+						S32 => format!("{:#x}", im as i32),
+						S64 => format!("{:#x}", im),
+						_ => panic!(),
+					}
+				} else {
+					sign_hex(im, false, false)
+				}
 			}
 		}
 	};

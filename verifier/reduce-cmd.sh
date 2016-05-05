@@ -1,0 +1,1 @@
+llc $1 -filetype=obj -o=reduce.o && ./target/release/verify -b -f reduce.o

@@ -10,6 +10,7 @@ rustc-serialize = "0.3.18"
 fst = "0.1"
 rand = "*"
 crossbeam = "0.2.5"
+getopts = "0.2"
 
 [dependencies.elfloader]
 path = "rust-elfloader"
@@ -25,3 +26,7 @@ path = "src/main.rs"
 [[bin]]
 name = "tablegen"
 path = "src/tablegen.rs"
+
+[[bin]]
+name = "rustgen"
+path = "src/rustgen.rs"
