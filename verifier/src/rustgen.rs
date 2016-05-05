@@ -44,8 +44,11 @@ impl Inst {
 	fn note(&self, writer: &mut Write) {
 		write!(writer, " /* {} */ ", self.0).unwrap();
 	}
-	fn write(&self, writer: &mut Write) {
+	fn val(&self, writer: &mut Write) {
 		write!(writer, "{:#02x}", self.1).unwrap();
+	}
+	fn write(&self, writer: &mut Write) {
+		self.val(writer);
 		self.note(writer);
 	}
 }
@@ -89,7 +92,9 @@ impl ByteTrie {
 			ByteTrie::Map(ref map) => {
 				writer.write_all("let byte = if let Some((&byte, rest)) = bytes.split_first() { bytes = rest; b } else { return None };".as_bytes()).unwrap();
 				writer.write_all("match byte { ".as_bytes()).unwrap();
-				for (b, tree) in map {
+				let mut entries = map.iter().collect::<Vec<_>>();
+				entries.sort_by_key(|e| e.0);
+				for (b, tree) in entries {
 					write!(writer, "{:#02x} => {{ ", b).unwrap();
 					tree.write(writer);
 					writer.write_all("}".as_bytes()).unwrap();
@@ -110,9 +115,12 @@ impl Multiplexer {
 	fn write(&self, writer: &mut Write) {
 		match *self {
 			Multiplexer::Opcode(ref map) => {
+				let mut entries = map.iter().collect::<Vec<_>>();
+				entries.sort_by_key(|e| e.0);
+				
 				writer.write_all("let opcode = if let Some(modrm) = bytes.first() { (modrm >> 3) & 7 } else { return None };".as_bytes()).unwrap();
 				writer.write_all("match opcode { ".as_bytes()).unwrap();
-				for (b, i) in map {
+				for (b, i) in entries {
 					write!(writer, "{:#02x} => {{", b).unwrap();
 					i.write(writer);
 					writer.write_all("}".as_bytes()).unwrap();
@@ -120,29 +128,41 @@ impl Multiplexer {
 				writer.write_all("_ => return None }".as_bytes()).unwrap();
 			}
 			Multiplexer::Prefix(ref map) => {
+				let mut entries = map.iter().collect::<Vec<_>>();
+				entries.sort_by_key(|e| e.0);
+				
 				if map.len() == 1 && map.get(&[][..]).is_some() {
 					(map.iter().next().unwrap().1).write(writer);
 				} else {
-					for (b, i) in map {
-						if !b.is_empty() {
-							write!(writer, "if ").unwrap();
-							for (i, p) in b.iter().enumerate() {
-								write!(writer, "prefix({:#02x})", p).unwrap();
-								if i != b.len() - 1 {
-									writer.write_all("&&".as_bytes()).unwrap();
+					let first = map.values().next().unwrap();
+
+					if map.values().all(|v| v.1 == first.1) {
+						for (b, i) in entries {
+							i.note(writer);
+						}
+						first.val(writer);
+					} else {
+						for (b, i) in entries {
+							if !b.is_empty() {
+								write!(writer, "if ").unwrap();
+								for (i, p) in b.iter().enumerate() {
+									write!(writer, "prefix({:#02x})", p).unwrap();
+									if i != b.len() - 1 {
+										writer.write_all("&&".as_bytes()).unwrap();
+									}
 								}
+								writer.write_all("{ return ".as_bytes()).unwrap();
+								i.write(writer);
+								writer.write_all("}".as_bytes()).unwrap();
 							}
-							writer.write_all("{ return ".as_bytes()).unwrap();
+						}
+						if let Some(i) = map.get(&[][..]) {
 							i.write(writer);
-							writer.write_all("}".as_bytes()).unwrap();
+						} else {
+							writer.write_all("return None".as_bytes()).unwrap();
 						}
 					}
-					if let Some(i) = map.get(&[][..]) {
-						i.write(writer);
-					} else {
-						writer.write_all("return None".as_bytes()).unwrap();
-					}
-				}
+				}	
 			}
 		}
 	}
