@@ -166,16 +166,16 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 					inst.operands.push((Operand::FixReg(reg, regs), op_size, access));
 				}
 				FixImm(imm) => {
-					inst.operands.push((Operand::FixImm(imm, Lit1), Lit1, access));
+					inst.operands.push((Operand::FixImm(imm, Lit1), Lit1, Access::Read));
 				}
 				Addr => {
 					inst.operands.push((Operand::Addr, op_size, access));
 				}
 				Imm => {
-					inst.operands.push((Operand::Imm(imm_size), op_size, access));
+					inst.operands.push((Operand::Imm(imm_size), op_size, Access::Read));
 				}
 				Disp => {
-					inst.operands.push((Operand::Disp(imm_size), S64, access));
+					inst.operands.push((Operand::Disp(imm_size), S64, Access::Read));
 				}
 				Rm => {
 					inst.operands.push((Operand::Rm(regs), op_size, access));
@@ -281,7 +281,7 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 		op!([0x70 + cond_num as u8], &format!("j{}", cond_name), [ImmSize(S8), Disp]);
 		op!([0x0f, 0x80 + cond_num as u8], &format!("j{}", cond_name), [disp_size.clone(), Disp]);
 		op!([0x0f, 0x40 + cond_num as u8], &format!("cmov{}", cond_name), [Reg, Rm]);
-		op!([0x0f, 0x90 + cond_num as u8], &format!("set{}", cond_name), [OpSize(S8),RmOpcode(0)]);
+		op!([0x0f, 0x90 + cond_num as u8], &format!("set{}", cond_name), [OpSize(S8), Rm]);
 	}
 
 	pair!([0xa8], "test", [Read, FixReg(0), Imm]);

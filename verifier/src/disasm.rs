@@ -479,7 +479,7 @@ pub fn gen_all(inst: &Inst, cases: &mut Vec<(Vec<u8>, Vec<Effect>, InstFormat)>)
 								effects.push(Effect::CheckAddr);
 								operands.push((OperandFormat::IndirectAddr, access));
 							}
-							(Operand::Rm(regs), op_size, access) => {
+							(Operand::Rm(regs), op_size, access) => { // Can be preset without Reg (For SETcc)
 								effects.push(if name == "mov" && regs == Regs::GP && !gs_val && op_size == S64 {
 									get!(|m, o| {
 										match access {

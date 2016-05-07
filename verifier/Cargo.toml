@@ -20,8 +20,12 @@ quickcheck = "0.2"
 quickcheck_macros = "0.2"
 
 [[bin]]
-name = "verify"
+name = "verify_old"
 path = "src/main.rs"
+
+[[bin]]
+name = "verify"
+path = "src/verify.rs"
 
 [[bin]]
 name = "tablegen"
