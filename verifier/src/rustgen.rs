@@ -55,7 +55,10 @@ pub enum InstKind {
 	Call32,
 	Jmp32,
 	Jmp8,
+	Jcc32,
+	Jcc8,
 	Ud2,
+	Ret,
 }
 
 // 2 bits
@@ -67,10 +70,12 @@ pub enum Imm {
 	Opsize64,
 }
 
-// TODO: Check SSE 64 bit instructions
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 pub enum Opsize {
 	Size8,
+	Size16,
+	Size64,
+	Size128,
 	SizeDef,
 }
 
@@ -115,6 +120,9 @@ impl InstKind {
 			InstKind::Jmp8 => 16,
 			InstKind::Ud2 => 17,
 			InstKind::None => 18,
+			InstKind::Ret => 19,
+			InstKind::Jcc8 => 20,
+			InstKind::Jcc32 => 21,
 		}
 	}
 }
@@ -135,6 +143,9 @@ impl Opsize {
 		match self {
 			Opsize::Size8 => 0,
 			Opsize::SizeDef => 1,
+			Opsize::Size16 => 2,
+			Opsize::Size64 => 3,
+			Opsize::Size128 => 4,
 		}
 	}
 }
@@ -143,6 +154,12 @@ impl InstFormat {
 	fn encode(self) -> u32 {
 		let mut r = 0;
 		let mut s = 0;
+
+		if (self.lock_prefix && self.rep_prefix) ||
+			(self.lock_prefix && self.repne_prefix) ||
+			(self.rep_prefix && self.repne_prefix) {
+			panic!("Mutually exclusive prefixes set!")
+		}
 
 		r |= bit(self.lock_prefix) << s;
 		s += 1;
@@ -157,7 +174,7 @@ impl InstFormat {
 		s += 1;
 
 		r |= self.opsize.encode() << s;
-		s += 2;
+		s += 3;
 		
 		r |= self.imm.encode() << s;
 		s += 2;
@@ -246,8 +263,7 @@ impl ByteTrie {
 			ByteTrie::Empty => panic!(),
 			ByteTrie::Decoded(ref multi) => multi.write(writer, taken),
 			ByteTrie::Map(ref map) => {
-				writer.write_all("let byte = if let Some((&byte, rest)) = bytes.split_first() { bytes = rest; byte } else { return 0 };".as_bytes()).unwrap();
-				writer.write_all("match byte { ".as_bytes()).unwrap();
+				writer.write_all("match c.next() { ".as_bytes()).unwrap();
 				let mut entries = map.iter().collect::<Vec<_>>();
 				entries.sort_by_key(|e| e.0);
 				for (b, tree) in entries {
@@ -284,7 +300,6 @@ impl Multiplexer {
 				let all_same = entries.iter().all(|e| {
 					match *e {
 						Ok(ref v) => v.1 == first.1,
-						Err(None) => true,
 						_ => false,
 					}
 				});
@@ -302,8 +317,7 @@ impl Multiplexer {
 					first.val(writer);
 
 				} else {
-					writer.write_all("let opcode = if let Some(modrm) = bytes.first() { (modrm >> 3u8) & 7 } else { return 0 };".as_bytes()).unwrap();
-					writer.write_all("match opcode { \n".as_bytes()).unwrap();
+					writer.write_all("match (c.peek() >> 3u8) & 7 { \n".as_bytes()).unwrap();
 
 					for (i, b) in entries.into_iter().enumerate() {
 						match b {
@@ -336,9 +350,8 @@ impl Multiplexer {
 						}
 						first.val(writer);
 					} else {
-						for (i, (prefixes, inst)) in entries.clone().into_iter().enumerate() {
+						for (i, &(prefixes, inst)) in entries.iter().enumerate() {
 							if !prefixes.is_empty() {
-								// TODO: Ensure that this PREFIX is illegal for all other instructions in the map
 								let bit = match &prefixes[..] {
 									[table::P_REP] => 2,
 									[table::P_REPNE] => 4,
@@ -346,17 +359,17 @@ impl Multiplexer {
 									_ => panic!(),
 								};
 
-								for (j, (prefixes2, inst2)) in entries.into_iter().enumerate() {
+								for (j, &(_, other_inst)) in entries.iter().enumerate() {
 									if i == j {
 										continue;
 									}
 
-									if bit & inst2.1 != 0 {
+									if bit & other_inst.1 != 0 {
 										panic!("Prefixes are not mutually exclusive on {}", table::bytes(&taken));
 									}
 								}
 
-								write!(writer, "if prefixes | {} != 0 {{ return ", bit).unwrap();
+								write!(writer, "if prefixes & {} != 0 {{ return ", bit).unwrap();
 								inst.write(writer);
 								writer.write_all("}".as_bytes()).unwrap();
 							}
@@ -405,19 +418,24 @@ fn main() {
 			}
 		}).collect();
 
-		let modrm = ops.iter().any(|o| {
+		let (modrm, mem_opsize) = ops.iter().map(|o| {
 			match *o {
-				(Operand::RmOpcode(..), _, _) |
-				(Operand::Mem(..), _, _) |
-				(Operand::Rm(..), _, _) => true,
-				_ => false,
+				(Operand::RmOpcode(..), s, _) |
+				(Operand::Mem(..), s, _) |
+				(Operand::Rm(..), s, _) => (true, s),
+				_ => (false, Size::S8),
 			}
-		});
+		}).find(|&(m, _)| m).unwrap_or((false, op.operand_size));
 
-		let opsize = if op.operand_size == Size::S8 {
-			Opsize::Size8
-		} else {
-			Opsize::SizeDef
+		let opsize = match mem_opsize {
+			Size::S8 => Opsize::Size8,
+			Size::S16 => Opsize::Size16,
+			Size::S32 if !op.prefix_whitelist.contains(&table::P_OP_SIZE) => Opsize::SizeDef,
+			Size::SRexSize if !op.prefix_whitelist.contains(&table::P_OP_SIZE) => Opsize::SizeDef,
+			Size::SOpSize => Opsize::SizeDef,
+			Size::S64 => Opsize::Size64,
+			Size::S128 => Opsize::Size128,
+			_ => panic!("Unknown opsize {:?} for {:?}", op.operand_size, op),
 		};
 
 		let imm = ops.iter().map(|o| {
@@ -455,6 +473,8 @@ fn main() {
 
 		let kind = if op.name == "ud2" {
 			InstKind::Ud2 
+		} else if op.name == "ret" {
+			InstKind::Ret
 		} else if is_jump {
 			if op.name == "call" {
 				match *ops.first().unwrap() {
@@ -465,8 +485,8 @@ fn main() {
 			} else {
 				match *ops.first().unwrap() {
 					(Operand::Disp(s), _, _) => match s {
-						Size::S8 => InstKind::Jmp8,
-						Size::S32 => InstKind::Jmp32,
+						Size::S8 => if op.name == "jmp" { InstKind::Jmp8 } else { InstKind::Jcc8 },
+						Size::S32 => if op.name == "jmp" { InstKind::Jmp32 } else { InstKind::Jcc32 },
 						_ => panic!(),
 					},
 					_ => panic!(),
@@ -568,12 +588,10 @@ fn main() {
 
 	let mut tree = ByteTrie::Empty;
 
-	for op in &ops {
-		//println!("Inserting {} {}", table::bytes(&op.bytes), op.name);
+	let insert_op = |tree: &mut ByteTrie, op, bytes: &[u8]| {
+		let opcode = tree.get_new(bytes, Vec::new());
 
-		let opcode = tree.get_new(&op.bytes, Vec::new());
-
-		let ops = map_ops(&op).1;
+		let ops = map_ops(op).1;
 		let op_i = ops.encode() as usize;
 
 		let inst = Inst(op.name.clone(), op_i);
@@ -619,13 +637,32 @@ fn main() {
 			},
 			_ => panic!(),
 		}
+	};
+
+	for op in &ops {
+		//println!("Inserting {} {}", table::bytes(&op.bytes), op.name);
+		if op.name == "nop" && &op.bytes == &[0x0f, 0x1f] {
+			let mut bytes = op.bytes.clone();
+			bytes.insert(0, table::P_SEG_CS);
+			insert_op(&mut tree, op, &bytes);
+			bytes.insert(0, table::P_OP_SIZE);
+			insert_op(&mut tree, op, &bytes);
+			bytes.insert(0, table::P_OP_SIZE);
+			insert_op(&mut tree, op, &bytes);
+			bytes.insert(0, table::P_OP_SIZE);
+			insert_op(&mut tree, op, &bytes);
+			bytes.insert(0, table::P_OP_SIZE);
+			insert_op(&mut tree, op, &bytes);
+		}
+
+		insert_op(&mut tree, op, &op.bytes);
 	}
 
 	//println!("Tree: {:#?}", tree);
 
 	let mut output = File::create(&Path::new("src/x86_opcodes.rs")).unwrap();
 
-	output.write_all("pub fn decode(mut bytes: &[u8], prefixes: u32) -> u32 {".as_bytes()).unwrap();
+	output.write_all("use x86_decoder::Cursor;pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {".as_bytes()).unwrap();
 	tree.write(&mut output, Vec::new());
 	output.write_all("}".as_bytes()).unwrap();
 

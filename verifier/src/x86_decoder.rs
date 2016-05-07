@@ -1,48 +1,10 @@
 use table;
 use std::cmp;
 use std::ptr;
-use effect::{Effect, DecodedOperand, Size, InstFormat, DecodedInst};
-use disasm;
 use decoder;
 use x86_opcodes;
 
-// Store in 6 bits - 2 for Rip/None/Imm8/Imm32 - 4 for register
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum Mem {
-	Rip,
-	Mem(usize, Disp),
-}
-
-impl Mem {
-	pub fn encode(self) -> usize {
-		match self {
-			Mem::Rip => 0,
-			Mem::Mem(r, Disp::None) => 1 | r << 2,
-			Mem::Mem(r, Disp::Imm8) => 2 | r << 2,
-			Mem::Mem(r, Disp::Imm32) => 3 | r << 2,
-		}
-	}
-	
-	pub fn decode(val: usize) -> Self {
-		let r = val >> 2;
-		match val & 3 {
-			0 => Mem::Rip,
-			1 => Mem::Mem(r, Disp::None),
-			2 => Mem::Mem(r, Disp::Imm8),
-			3 => Mem::Mem(r, Disp::Imm32),
-			_ => panic!(),
-		}
-	}
-	
-	pub fn trailing_bytes(self) -> usize {
-		match self {
-			Mem::Rip => 4,
-			Mem::Mem(_, Disp::None) => 0,
-			Mem::Mem(_, Disp::Imm8) => 1,
-			Mem::Mem(_, Disp::Imm32) => 4,
-		}
-	}
-}
+static debug: bool = cfg!(debug_assertions);
 
 pub enum Operation {
 	ClobReg(u8),
@@ -113,31 +75,28 @@ impl<'s> Cursor<'s> {
 	}
 }
 
-pub fn inst(c: &mut Cursor, disp_off: u64) -> Option<usize> {
-	let s = c;
+pub fn inst(c: &mut Cursor) -> Option<(usize, Option<i64>, bool)> {
+	let start_offset = c.offset;
+
+	let gs_override = c.matches(table::P_SEG_GS);
 
 	let mut prefixes = 0;
 
-	if c.matches(&table::P_LOCK) {
-		prefixes |= 1;
-	}
-	if c.matches(&table::P_REP) {
-		prefixes |= 2;
-	}
-	if c.matches(&table::P_REPNE) {
-		prefixes |= 4;
-	}
-	if c.matches(&table::P_OP_SIZE) {
+	if c.matches(table::P_OP_SIZE) {
 		prefixes |= 8;
 	}
+	if c.matches(table::P_LOCK) {
+		prefixes |= 1;
+	}
+	if c.matches(table::P_REP) {
+		prefixes |= 2;
+	}
+	if c.matches(table::P_REPNE) {
+		prefixes |= 4;
+	}
+	let operand_size_override = prefixes & 8 != 0;
 
-	let operand_size_override = prefixes | 8 != 0
-
-	// 0xF2, 0xF3 and 0x66 can be part of instructions
-	// 0xF2, 0xF3 must only be used when required
-
-	// TODO: Disallow GS and FS prefixes with branching instructions
-	let gs_override = c.matches(&table::P_SEG_GS);
+	let segment_override = gs_override;
 	
 	let rex = c.peek() as u32;
 	let rex = match rex {
@@ -148,7 +107,7 @@ pub fn inst(c: &mut Cursor, disp_off: u64) -> Option<usize> {
 		_ => 0
 	};
 
-	let mut format = x86_opcodes::decode(c.remaining(), prefixes) as u32;
+	let mut format = x86_opcodes::decode(c, prefixes) as u32;
 
 	// Ensure prefixes are legal
 	if !prefixes | (format & 0xF) != !0 {
@@ -158,8 +117,8 @@ pub fn inst(c: &mut Cursor, disp_off: u64) -> Option<usize> {
 	format >>= 4;
 
 	// ModRM byte
-	if format & 0x1000 != 0 {
-		let modrm = c().next() as u32;
+	if format & 0x2000 != 0 {
+		let modrm = c.next() as u32;
 		let mode = modrm >> 6;
 		let reg = ((modrm >> 3) & 7) | ((rex & 4) << 1);
 		let rm_norex = modrm & 7;
@@ -169,7 +128,7 @@ pub fn inst(c: &mut Cursor, disp_off: u64) -> Option<usize> {
 		let mut name = if mode != 3 && rm_norex == 4 {
 			// Parse SIB byte
 
-			let sib = c().next() as usize;
+			let sib = c.next() as u32;
 			let base_norex = sib & 7;
 			let index = ((sib >> 3) & 7) | (rex & 2) << 2;
 			let scale = sib >> 6;
@@ -219,82 +178,141 @@ pub fn inst(c: &mut Cursor, disp_off: u64) -> Option<usize> {
 			}
 		};
 
-		let off = match mode {
-			0 | 3 => name.offset,
-			1 => c.next(),
-			2 => c.next_u32(),
+		match mode {
+			0 | 3 => /*name.offset*/0,
+			1 => c.next() as i8 as i32,
+			2 => c.next_u32() as i32,
 			_ => panic!(),
 		};
 	}
 
 	let rex_w = rex & 8 != 0;
 
-	// Opsize - 2 bits
-	let op_size = if format & 1 != 0 {
-		if rex_w { 8 } else { if operand_size_override { 2 } else { 4 } }
-	} else {
-		1
+	// Opsize - 3 bits
+	let op_size = match format & 7 {
+		0 => 1,
+		1 => if rex_w { 8 } else { if operand_size_override { 2 } else { 4 } },
+		2 => 2,
+		3 => 8,
+		4 => 16,
+		_ => panic!(),
 	};
-	format >>= 2;
+	format >>= 3;
+
+	println!("(Imm {}, opsize = {}, operand_size_override = {})", format & 3, op_size, operand_size_override);
 
 	// Imm type - 2 bits
-	let imm = match format & 3 {
+	match format & 3 {
 		0 => (),
 		1 => c.offset += 1,
 		2 => c.offset += cmp::min(op_size, 4),
 		3 => c.offset += cmp::min(op_size, 8),
+		_ => panic!(),
 	};
+	format >>= 2;
 	// TODO: Check that c.offset is inbound
 
 	let case = format & 0x1F;
 	format >>= 5;
 
-	match format & 0x1F {
+	println!("(Case {})", case);
 
+	let result = match case {
+		// Illegal
+		0 => None,
+		// Push
+		9 => {
+			Some((None, false))
+		}
+		// Pop
+		10 => {
+			Some((None, false))
+		}
+		// Call32
+		14 => { 
+			if segment_override {
+				None
+			} else {
+				let offset = c.next_u32() as i32 as i64;
+				Some((None, false))
+			}
+		}
+		// Jmp32 | Jcc32
+		15 | 21 => { 
+			if segment_override {
+				None
+			} else {
+				let offset = c.next_u32() as i32 as i64;
+				Some((Some(offset), case == 15))
+			}
+		}
+		// Jmp8 | Jcc8
+		16 | 20 => {
+			if segment_override {
+				None
+			} else {
+				let offset = c.next() as i8 as i64;
+				Some((Some(offset), case == 16))
+			}
+		}
+		// Ud2
+		17 => { 
+			Some((None, true))
+		}
+		// Ret
+		19 => { 
+			if segment_override {
+				None
+			} else {
+				Some((None, true))
+			}
+		}
+		_ => Some((None, false)),
+	};
+
+	let len = c.offset - start_offset;
+
+	if len >= 16 {
+		return None;
 	}
 
-	if r == 0 {
-		let data = &s.remaining()[0..cmp::min(16, s.remaining().len())];
-		let (desc, len) = decoder::capstone_simple(data, 0).unwrap_or(("invalid".to_string(), 1));
-		let bytes = table::bytes(&s.remaining()[0..len]);
-
-		println!("unknown |{}| capstone: {}", bytes, desc);
-		panic!("unknown |{}| capstone: {}", bytes, desc);
-	}
-
-	// TOOD: Check that length is 15 bytes or lower
-
-	(inst, case.1.clone())
+	result.map(|(j, t)| (len, j, t))
 }
 
-pub fn decode(data: &[u8], func_start: usize, size: usize, disp_off: u64) {
+pub fn decode(data: &[u8], func_start: usize, func_size: usize, disp_off: u64) {
 	let mut targets = Vec::new();
-	let mut cp = decoder::capstone_open();
-	targets.push(func_start);
+	let cp = decoder::capstone_open();
+	targets.push(func_start as u64);
+
+	println!("Disassembly:");
 
 	let mut i = 0;
 
 	while i < targets.len() {
 		let mut c = Cursor {
 			data: data,
-			offset: targets[i],
+			offset: targets[i] as usize,
 		};
 
-		println!("disasm:");
+		println!("Label:");
 
 		loop {
 			let start = c.offset;
 			let address = start as u64 + disp_off;
 			print!("{:#08x}: ", address);
-			let cs_data = &c.remaining()[0..cmp::min(16, c.remaining().len())];
-			let data = &s.remaining()[0..cmp::min(16, s.remaining().len())];
-			let (cs_desc, cs_len) = decoder::capstone_simple(cs_data, 0).unwrap_or(("invalid".to_string(), 1));
-			let cs_bytes = table::bytes(&s.remaining()[0..len]);
 
-			let (i, effects) = inst(&mut c, address);
+			if c.offset - func_start >= func_size {
+				println!("ERROR: Instruction went outside function");
+				panic!("Instruction went outside function");
+			}
+
+			let cs_data = &c.remaining()[0..cmp::min(16, c.remaining().len())];
+			let (cs_desc, cs_len) = decoder::capstone_simple(cs_data, address).unwrap_or(("invalid".to_string(), 1));
+			let cs_bytes = table::bytes(&c.remaining()[0..cs_len]);
+
 			let mut str = String::new();
 
-			let byte_print_len = cmp::min(8, i.len);
+			let byte_print_len = cmp::min(8, cs_len);
 
 			for b in c.data[start..(start + byte_print_len)].iter() {
 				str.push_str(&format!("{:02x}", b));
@@ -307,41 +325,35 @@ pub fn decode(data: &[u8], func_start: usize, size: usize, disp_off: u64) {
 
 			print!("{}", str);
 
-			println!("{: <40} {:?} ({:x}/{:x})", i.desc, effects, c.offset - func_start, size);
-/*
-			if capstone(&mut cp, cs_data, address, &i, &effects) {
-					println!("unknown |{}| capstone: {}", bytes, desc);
-					panic!("unknown |{}| capstone: {}", bytes, desc);
-				panic!("Capstone output didn't match");
-			}
-*/
-			if effects.iter().any(|o| match *o { Effect::Jmp32 | Effect::Jmp8 => true, _ => false }) {
-				let op: (DecodedOperand, Size) = i.operands.first().unwrap().clone();
-				let off = match op.0 {
-					DecodedOperand::Imm(off, _) => {
-						Some(off as u64)
+			println!("{: <40}", cs_desc);
+
+			match inst(&mut c) {
+				Some((len, jmp, term)) => {
+					if len != cs_len {
+						println!("Capstone length was {}, while the decoded instruction was {}", cs_len, len);
+						panic!("Instruction length mismatch");
 					}
-					_ => None,
-				};
-				if let Some(off) = off {
-					let off = off as usize;
-					if off >= start && off < start + size {
-						if let Err(i) = targets.binary_search(&off) {
-							targets.insert(i, off);
+					if let Some(target) = jmp {
+						let off = (address + len as u64).wrapping_add(target as u64);
+						println!("Jump target {:#x}", off);
+						if off >= (disp_off + func_start as u64) && off < disp_off + (func_start + func_size) as u64 {
+							let real_off = off - disp_off;
+							if let Err(i) = targets.binary_search(&real_off) {
+								println!("Inserting target {:#x}", real_off);
+								targets.insert(i, real_off);
+							}
+						} else {
+							panic!("Jump outside of symbol {:#x} ({:#x} - {:#x})", off, disp_off + func_start as u64, disp_off + func_start as u64 + func_size as u64);
 						}
-					} else {
-						//println!("Jump outside of symbol {:#x}", off);
+					}
+					if term {
+						break
 					}
 				}
-			}
-
-			if i.name == "jmp" || i.name == "ret" || i.name == "ud2" {
-				break
-			}
-
-			if c.offset - func_start >= size {
-				println!("ERROR: Instruction went outside function");
-				panic!("Instruction went outside function");
+				None => {
+					println!("Illegal instruction");
+					panic!("Illegal instruction");
+				}
 			}
 		}
 

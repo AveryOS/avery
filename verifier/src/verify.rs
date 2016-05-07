@@ -18,7 +18,6 @@ extern crate getopts;
 
 use getopts::Options;
 use std::fs::File;
-use std::path::Path;
 use std::io::Read;
 use elfloader::*;
 
@@ -52,35 +51,41 @@ fn main() {
 	f.read_to_end(&mut buffer).unwrap();
 	let bin = elfloader::Image::new(unsafe { std::mem::transmute(&buffer[..])} ).unwrap();
 
-	bin.for_each_symbol(|sym, section| {
-		let name = bin.symbol_name(sym, section).unwrap();
+	for section in bin.sections{
+		println!("Section {:?}", section);
+	}
 
-		if name == "" {
+	bin.for_each_symbol(|sym, section| {
+		if sym.sym_type() != elf::STT_FUNC {
 			return;
 		}
 
-		let dump = if bin.header.unwrap().elftype == elf::ET_REL {
-			match sym.section_index.section() {
-				Some(s) => {
-					let section = &bin.sections[s];
-					if section.shtype == elf::SHT_PROGBITS && (section.flags.0 & elf::SHF_EXECINSTR.0 != 0)  {
-				 		Some((bin.sections[s].data(&bin), sym.value as usize, 0))
+		let name = bin.symbol_name(sym, section).unwrap();
+
+		/*if name == "" {
+			return;
+		}*/
+
+		let dump = match sym.section_index.section() {
+			Some(s) => {
+				let section = &bin.sections[s];
+				if section.shtype == elf::SHT_PROGBITS && (section.flags.0 & elf::SHF_EXECINSTR.0 != 0)  {
+					Some(if bin.header.unwrap().elftype == elf::ET_REL {
+						(bin.sections[s].data(&bin), sym.value as usize, 0)
 					} else {
-						None
-					}
+						(bin.sections[s].data(&bin), (sym.value - section.addr) as usize, section.addr)
+					})
+			 		
+				} else {
+					None
 				}
-				None => None
 			}
-		} else {
-			let p = bin.segments.iter().find(|p| p.vaddr <= sym.value && sym.value + sym.size < p.vaddr + p.filesz && p.flags.executable());
-			p.map(|p| (p.data(&bin), (sym.value - p.vaddr) as usize, p.vaddr))
+			None => None
 		};
 
 		if let Some((data, offset, disp_off)) = dump {
 			println!("dumping symbol {} {:x} {}", name, offset, sym);
-			if sym.size != 0 {
-				x86_decoder::decode(data, offset, sym.size as usize, disp_off);
-			}
+			x86_decoder::decode(data, offset, sym.size as usize, disp_off);
 		}
 	});
 

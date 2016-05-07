@@ -47,7 +47,7 @@ pub const ALL_PREFIXES: &'static [u8] = &[P_LOCK, P_REP, P_REPNE,
 	P_OP_SIZE, P_ADDR_SIZE,
 	P_SEG_CS, P_SEG_DS, P_SEG_ES, P_SEG_SS, P_SEG_FS, P_SEG_GS];
 
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 enum OpOption {
 	Rm,
 	SSE,
@@ -62,7 +62,6 @@ enum OpOption {
 	Cr(bool),
 	Prefix(u8),
 	OpSizePostfix,
-	NoOpSizeOverride,
 	Imm,
 	Addr,
 	Reg,
@@ -74,7 +73,6 @@ enum OpOption {
 	OpSizeLimit32,
 	OpSize(Size),
 	OpSizeDef,
-	OpSizeToImmSize,
 	ImmSize(Size),
 }
 
@@ -117,12 +115,6 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 				}
 				OpSizeDef => {
 					op_size = def_op_size;
-				}
-				OpSizeToImmSize => {
-					op_size = imm_size;
-				}
-				NoOpSizeOverride => {
-					// TODO: !operand_size_override
 				}
 				OpSizePostfix => {
 					inst.op_size_postfix = true;
@@ -233,12 +225,15 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 		})
 	}
 
+	let os = Prefix(P_OP_SIZE);
+
 	macro_rules! pair {
 		($code:expr, $name:expr, $opts:expr) => ({
 			let mut o = Vec::new();
 			o.push(OpSize(S8));
 			o.push(ImmSize(S8));
 			o.extend($opts.iter().cloned());
+			o.retain(|p| *p != os);
 			let mut c = Vec::new();
 			c.extend(&$code);
 			*c.last_mut().unwrap() += 1;
@@ -246,9 +241,6 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 			do_op(&c[..], $name, &$opts, SOpSize, ops);
 		})
 	}
-
-	let disp_size = ImmSize(S32);
-	let wide_op = OpSize(S64);
 
 	for (arith_opcode, instr) in ["add", "or", "adc", "sbb", "and", "sub", "xor", "cmp"].iter().enumerate() {
 		for (format_num, format) in [[Rm, Reg].as_ref(), [Reg, Rm].as_ref(), [FixReg(0), Imm].as_ref()].iter().enumerate() {
@@ -279,14 +271,14 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 
 	for (cond_num, cond_name) in cond_codes.iter().enumerate() {
 		op!([0x70 + cond_num as u8], &format!("j{}", cond_name), [ImmSize(S8), Disp]);
-		op!([0x0f, 0x80 + cond_num as u8], &format!("j{}", cond_name), [disp_size.clone(), Disp]);
+		op!([0x0f, 0x80 + cond_num as u8], &format!("j{}", cond_name), [ImmSize(S32), Disp]);
 		op!([0x0f, 0x40 + cond_num as u8], &format!("cmov{}", cond_name), [Reg, Rm]);
 		op!([0x0f, 0x90 + cond_num as u8], &format!("set{}", cond_name), [OpSize(S8), Rm]);
 	}
 
-	pair!([0xa8], "test", [Read, FixReg(0), Imm]);
-	pair!([0x84], "test", [Read, Rm, Reg]);
-	pair!([0xf6], "test", [Read, RmOpcode(0), Imm]);
+	pair!([0xa8], "test", [os, Read, FixReg(0), Imm]);
+	pair!([0x84], "test", [os, Read, Rm, Reg]);
+	pair!([0xf6], "test", [os, Read, RmOpcode(0), Imm]);
 
 	for &(instr, opcode) in &[("not", 2), ("neg", 3), ("mul", 4), ("imul", 5), ("div", 6), ("idiv", 7)] {
 		let mut f8 = vec![OpSize(S8), ImmSize(S8), RmOpcode(opcode)];
@@ -313,31 +305,31 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 	op!([0x0f, 0x1f], "nop", opts[..]);
 
 	op!([0xeb], "jmp", [ImmSize(S8), Disp]);
-	op!([0xe9], "jmp", [disp_size.clone(), Disp]);
+	op!([0xe9], "jmp", [ImmSize(S32), Disp]);
 
 	if !verify {
-		op!([0xff], "jmp", [wide_op.clone(), RmOpcode(4)]);
+		op!([0xff], "jmp", [RmOpcode(4)]);
 	}
 
-	op!([0xe8], "call", [disp_size.clone(), Disp]);
-	op!([0xff], "call", [wide_op.clone(), RmOpcode(2)]);
+	op!([0xe8], "call", [ImmSize(S32), Disp]);
+	op!([0xff], "call", [RmOpcode(2)]);
 
 	for reg in 0..8 {
-		op!([0x50 + reg], "push", [wide_op.clone(), FixRegRex(reg as usize)]);
-		op!([0x58 + reg], "pop", [wide_op.clone(), FixRegRex(reg as usize)]);
+		op!([0x50 + reg], "push", [OpSize(S64), FixRegRex(reg as usize)]);
+		op!([0x58 + reg], "pop", [OpSize(S64), FixRegRex(reg as usize)]);
 	}
 
 	pair!([0x86], "xchg", [Rm, Reg]);
 
-	pair!([0x88], "mov", [Prefix(P_SEG_GS), Rm, Reg]);
-	pair!([0x8a], "mov", [Prefix(P_SEG_GS), Reg, Rm]);
-	pair!([0xc6], "mov", [Prefix(P_SEG_GS), RmOpcode(0), Imm]);
-	pair!([0xa0], "mov", [Prefix(P_SEG_GS), FixReg(0), Addr]);
-	pair!([0xa2], "mov", [Prefix(P_SEG_GS), Addr, FixReg(0)]);
+	pair!([0x88], "mov", [os, Rm, Reg]);
+	pair!([0x8a], "mov", [os, Reg, Rm]);
+	pair!([0xc6], "mov", [os, RmOpcode(0), Imm]);
+	pair!([0xa0], "mov", [FixReg(0), Addr]);
+	pair!([0xa2], "mov", [Addr, FixReg(0)]);
 
 	for reg in 0..8 {
-		op!([0xb0 + reg], "mov", [Prefix(P_SEG_GS), OpSize(S8), FixRegRex(reg as usize), ImmSize(S8), Imm]);
-		op!([0xb8 + reg], "mov", [Prefix(P_SEG_GS), FixRegRex(reg as usize), ImmSize(SOpSize), Imm]);
+		op!([0xb0 + reg], "mov", [OpSize(S8), FixRegRex(reg as usize), ImmSize(S8), Imm]);
+		op!([0xb8 + reg], "mov", [os, FixRegRex(reg as usize), ImmSize(SOpSize), Imm]);
 	}
 
 	op!([0x0f, 0xa3], "bt", [Rm, Reg]);
@@ -351,7 +343,7 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 	op!([0x0f, 0xba], "btc", [Prefix(P_LOCK), RmOpcode(7), ImmSize(S8), Imm]);
 
 	op!([0x0f, 0xaf], "imul", [Reg, Rm]);
-	op!([0x69], "imul", [Reg, Rm, OpSizeToImmSize, Imm]);
+	op!([0x69], "imul", [Reg, Rm, Imm]);
 	op!([0x6b], "imul", [Reg, Rm, ImmSize(S8), Imm]);
 
 	op!([0xf3, 0x90], "pause", []);
@@ -371,11 +363,11 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 	}
 
 	op!([0x0f, 0xb6], "movzx", [Reg, OpSize(S8), Rm]);
-	op!([0x0f, 0xb7], "movzx", [Reg, OpSize(S16), Rm]);
+	op!([0x0f, 0xb7], "movzx", [Reg, OpSize(S16), Rm]); // TODO: Incorrect Opsize on first operand
 	op!([0x0f, 0xbe], "movsx", [Reg, OpSize(S8), Rm]);
 	op!([0x0f, 0xbf], "movsx", [Reg, OpSize(S16), Rm]);
 
-	op!([0x63], "movsxd", [NoOpSizeOverride, Reg, OpSize(S32), Rm]); // Require rex_w here
+	op!([0x63], "movsxd", [OpSize(S64), Reg, OpSize(S32), Rm]); // Require rex_w here
 
 	op!([0x66, 0x98], "cbw", [Implicit(0, Access::Write)]);
 	op!([0x98], "cwde", [Implicit(0, Access::Write)]); // Named 'cdqe' with rex_w
@@ -396,7 +388,31 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 		pair!([0xa4], "movs", [OpSizePostfix, Prefix(P_REP)]);
 	}
 
-	// MMX/SSE
+	// SSE
+
+	op!([0x66, 0x0f, 0x5c], "subpd", [SSE, Reg, Rm]);
+	op!([0x0f, 0x5c], "subps", [SSE, Reg, Rm]);
+
+	op!([0xf2, 0x0f, 0x5c], "subsd", [SSE, Reg, OpSize(S64), Rm]);
+	op!([0xf3, 0x0f, 0x5c], "subss", [SSE, Reg, OpSize(S32), Rm]);
+
+	op!([0x66, 0x0f, 0x5e], "divpd", [SSE, Reg, Rm]);
+	op!([0x0f, 0x5e], "divps", [SSE, Reg, Rm]);
+
+	op!([0xf2, 0x0f, 0x5e], "divsd", [SSE, Reg, OpSize(S64), Rm]);
+	op!([0xf3, 0x0f, 0x5e], "divss", [SSE, Reg, OpSize(S32), Rm]);
+
+	op!([0x66, 0x0f, 0x59], "mulpd", [SSE, Reg, Rm]);
+	op!([0x0f, 0x59], "mulps", [SSE, Reg, Rm]);
+
+	op!([0xf2, 0x0f, 0x59], "mulsd", [SSE, Reg, OpSize(S64), Rm]);
+	op!([0xf3, 0x0f, 0x59], "mulss", [SSE, Reg, OpSize(S32), Rm]);
+
+	op!([0x66, 0x0f, 0x58], "addpd", [SSE, Reg, Rm]);
+	op!([0x0f, 0x58], "addps", [SSE, Reg, Rm]);
+
+	op!([0xf2, 0x0f, 0x58], "addsd", [SSE, Reg, OpSize(S64), Rm]);
+	op!([0xf3, 0x0f, 0x58], "addss", [SSE, Reg, OpSize(S32), Rm]);
 
 	op!([0xf2, 0x0f, 0x10], "movsd", [SSE, Reg, OpSize(S64), Rm]);
 	op!([0xf2, 0x0f, 0x11], "movsd", [SSE, OpSize(S64), Rm, OpSize(S128), Reg]); 
@@ -407,11 +423,26 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 	op!([0x0f, 0x28], "movaps", [SSE, Reg, Rm]);
 	op!([0x0f, 0x29], "movaps", [SSE, Rm, Reg]);
 
+	op!([0x66, 0x0f, 0x2e], "ucomisd", [SSE, OpSize(S64), Read, Reg, Rm]);
+	op!([0x0f, 0x2e], "ucomiss", [SSE, OpSize(S32), Read, Reg, Rm]);
+
+	op!([0x66, 0x0f, 0x54], "andpd", [SSE, Reg, Rm]);
+	op!([0x0f, 0x54], "andps", [SSE, Reg, Rm]);
+
+	op!([0xf2, 0x0f, 0x2c], "cvttsd2si", [OpSize(SRexSize), Reg, SSE, OpSize(S64), Rm]);
+	op!([0xf3, 0x0f, 0x2c], "cvttss2si", [OpSize(SRexSize), Reg, SSE, OpSize(SRexSize), Rm]);
+
+	op!([0xf2, 0x0f, 0x2a], "cvtsi2sd", [SSE, Reg, OpSize(SRexSize), SSEOff, Rm]);
+	op!([0xf3, 0x0f, 0x2a], "cvtsi2ss", [SSE, Reg, OpSize(SRexSize), SSEOff, Rm]);
+
 	op!([0xf3, 0x0f, 0x7e], "movq", [SSE, OpSize(S64), Reg, Rm]);
 	op!([0x66, 0x0f, 0xd6], "movq", [SSE, OpSize(S64), Rm, Reg]);
 
 	op!([0x66, 0x0f, 0x6e], "mov", [OpSizePostfix, SSE, Reg, OpSize(SRexSize), SSEOff, Rm]);
 	op!([0x66, 0x0f, 0x7e], "mov", [OpSizePostfix, OpSize(SRexSize), Rm, SSE, Reg, OpSize(SRexSize)]);
+
+	op!([0x666, 0x0f, 0x38, 00], "pshufb", [SSE, Reg, Rm]);
+	op!([0x666, 0x0f, 0x70], "pshufd", [SSE, Reg, Rm, ImmSize(S8), Imm]);
 
 	op!([0x66, 0x0f, 0x6c], "punpcklqdq", [SSE, Reg, Rm]);
 	op!([0x66, 0x0f, 0x6d], "punpckhqdq", [SSE, Reg, Rm]);
