@@ -95,7 +95,6 @@ pub struct Inst {
 	pub op_size_postfix: bool,
 	pub name: String,
 	pub no_mem: bool,
-	pub unknown_mem: bool,
 	pub prefix_whitelist: Vec<u8>,
 	pub desc: String,
 	pub operand_size: Size,

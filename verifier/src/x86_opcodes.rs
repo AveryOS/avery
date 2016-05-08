@@ -9,7 +9,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 		0x1 => {
 			/* add */
 
-			0x20211
+			0x20219
 		}
 		0x2 => {
 			/* add */
@@ -19,7 +19,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 		0x3 => {
 			/* add */
 
-			0x20411
+			0x20419
 		}
 		0x4 => {
 			/* add */
@@ -29,7 +29,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 		0x5 => {
 			/* add */
 
-			0x42511
+			0x42519
 		}
 		0x8 => {
 			/* or */
@@ -39,7 +39,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 		0x9 => {
 			/* or */
 
-			0x20211
+			0x20219
 		}
 		0xa => {
 			/* or */
@@ -49,7 +49,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 		0xb => {
 			/* or */
 
-			0x20411
+			0x20419
 		}
 		0xc => {
 			/* or */
@@ -59,7 +59,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 		0xd => {
 			/* or */
 
-			0x42511
+			0x42519
 		}
 		0xf => {
 			match c.next() {
@@ -653,7 +653,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 		0x11 => {
 			/* adc */
 
-			0x20211
+			0x20219
 		}
 		0x12 => {
 			/* adc */
@@ -663,7 +663,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 		0x13 => {
 			/* adc */
 
-			0x20411
+			0x20419
 		}
 		0x14 => {
 			/* adc */
@@ -673,7 +673,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 		0x15 => {
 			/* adc */
 
-			0x42511
+			0x42519
 		}
 		0x18 => {
 			/* sbb */
@@ -683,7 +683,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 		0x19 => {
 			/* sbb */
 
-			0x20211
+			0x20219
 		}
 		0x1a => {
 			/* sbb */
@@ -693,7 +693,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 		0x1b => {
 			/* sbb */
 
-			0x20411
+			0x20419
 		}
 		0x1c => {
 			/* sbb */
@@ -703,7 +703,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 		0x1d => {
 			/* sbb */
 
-			0x42511
+			0x42519
 		}
 		0x20 => {
 			/* and */
@@ -713,7 +713,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 		0x21 => {
 			/* and */
 
-			0x20c11
+			0x20c19
 		}
 		0x22 => {
 			/* and */
@@ -723,7 +723,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 		0x23 => {
 			/* and */
 
-			0x20e11
+			0x20e19
 		}
 		0x24 => {
 			/* and */
@@ -733,7 +733,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 		0x25 => {
 			/* and */
 
-			0x42511
+			0x42519
 		}
 		0x28 => {
 			/* sub */
@@ -743,7 +743,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 		0x29 => {
 			/* sub */
 
-			0x20211
+			0x20219
 		}
 		0x2a => {
 			/* sub */
@@ -753,7 +753,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 		0x2b => {
 			/* sub */
 
-			0x20411
+			0x20419
 		}
 		0x2c => {
 			/* sub */
@@ -763,7 +763,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 		0x2d => {
 			/* sub */
 
-			0x42511
+			0x42519
 		}
 		0x2e => {
 			match c.next() {
@@ -800,7 +800,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 		0x31 => {
 			/* xor */
 
-			0x20211
+			0x20219
 		}
 		0x32 => {
 			/* xor */
@@ -810,7 +810,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 		0x33 => {
 			/* xor */
 
-			0x20411
+			0x20419
 		}
 		0x34 => {
 			/* xor */
@@ -820,7 +820,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 		0x35 => {
 			/* xor */
 
-			0x42511
+			0x42519
 		}
 		0x38 => {
 			/* cmp */
@@ -830,7 +830,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 		0x39 => {
 			/* cmp */
 
-			0x20610
+			0x20618
 		}
 		0x3a => {
 			/* cmp */
@@ -840,7 +840,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 		0x3b => {
 			/* cmp */
 
-			0x20610
+			0x20618
 		}
 		0x3c => {
 			/* cmp */
@@ -850,7 +850,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 		0x3d => {
 			/* cmp */
 
-			0x2510
+			0x2518
 		}
 		0x50 => {
 			/* push */
@@ -1193,7 +1193,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 			// 6 => xor
 
 			// 7 => cmp
-			0x20310
+			0x20318
 		}
 		0x83 => {
 			// Opcode table
@@ -1213,7 +1213,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 			// 6 => xor
 
 			// 7 => cmp
-			0x20290
+			0x20298
 		}
 		0x84 => {
 			/* test */

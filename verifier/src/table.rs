@@ -66,7 +66,6 @@ enum OpOption {
 	Addr,
 	Reg,
 	Disp,
-	UnknownMem,
 	NoMem,
 	Mem(Option<usize>),
 	RmOpcode(usize),
@@ -148,9 +147,6 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 				NoMem => {
 					inst.no_mem = true;
 				}
-				UnknownMem => {
-					inst.unknown_mem = true;
-				}
 				FixRegRex(reg) => {
 					inst.operands.push((Operand::FixRegRex(reg, regs), op_size, access));
 				}
@@ -205,7 +201,6 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 			operands: Vec::new(),
 			decoded_operands: Vec::new(),
 			op_size_postfix: false,
-			unknown_mem: false,
 			accesses: Vec::new(),
 			operand_size: SOpSize,
 			no_mem: false,
@@ -243,7 +238,7 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 	}
 
 	for (arith_opcode, instr) in ["add", "or", "adc", "sbb", "and", "sub", "xor", "cmp"].iter().enumerate() {
-		for (format_num, format) in [[Rm, Reg].as_ref(), [Reg, Rm].as_ref(), [FixReg(0), Imm].as_ref()].iter().enumerate() {
+		for (format_num, format) in [[os, Rm, Reg].as_ref(), [os, Reg, Rm].as_ref(), [os, FixReg(0), Imm].as_ref()].iter().enumerate() {
 			let opcode = cat_bits(&[arith_opcode, format_num, 0], &[5, 2, 1]);
 			let mut f = format.to_vec();
 			if *instr == "cmp" {
@@ -254,17 +249,17 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 			pair!([opcode], instr, f[..])
 		}
 
-		pair!([0x80], instr, [RmOpcode(arith_opcode), Imm]);
-		op!([0x83], instr, [RmOpcode(arith_opcode), ImmSize(S8), Imm]);
+		pair!([0x80], instr, [os, RmOpcode(arith_opcode), Imm]);
+		op!([0x83], instr, [os, RmOpcode(arith_opcode), ImmSize(S8), Imm]);
 	}
 
 	pair!([0xfe], "inc", [Prefix(P_LOCK), RmOpcode(0)]);
 	pair!([0xfe], "dec", [Prefix(P_LOCK), RmOpcode(1)]);
 
 	for &(instr, opcode) in &[("rol", 0), ("ror", 1), ("rcl", 2), ("rcr", 3), ("shl", 4), ("shr", 5), ("sar", 7)] {
-		pair!([0xc0], instr, [RmOpcode(opcode), UnknownMem, OpSize(S8), ImmSize(S8), Imm]);
-		pair!([0xd0], instr, [RmOpcode(opcode), UnknownMem, FixImm(1)]);
-		pair!([0xd2], instr, [RmOpcode(opcode), UnknownMem, OpSize(S8), FixReg(1)]);
+		pair!([0xc0], instr, [RmOpcode(opcode), OpSize(S8), ImmSize(S8), Imm]);
+		pair!([0xd0], instr, [RmOpcode(opcode), FixImm(1)]);
+		pair!([0xd2], instr, [RmOpcode(opcode), OpSize(S8), FixReg(1)]);
 	}
 
 	let cond_codes = ["o", "no", "b", "ae", "e", "ne", "be", "a", "s", "ns", "p", "np", "l", "ge", "le", "g"];

@@ -111,6 +111,7 @@ pub fn inst(c: &mut Cursor) -> Option<(usize, Option<i64>, bool)> {
 
 	// Ensure prefixes are legal
 	if !prefixes | (format & 0xF) != !0 {
+		println!("(Invalid prefixes {} on {})", prefixes, format);
 		return None;
 	}
 

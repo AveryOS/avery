@@ -62,10 +62,6 @@ fn main() {
 
 		let name = bin.symbol_name(sym, section).unwrap();
 
-		/*if name == "" {
-			return;
-		}*/
-
 		let dump = match sym.section_index.section() {
 			Some(s) => {
 				let section = &bin.sections[s];
