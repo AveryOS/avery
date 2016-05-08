@@ -54,6 +54,7 @@ append_path(File.expand_path("../vendor/rust/install/bin", __FILE__))
 append_path(File.expand_path("../vendor/autoconf/install/bin", __FILE__))
 append_path(File.expand_path("../vendor/automake/install/bin", __FILE__))
 append_path(File.expand_path("../vendor/bindgen/install/bin", __FILE__))
+append_path(File.expand_path("../util/rlib_ir/target/debug", __FILE__))
 
 sos = path("vendor/llvm/install/lib") + ":" + path("vendor/rust/install/lib")
 ENV['DYLD_LIBRARY_PATH'] = sos
@@ -416,7 +417,7 @@ end
 build_user = proc do
 	ENV['RUSTFLAGS'] = nil
 
-	cargo 'user', 'x86_64-pc-avery'
+	cargo 'user', 'x86_64-pc-avery', ['--verbose'], ['--emit=llvm-ir']
 	cargo 'user/hello', 'x86_64-pc-avery'
 
 	mkdirs("build/user")
@@ -444,6 +445,8 @@ task :sh do
 end
 
 task :verifier => [:dep_capstone] do
+	run 'cargo', 'install', 'rustfmt'
+
 	Dir.chdir("verifier")
 	get_submodule('rust-elfloader')
 

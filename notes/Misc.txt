@@ -17,5 +17,7 @@ For global data T
 Compare disassembler with llvm-mc
 
 Capstone header generation:
-bindgen.exe capstone/install/include/capstone/capstone.h -match capstone.h -match arm.h -match arm64.h -match mips.h -match platform.h -match ppc.h -match sparc.h -match systemz.h -match xcore.h -match x86.h -static-link capstone -o capstone/capstone.rs
-bindgen.exe capstone/install/include/capstone/capstone.h -builtins -o capstone/capstone.rs
+	bindgen.exe capstone/install/include/capstone/capstone.h -match capstone.h -match arm.h -match arm64.h -match mips.h -match platform.h -match ppc.h -match sparc.h -match systemz.h -match xcore.h -match x86.h -static-link capstone -o capstone/capstone.rs
+	bindgen.exe capstone/install/include/capstone/capstone.h -builtins -o capstone/capstone.rs
+
+To remove debug information from llvm-ir: opt -strip-debug

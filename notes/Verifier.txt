@@ -8,4 +8,6 @@ To verify jump targets:
 On the decoding DFA, can we store output words only on unique state transitions?
 	Store a bit in the target state which indicates if there's a word which changes the output register?
 
-	For each state -> state transition map, split it in two and ?
+Test commands:
+	cargo run --release --bin rustgen > output.txt
+	cargo run --release --bin verify -- -f ../build/user/hello > out.txt
