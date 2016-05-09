@@ -61,6 +61,7 @@ ENV['DYLD_LIBRARY_PATH'] = sos
 ENV['LD_LIBRARY_PATH'] = sos
 
 ENV['RUST_BACKTRACE'] = '1'
+ENV['RUST_NEW_ERROR_FORMAT'] = 'true'
 
 # rustc build needs LLVM in PATH on Windows
 CLEANENV = ENV.to_hash
@@ -445,7 +446,7 @@ task :sh do
 end
 
 task :verifier => [:dep_capstone] do
-	run 'cargo', 'install', 'rustfmt'
+	run 'cargo', 'install', 'rustfmt' unless which('rustfmt')
 
 	Dir.chdir("verifier")
 	get_submodule('rust-elfloader')

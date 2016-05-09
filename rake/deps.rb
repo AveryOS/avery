@@ -470,6 +470,7 @@ task :dep_rust => [:dep_llvm, :avery_sysroot] do
 		'CC' => CC || 'gcc',
 		'CXX' => CXX || 'g++',
 		'CARGO_HOME' => path('build/cargo/home'),
+		'CFG_DISABLE_CODEGEN_TESTS' => '1',
 	}
 	prefix = File.expand_path("vendor/rust/install")
 	make = proc do

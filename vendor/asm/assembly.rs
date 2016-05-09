@@ -117,7 +117,7 @@ fn add_binding(data: &mut Data, name: Option<String>, c: Constraint, kind: Bindi
 
 fn get_ident<'a>(p: &mut Parser<'a>) -> PResult<'a, String> {
     match p.token {
-        token::Ident(id, _) => {
+        token::Ident(id) => {
             p.bump();
             Ok(id.name.as_str().to_string())
         }
@@ -180,7 +180,7 @@ fn parse_operand<'a>(p: &mut Parser<'a>, data: &mut Data) -> PResult<'a, usize> 
             };
 
             let name = match p.token {
-                token::Ident(_, _) => Some(try!(parse_let(p))),
+                token::Ident(..) => Some(try!(parse_let(p))),
                 _ => None
             };
 
@@ -351,7 +351,7 @@ fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree]) 
                     }
                     panictry!(p.expect(&token::CloseDelim(token::Brace)));
             }
-            token::Ident(_, _) => {
+            token::Ident(..) => {
                 whitespace_wrap(cx, &mut out, p.span, |out| {
                     if let Some(idx) = data.idents.get(&token_to_string(&p.token)) {
                         out.push(Output::Binding(*idx));
