@@ -4,98 +4,98 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> {
 		0x0 => {
 			/* add */
 
-			0x20201
+			0x20081
 		}
 		0x1 => {
 			/* add */
 
-			0x20219
+			0x20099
 		}
 		0x2 => {
 			/* add */
 
-			0x20401
+			0x20101
 		}
 		0x3 => {
 			/* add */
 
-			0x20419
+			0x20119
 		}
 		0x4 => {
 			/* add */
 
-			0x42481
+			0x48901
 		}
 		0x5 => {
 			/* add */
 
-			0x42519
+			0x50919
 		}
 		0x8 => {
 			/* or */
 
-			0x20201
+			0x20081
 		}
 		0x9 => {
 			/* or */
 
-			0x20219
+			0x20099
 		}
 		0xa => {
 			/* or */
 
-			0x20401
+			0x20101
 		}
 		0xb => {
 			/* or */
 
-			0x20419
+			0x20119
 		}
 		0xc => {
 			/* or */
 
-			0x42481
+			0x48901
 		}
 		0xd => {
 			/* or */
 
-			0x42519
+			0x50919
 		}
 		0xf => {
 			match try!(c.next()) {
 				0xb => {
 					/* ud2 */
 
-					0x2210
+					0x890
 				}
 				0x10 => {
 					if prefixes & 8 != 0 {
 						return Ok(/* movupd */
-						          0x20448);
+						          0x20148);
 					}
 					if prefixes & 4 != 0 {
 						return Ok(/* movsd */
-						          0x20434);
+						          0x20134);
 					} /* movups */
-					0x20440
+					0x20140
 				}
 				0x11 => {
 					if prefixes & 8 != 0 {
 						return Ok(/* movupd */
-						          0x20248);
+						          0x200c8);
 					}
 					if prefixes & 4 != 0 {
 						return Ok(/* movsd */
-						          0x20234);
+						          0x200b4);
 					} /* movups */
-					0x20240
+					0x200c0
 				}
 				0x1f => {
 					match (try!(c.peek()) >> 3u8) & 7 { 
 						0x0 => {
 							/* nop */
 
-							0x20218
+							0x20098
 						}
 						// 1 => capstone: nop dword ptr [rdx]
 						// 2 => capstone: nop dword ptr [rdx]
@@ -110,45 +110,45 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> {
 				0x28 => {
 					if prefixes & 8 != 0 {
 						return Ok(/* movapd */
-						          0x20448);
+						          0x20148);
 					} /* movaps */
-					0x20440
+					0x20140
 				}
 				0x29 => {
 					if prefixes & 8 != 0 {
 						return Ok(/* movapd */
-						          0x20248);
+						          0x200c8);
 					} /* movaps */
-					0x20240
+					0x200c0
 				}
 				0x2a => {
 					if prefixes & 4 != 0 {
 						return Ok(/* cvtsi2sd */
-						          0x20414);
+						          0x20114);
 					}
 					if prefixes & 2 != 0 {
 						return Ok(/* cvtsi2ss */
-						          0x20412);
+						          0x20112);
 					}
 					0
 				}
 				0x2c => {
 					if prefixes & 4 != 0 {
 						return Ok(/* cvttsd2si */
-						          0x20434);
+						          0x20134);
 					}
 					if prefixes & 2 != 0 {
 						return Ok(/* cvttss2si */
-						          0x20412);
+						          0x20112);
 					}
 					0
 				}
 				0x2e => {
 					if prefixes & 8 != 0 {
 						return Ok(/* ucomisd */
-						          0x20638);
+						          0x201b8);
 					} /* ucomiss */
-					0x20610
+					0x20190
 				}
 				0x38 => {
 					match try!(c.next()) {
@@ -156,7 +156,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> {
 							// Multiple prefixes
 							// pshufb
 
-							0x20448
+							0x20148
 						}
 						_ => 0,
 					}
@@ -164,183 +164,183 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> {
 				0x40 => {
 					/* cmovo */
 
-					0x20410
+					0x20110
 				}
 				0x41 => {
 					/* cmovno */
 
-					0x20410
+					0x20110
 				}
 				0x42 => {
 					/* cmovb */
 
-					0x20410
+					0x20110
 				}
 				0x43 => {
 					/* cmovae */
 
-					0x20410
+					0x20110
 				}
 				0x44 => {
 					/* cmove */
 
-					0x20410
+					0x20110
 				}
 				0x45 => {
 					/* cmovne */
 
-					0x20410
+					0x20110
 				}
 				0x46 => {
 					/* cmovbe */
 
-					0x20410
+					0x20110
 				}
 				0x47 => {
 					/* cmova */
 
-					0x20410
+					0x20110
 				}
 				0x48 => {
 					/* cmovs */
 
-					0x20410
+					0x20110
 				}
 				0x49 => {
 					/* cmovns */
 
-					0x20410
+					0x20110
 				}
 				0x4a => {
 					/* cmovp */
 
-					0x20410
+					0x20110
 				}
 				0x4b => {
 					/* cmovnp */
 
-					0x20410
+					0x20110
 				}
 				0x4c => {
 					/* cmovl */
 
-					0x20410
+					0x20110
 				}
 				0x4d => {
 					/* cmovge */
 
-					0x20410
+					0x20110
 				}
 				0x4e => {
 					/* cmovle */
 
-					0x20410
+					0x20110
 				}
 				0x4f => {
 					/* cmovg */
 
-					0x20410
+					0x20110
 				}
 				0x54 => {
 					if prefixes & 8 != 0 {
 						return Ok(/* andpd */
-						          0x20448);
+						          0x20148);
 					} /* andps */
-					0x20440
+					0x20140
 				}
 				0x57 => {
 					if prefixes & 8 != 0 {
 						return Ok(/* xorpd */
-						          0x20448);
+						          0x20148);
 					} /* xorps */
-					0x20440
+					0x20140
 				}
 				0x58 => {
 					if prefixes & 8 != 0 {
 						return Ok(/* addpd */
-						          0x20448);
+						          0x20148);
 					}
 					if prefixes & 4 != 0 {
 						return Ok(/* addsd */
-						          0x20434);
+						          0x20134);
 					}
 					if prefixes & 2 != 0 {
 						return Ok(/* addss */
-						          0x20412);
+						          0x20112);
 					} /* addps */
-					0x20440
+					0x20140
 				}
 				0x59 => {
 					if prefixes & 8 != 0 {
 						return Ok(/* mulpd */
-						          0x20448);
+						          0x20148);
 					}
 					if prefixes & 4 != 0 {
 						return Ok(/* mulsd */
-						          0x20434);
+						          0x20134);
 					}
 					if prefixes & 2 != 0 {
 						return Ok(/* mulss */
-						          0x20412);
+						          0x20112);
 					} /* mulps */
-					0x20440
+					0x20140
 				}
 				0x5c => {
 					if prefixes & 8 != 0 {
 						return Ok(/* subpd */
-						          0x20448);
+						          0x20148);
 					}
 					if prefixes & 4 != 0 {
 						return Ok(/* subsd */
-						          0x20434);
+						          0x20134);
 					}
 					if prefixes & 2 != 0 {
 						return Ok(/* subss */
-						          0x20412);
+						          0x20112);
 					} /* subps */
-					0x20440
+					0x20140
 				}
 				0x5e => {
 					if prefixes & 8 != 0 {
 						return Ok(/* divpd */
-						          0x20448);
+						          0x20148);
 					}
 					if prefixes & 4 != 0 {
 						return Ok(/* divsd */
-						          0x20434);
+						          0x20134);
 					}
 					if prefixes & 2 != 0 {
 						return Ok(/* divss */
-						          0x20412);
+						          0x20112);
 					} /* divps */
-					0x20440
+					0x20140
 				}
 				0x6c => {
 					// Multiple prefixes
 					// punpcklqdq
 
-					0x20448
+					0x20148
 				}
 				0x6d => {
 					// Multiple prefixes
 					// punpckhqdq
 
-					0x20448
+					0x20148
 				}
 				0x6e => {
 					// Multiple prefixes
 					// mov
 
-					0x20418
+					0x20118
 				}
 				0x6f => {
 					if prefixes & 8 != 0 {
 						return Ok(/* movdqa */
-						          0x20448);
+						          0x20148);
 					}
 					if prefixes & 2 != 0 {
 						return Ok(/* movdqu */
-						          0x20442);
+						          0x20142);
 					}
 					0
 				}
@@ -348,206 +348,206 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> {
 					// Multiple prefixes
 					// pshufd
 
-					0x204c8
+					0x28148
 				}
 				0x7e => {
 					if prefixes & 8 != 0 {
 						return Ok(/* mov */
-						          0x20218);
+						          0x20098);
 					}
 					if prefixes & 2 != 0 {
 						return Ok(/* movq */
-						          0x20432);
+						          0x20132);
 					}
 					0
 				}
 				0x7f => {
 					if prefixes & 8 != 0 {
 						return Ok(/* movdqa */
-						          0x20248);
+						          0x200c8);
 					}
 					if prefixes & 2 != 0 {
 						return Ok(/* movdqu */
-						          0x20242);
+						          0x200c2);
 					}
 					0
 				}
 				0x80 => {
 					/* jo */
 
-					0x2a10
+					0xa90
 				}
 				0x81 => {
 					/* jno */
 
-					0x2a10
+					0xa90
 				}
 				0x82 => {
 					/* jb */
 
-					0x2a10
+					0xa90
 				}
 				0x83 => {
 					/* jae */
 
-					0x2a10
+					0xa90
 				}
 				0x84 => {
 					/* je */
 
-					0x2a10
+					0xa90
 				}
 				0x85 => {
 					/* jne */
 
-					0x2a10
+					0xa90
 				}
 				0x86 => {
 					/* jbe */
 
-					0x2a10
+					0xa90
 				}
 				0x87 => {
 					/* ja */
 
-					0x2a10
+					0xa90
 				}
 				0x88 => {
 					/* js */
 
-					0x2a10
+					0xa90
 				}
 				0x89 => {
 					/* jns */
 
-					0x2a10
+					0xa90
 				}
 				0x8a => {
 					/* jp */
 
-					0x2a10
+					0xa90
 				}
 				0x8b => {
 					/* jnp */
 
-					0x2a10
+					0xa90
 				}
 				0x8c => {
 					/* jl */
 
-					0x2a10
+					0xa90
 				}
 				0x8d => {
 					/* jge */
 
-					0x2a10
+					0xa90
 				}
 				0x8e => {
 					/* jle */
 
-					0x2a10
+					0xa90
 				}
 				0x8f => {
 					/* jg */
 
-					0x2a10
+					0xa90
 				}
 				0x90 => {
 					/* seto */
 
-					0x20200
+					0x20080
 				}
 				0x91 => {
 					/* setno */
 
-					0x20200
+					0x20080
 				}
 				0x92 => {
 					/* setb */
 
-					0x20200
+					0x20080
 				}
 				0x93 => {
 					/* setae */
 
-					0x20200
+					0x20080
 				}
 				0x94 => {
 					/* sete */
 
-					0x20200
+					0x20080
 				}
 				0x95 => {
 					/* setne */
 
-					0x20200
+					0x20080
 				}
 				0x96 => {
 					/* setbe */
 
-					0x20200
+					0x20080
 				}
 				0x97 => {
 					/* seta */
 
-					0x20200
+					0x20080
 				}
 				0x98 => {
 					/* sets */
 
-					0x20200
+					0x20080
 				}
 				0x99 => {
 					/* setns */
 
-					0x20200
+					0x20080
 				}
 				0x9a => {
 					/* setp */
 
-					0x20200
+					0x20080
 				}
 				0x9b => {
 					/* setnp */
 
-					0x20200
+					0x20080
 				}
 				0x9c => {
 					/* setl */
 
-					0x20200
+					0x20080
 				}
 				0x9d => {
 					/* setge */
 
-					0x20200
+					0x20080
 				}
 				0x9e => {
 					/* setle */
 
-					0x20200
+					0x20080
 				}
 				0x9f => {
 					/* setg */
 
-					0x20200
+					0x20080
 				}
 				0xa3 => {
 					/* bt */
 
-					0x20210
+					0x20090
 				}
 				0xab => {
 					/* bts */
 
-					0x20211
+					0x20091
 				}
 				0xae => {
 					match try!(c.next()) {
 						0xf0 => {
 							/* mfence */
 
-							0x2410
+							0x910
 						}
 						_ => 0,
 					}
@@ -555,32 +555,32 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> {
 				0xaf => {
 					/* imul */
 
-					0x20410
+					0x20110
 				}
 				0xb0 => {
 					/* cmpxchg */
 
-					0x20201
+					0x20081
 				}
 				0xb1 => {
 					/* cmpxchg */
 
-					0x20211
+					0x20091
 				}
 				0xb3 => {
 					/* btr */
 
-					0x20211
+					0x20091
 				}
 				0xb6 => {
 					/* movzx */
 
-					0x20400
+					0x20100
 				}
 				0xb7 => {
 					/* movzx */
 
-					0x20420
+					0x20120
 				}
 				0xba => {
 					match (try!(c.peek()) >> 3u8) & 7 { 
@@ -591,22 +591,22 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> {
 						0x4 => {
 							/* bt */
 
-							0x20290
+							0x28090
 						}
 						0x5 => {
 							/* bts */
 
-							0x20291
+							0x28091
 						}
 						0x6 => {
 							/* btr */
 
-							0x20291
+							0x28091
 						}
 						0x7 => {
 							/* btc */
 
-							0x20291
+							0x28091
 						}
 						_ => 0,
 					}
@@ -614,33 +614,33 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> {
 				0xbb => {
 					/* btc */
 
-					0x20211
+					0x20091
 				}
 				0xbe => {
 					/* movsx */
 
-					0x20400
+					0x20100
 				}
 				0xbf => {
 					/* movsx */
 
-					0x20420
+					0x20120
 				}
 				0xc0 => {
 					/* xadd */
 
-					0x20201
+					0x20081
 				}
 				0xc1 => {
 					/* xadd */
 
-					0x20211
+					0x20091
 				}
 				0xd6 => {
 					// Multiple prefixes
 					// movq
 
-					0x20238
+					0x200b8
 				}
 				_ => 0,
 			}
@@ -648,122 +648,122 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> {
 		0x10 => {
 			/* adc */
 
-			0x20201
+			0x20081
 		}
 		0x11 => {
 			/* adc */
 
-			0x20219
+			0x20099
 		}
 		0x12 => {
 			/* adc */
 
-			0x20401
+			0x20101
 		}
 		0x13 => {
 			/* adc */
 
-			0x20419
+			0x20119
 		}
 		0x14 => {
 			/* adc */
 
-			0x42481
+			0x48901
 		}
 		0x15 => {
 			/* adc */
 
-			0x42519
+			0x50919
 		}
 		0x18 => {
 			/* sbb */
 
-			0x20201
+			0x20081
 		}
 		0x19 => {
 			/* sbb */
 
-			0x20219
+			0x20099
 		}
 		0x1a => {
 			/* sbb */
 
-			0x20401
+			0x20101
 		}
 		0x1b => {
 			/* sbb */
 
-			0x20419
+			0x20119
 		}
 		0x1c => {
 			/* sbb */
 
-			0x42481
+			0x48901
 		}
 		0x1d => {
 			/* sbb */
 
-			0x42519
+			0x50919
 		}
 		0x20 => {
 			/* and */
 
-			0x20201
+			0x20081
 		}
 		0x21 => {
 			/* and */
 
-			0x20c19
+			0x20319
 		}
 		0x22 => {
 			/* and */
 
-			0x20401
+			0x20101
 		}
 		0x23 => {
 			/* and */
 
-			0x20e19
+			0x20399
 		}
 		0x24 => {
 			/* and */
 
-			0x42481
+			0x48901
 		}
 		0x25 => {
 			/* and */
 
-			0x42519
+			0x50919
 		}
 		0x28 => {
 			/* sub */
 
-			0x20201
+			0x20081
 		}
 		0x29 => {
 			/* sub */
 
-			0x20219
+			0x20099
 		}
 		0x2a => {
 			/* sub */
 
-			0x20401
+			0x20101
 		}
 		0x2b => {
 			/* sub */
 
-			0x20419
+			0x20119
 		}
 		0x2c => {
 			/* sub */
 
-			0x42481
+			0x48901
 		}
 		0x2d => {
 			/* sub */
 
-			0x42519
+			0x50919
 		}
 		0x2e => {
 			match try!(c.next()) {
@@ -774,7 +774,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> {
 								0x0 => {
 									/* nop */
 
-									0x20218
+									0x20098
 								}
 								// 1 => capstone: nop dword ptr cs:[rdx]
 								// 2 => capstone: nop dword ptr cs:[rdx]
@@ -795,147 +795,147 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> {
 		0x30 => {
 			/* xor */
 
-			0x20201
+			0x20081
 		}
 		0x31 => {
 			/* xor */
 
-			0x20219
+			0x20099
 		}
 		0x32 => {
 			/* xor */
 
-			0x20401
+			0x20101
 		}
 		0x33 => {
 			/* xor */
 
-			0x20419
+			0x20119
 		}
 		0x34 => {
 			/* xor */
 
-			0x42481
+			0x48901
 		}
 		0x35 => {
 			/* xor */
 
-			0x42519
+			0x50919
 		}
 		0x38 => {
 			/* cmp */
 
-			0x20600
+			0x20180
 		}
 		0x39 => {
 			/* cmp */
 
-			0x20618
+			0x20198
 		}
 		0x3a => {
 			/* cmp */
 
-			0x20600
+			0x20180
 		}
 		0x3b => {
 			/* cmp */
 
-			0x20618
+			0x20198
 		}
 		0x3c => {
 			/* cmp */
 
-			0x2480
+			0x8900
 		}
 		0x3d => {
 			/* cmp */
 
-			0x2518
+			0x10918
 		}
 		0x50 => {
 			/* push */
 
-			0x1230
+			0x4b0
 		}
 		0x51 => {
 			/* push */
 
-			0x1230
+			0x4b0
 		}
 		0x52 => {
 			/* push */
 
-			0x1230
+			0x4b0
 		}
 		0x53 => {
 			/* push */
 
-			0x1230
+			0x4b0
 		}
 		0x54 => {
 			/* push */
 
-			0x1230
+			0x4b0
 		}
 		0x55 => {
 			/* push */
 
-			0x1230
+			0x4b0
 		}
 		0x56 => {
 			/* push */
 
-			0x1230
+			0x4b0
 		}
 		0x57 => {
 			/* push */
 
-			0x1230
+			0x4b0
 		}
 		0x58 => {
 			/* pop */
 
-			0x1430
+			0x530
 		}
 		0x59 => {
 			/* pop */
 
-			0x1430
+			0x530
 		}
 		0x5a => {
 			/* pop */
 
-			0x1430
+			0x530
 		}
 		0x5b => {
 			/* pop */
 
-			0x1430
+			0x530
 		}
 		0x5c => {
 			/* pop */
 
-			0x1430
+			0x530
 		}
 		0x5d => {
 			/* pop */
 
-			0x1430
+			0x530
 		}
 		0x5e => {
 			/* pop */
 
-			0x1430
+			0x530
 		}
 		0x5f => {
 			/* pop */
 
-			0x1430
+			0x530
 		}
 		0x63 => {
 			/* movsxd */
 
-			0x20410
+			0x20110
 		}
 		0x66 => {
 			match try!(c.next()) {
@@ -948,7 +948,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> {
 										0x0 => {
 											/* nop */
 
-											0x20218
+											0x20098
 										}
 										// 1 => capstone: nop word ptr cs:[rdx]
 										// 2 => capstone: nop word ptr cs:[rdx]
@@ -977,7 +977,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> {
 												0x0 => {
 													/* nop */
 
-													0x20218
+													0x20098
 												}
 												// 1 => capstone: nop word ptr cs:[rdx]
 												// 2 => capstone: nop word ptr cs:[rdx]
@@ -1006,7 +1006,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> {
 														0x0 => {
 															/* nop */
 
-															0x20218
+															0x20098
 														}
 														// 1 => capstone: nop word ptr cs:[rdx]
 														// 2 => capstone: nop word ptr cs:[rdx]
@@ -1035,7 +1035,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> {
 																0x0 => {
 																	/* nop */
 
-																	0x20218
+																	0x20098
 																}
 																// 1 => capstone: nop word ptr cs:[rdx]
 																// 2 => capstone: nop word ptr cs:[rdx]
@@ -1068,411 +1068,486 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> {
 		0x69 => {
 			/* imul */
 
-			0x20510
+			0x30110
 		}
 		0x6b => {
 			/* imul */
 
-			0x20490
+			0x28110
 		}
 		0x70 => {
 			/* jo */
 
-			0x2810
+			0xa10
 		}
 		0x71 => {
 			/* jno */
 
-			0x2810
+			0xa10
 		}
 		0x72 => {
 			/* jb */
 
-			0x2810
+			0xa10
 		}
 		0x73 => {
 			/* jae */
 
-			0x2810
+			0xa10
 		}
 		0x74 => {
 			/* je */
 
-			0x2810
+			0xa10
 		}
 		0x75 => {
 			/* jne */
 
-			0x2810
+			0xa10
 		}
 		0x76 => {
 			/* jbe */
 
-			0x2810
+			0xa10
 		}
 		0x77 => {
 			/* ja */
 
-			0x2810
+			0xa10
 		}
 		0x78 => {
 			/* js */
 
-			0x2810
+			0xa10
 		}
 		0x79 => {
 			/* jns */
 
-			0x2810
+			0xa10
 		}
 		0x7a => {
 			/* jp */
 
-			0x2810
+			0xa10
 		}
 		0x7b => {
 			/* jnp */
 
-			0x2810
+			0xa10
 		}
 		0x7c => {
 			/* jl */
 
-			0x2810
+			0xa10
 		}
 		0x7d => {
 			/* jge */
 
-			0x2810
+			0xa10
 		}
 		0x7e => {
 			/* jle */
 
-			0x2810
+			0xa10
 		}
 		0x7f => {
 			/* jg */
 
-			0x2810
+			0xa10
 		}
 		0x80 => {
-			// Opcode table
+			match (try!(c.peek()) >> 3u8) & 7 { 
+				0x0 => {
+					/* add */
 
-			// 0 => add
+					0x28081
+				}
+				0x1 => {
+					/* or */
 
-			// 1 => or
+					0x28081
+				}
+				0x2 => {
+					/* adc */
 
-			// 2 => adc
+					0x28081
+				}
+				0x3 => {
+					/* sbb */
 
-			// 3 => sbb
+					0x28081
+				}
+				0x4 => {
+					/* and */
 
-			// 4 => and
+					0x28081
+				}
+				0x5 => {
+					/* sub */
 
-			// 5 => sub
+					0x28081
+				}
+				0x6 => {
+					/* xor */
 
-			// 6 => xor
+					0x28081
+				}
+				0x7 => {
+					/* cmp */
 
-			// 7 => cmp
-			0x20280
+					0x28180
+				}
+				_ => 0,
+			}
 		}
 		0x81 => {
-			// Opcode table
+			match (try!(c.peek()) >> 3u8) & 7 { 
+				0x0 => {
+					/* add */
 
-			// 0 => add
+					0x30099
+				}
+				0x1 => {
+					/* or */
 
-			// 1 => or
+					0x30099
+				}
+				0x2 => {
+					/* adc */
 
-			// 2 => adc
+					0x30099
+				}
+				0x3 => {
+					/* sbb */
 
-			// 3 => sbb
+					0x30099
+				}
+				0x4 => {
+					/* and */
 
-			// 4 => and
+					0x30099
+				}
+				0x5 => {
+					/* sub */
 
-			// 5 => sub
+					0x30099
+				}
+				0x6 => {
+					/* xor */
 
-			// 6 => xor
+					0x30099
+				}
+				0x7 => {
+					/* cmp */
 
-			// 7 => cmp
-			0x20318
+					0x30198
+				}
+				_ => 0,
+			}
 		}
 		0x83 => {
-			// Opcode table
+			match (try!(c.peek()) >> 3u8) & 7 { 
+				0x0 => {
+					/* add */
 
-			// 0 => add
+					0x28099
+				}
+				0x1 => {
+					/* or */
 
-			// 1 => or
+					0x28099
+				}
+				0x2 => {
+					/* adc */
 
-			// 2 => adc
+					0x28099
+				}
+				0x3 => {
+					/* sbb */
 
-			// 3 => sbb
+					0x28099
+				}
+				0x4 => {
+					/* and */
 
-			// 4 => and
+					0x28099
+				}
+				0x5 => {
+					/* sub */
 
-			// 5 => sub
+					0x28099
+				}
+				0x6 => {
+					/* xor */
 
-			// 6 => xor
+					0x28099
+				}
+				0x7 => {
+					/* cmp */
 
-			// 7 => cmp
-			0x20298
+					0x28198
+				}
+				_ => 0,
+			}
 		}
 		0x84 => {
 			/* test */
 
-			0x20600
+			0x20180
 		}
 		0x85 => {
 			/* test */
 
-			0x20618
+			0x20198
 		}
 		0x86 => {
 			/* xchg */
 
-			0x22c00
+			0x20b00
 		}
 		0x87 => {
 			/* xchg */
 
-			0x22c10
+			0x20b10
 		}
 		0x88 => {
 			/* mov */
 
-			0x20200
+			0x20080
 		}
 		0x89 => {
 			/* mov */
 
-			0x20818
+			0x20218
 		}
 		0x8a => {
 			/* mov */
 
-			0x20400
+			0x20100
 		}
 		0x8b => {
 			/* mov */
 
-			0x20a18
+			0x20298
 		}
 		0x8d => {
 			/* lea */
 
-			0x21010
+			0x20410
 		}
 		0x90 => {
 			if prefixes & 2 != 0 {
 				return Ok(/* pause */
-				          0x2412);
+				          0x912);
 			} /* nop */
-			0x2418
+			0x918
 		}
 		0x91 => {
 			/* xchg */
 
-			0x41610
+			0x40590
 		}
 		0x92 => {
 			/* xchg */
 
-			0x41610
+			0x40590
 		}
 		0x93 => {
 			/* xchg */
 
-			0x41610
+			0x40590
 		}
 		0x94 => {
 			/* xchg */
 
-			0x41610
+			0x40590
 		}
 		0x95 => {
 			/* xchg */
 
-			0x41610
+			0x40590
 		}
 		0x96 => {
 			/* xchg */
 
-			0x41610
+			0x40590
 		}
 		0x97 => {
 			/* xchg */
 
-			0x41610
+			0x40590
 		}
 		0x98 => {
 			if prefixes & 8 != 0 {
 				return Ok(/* cbw */
-				          0x42418);
+				          0x40918);
 			} /* cwde */
-			0x42410
+			0x40910
 		}
 		0x99 => {
 			if prefixes & 8 != 0 {
 				return Ok(/* cwd */
-				          0x82418);
+				          0x80918);
 			} /* cdq */
-			0x82410
+			0x80910
 		}
 		0xa0 => {
 			/* mov */
 
-			0x41800
+			0x40600
 		}
 		0xa1 => {
 			/* mov */
 
-			0x41810
+			0x40610
 		}
 		0xa2 => {
 			/* mov */
 
-			0x1800
+			0x600
 		}
 		0xa3 => {
 			/* mov */
 
-			0x1810
+			0x610
 		}
 		0xa4 => {
 			/* movs */
 
-			0x2400
+			0x900
 		}
 		0xa5 => {
 			/* movs */
 
-			0x2410
+			0x910
 		}
 		0xa8 => {
 			/* test */
 
-			0x2480
+			0x8900
 		}
 		0xa9 => {
 			/* test */
 
-			0x2518
+			0x10918
 		}
 		0xb0 => {
 			/* mov */
 
-			0x1680
+			0x8580
 		}
 		0xb1 => {
 			/* mov */
 
-			0x1680
+			0x8580
 		}
 		0xb2 => {
 			/* mov */
 
-			0x1680
+			0x8580
 		}
 		0xb3 => {
 			/* mov */
 
-			0x1680
+			0x8580
 		}
 		0xb4 => {
 			/* mov */
 
-			0x1680
+			0x8580
 		}
 		0xb5 => {
 			/* mov */
 
-			0x1680
+			0x8580
 		}
 		0xb6 => {
 			/* mov */
 
-			0x1680
+			0x8580
 		}
 		0xb7 => {
 			/* mov */
 
-			0x1680
+			0x8580
 		}
 		0xb8 => {
 			/* mov */
 
-			0x1798
+			0x18598
 		}
 		0xb9 => {
 			/* mov */
 
-			0x1798
+			0x18598
 		}
 		0xba => {
 			/* mov */
 
-			0x1798
+			0x18598
 		}
 		0xbb => {
 			/* mov */
 
-			0x1798
+			0x18598
 		}
 		0xbc => {
 			/* mov */
 
-			0x1798
+			0x18598
 		}
 		0xbd => {
 			/* mov */
 
-			0x1798
+			0x18598
 		}
 		0xbe => {
 			/* mov */
 
-			0x1798
+			0x18598
 		}
 		0xbf => {
 			/* mov */
 
-			0x1798
+			0x18598
 		}
 		0xc0 => {
 			match (try!(c.peek()) >> 3u8) & 7 { 
 				0x0 => {
 					/* rol */
 
-					0x20280
+					0x28080
 				}
 				0x1 => {
 					/* ror */
 
-					0x20280
+					0x28080
 				}
 				0x2 => {
 					/* rcl */
 
-					0x20280
+					0x28080
 				}
 				0x3 => {
 					/* rcr */
 
-					0x20280
+					0x28080
 				}
 				0x4 => {
 					/* shl */
 
-					0x20280
+					0x28080
 				}
 				0x5 => {
 					/* shr */
 
-					0x20280
+					0x28080
 				}
 				// 6 => capstone: rcr byte ptr [rdx], 0x1a
 				0x7 => {
 					/* sar */
 
-					0x20280
+					0x28080
 				}
 				_ => 0,
 			}
@@ -1482,38 +1557,38 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> {
 				0x0 => {
 					/* rol */
 
-					0x20290
+					0x28090
 				}
 				0x1 => {
 					/* ror */
 
-					0x20290
+					0x28090
 				}
 				0x2 => {
 					/* rcl */
 
-					0x20290
+					0x28090
 				}
 				0x3 => {
 					/* rcr */
 
-					0x20290
+					0x28090
 				}
 				0x4 => {
 					/* shl */
 
-					0x20290
+					0x28090
 				}
 				0x5 => {
 					/* shr */
 
-					0x20290
+					0x28090
 				}
 				// 6 => capstone: rcr dword ptr [rdx], 0x1a
 				0x7 => {
 					/* sar */
 
-					0x20290
+					0x28090
 				}
 				_ => 0,
 			}
@@ -1521,14 +1596,14 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> {
 		0xc3 => {
 			/* ret */
 
-			0x2610
+			0x990
 		}
 		0xc6 => {
 			match (try!(c.peek()) >> 3u8) & 7 { 
 				0x0 => {
 					/* mov */
 
-					0x20280
+					0x28080
 				}
 				// 1 => capstone: unknown
 				// 2 => capstone: unknown
@@ -1545,7 +1620,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> {
 				0x0 => {
 					/* mov */
 
-					0x20318
+					0x30098
 				}
 				// 1 => capstone: unknown
 				// 2 => capstone: unknown
@@ -1560,50 +1635,50 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> {
 		0xcc => {
 			/* int3 */
 
-			0x2410
+			0x910
 		}
 		0xcd => {
 			/* int */
 
-			0x2480
+			0x8900
 		}
 		0xd0 => {
 			match (try!(c.peek()) >> 3u8) & 7 { 
 				0x0 => {
 					/* rol */
 
-					0x20200
+					0x20080
 				}
 				0x1 => {
 					/* ror */
 
-					0x20200
+					0x20080
 				}
 				0x2 => {
 					/* rcl */
 
-					0x20200
+					0x20080
 				}
 				0x3 => {
 					/* rcr */
 
-					0x20200
+					0x20080
 				}
 				0x4 => {
 					/* shl */
 
-					0x20200
+					0x20080
 				}
 				0x5 => {
 					/* shr */
 
-					0x20200
+					0x20080
 				}
 				// 6 => capstone: rcr byte ptr [rdx], 1
 				0x7 => {
 					/* sar */
 
-					0x20200
+					0x20080
 				}
 				_ => 0,
 			}
@@ -1613,38 +1688,38 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> {
 				0x0 => {
 					/* rol */
 
-					0x20210
+					0x20090
 				}
 				0x1 => {
 					/* ror */
 
-					0x20210
+					0x20090
 				}
 				0x2 => {
 					/* rcl */
 
-					0x20210
+					0x20090
 				}
 				0x3 => {
 					/* rcr */
 
-					0x20210
+					0x20090
 				}
 				0x4 => {
 					/* shl */
 
-					0x20210
+					0x20090
 				}
 				0x5 => {
 					/* shr */
 
-					0x20210
+					0x20090
 				}
 				// 6 => capstone: rcr dword ptr [rdx], 1
 				0x7 => {
 					/* sar */
 
-					0x20210
+					0x20090
 				}
 				_ => 0,
 			}
@@ -1654,38 +1729,38 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> {
 				0x0 => {
 					/* rol */
 
-					0x20200
+					0x20080
 				}
 				0x1 => {
 					/* ror */
 
-					0x20200
+					0x20080
 				}
 				0x2 => {
 					/* rcl */
 
-					0x20200
+					0x20080
 				}
 				0x3 => {
 					/* rcr */
 
-					0x20200
+					0x20080
 				}
 				0x4 => {
 					/* shl */
 
-					0x20200
+					0x20080
 				}
 				0x5 => {
 					/* shr */
 
-					0x20200
+					0x20080
 				}
 				// 6 => capstone: rcr byte ptr [rdx], cl
 				0x7 => {
 					/* sar */
 
-					0x20200
+					0x20080
 				}
 				_ => 0,
 			}
@@ -1695,38 +1770,38 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> {
 				0x0 => {
 					/* rol */
 
-					0x20210
+					0x20090
 				}
 				0x1 => {
 					/* ror */
 
-					0x20210
+					0x20090
 				}
 				0x2 => {
 					/* rcl */
 
-					0x20210
+					0x20090
 				}
 				0x3 => {
 					/* rcr */
 
-					0x20210
+					0x20090
 				}
 				0x4 => {
 					/* shl */
 
-					0x20210
+					0x20090
 				}
 				0x5 => {
 					/* shr */
 
-					0x20210
+					0x20090
 				}
 				// 6 => capstone: rcr dword ptr [rdx], cl
 				0x7 => {
 					/* sar */
 
-					0x20210
+					0x20090
 				}
 				_ => 0,
 			}
@@ -1734,55 +1809,55 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> {
 		0xe8 => {
 			/* call */
 
-			0x1c10
+			0x710
 		}
 		0xe9 => {
 			/* jmp */
 
-			0x1e10
+			0x790
 		}
 		0xeb => {
 			/* jmp */
 
-			0x2010
+			0x810
 		}
 		0xf6 => {
 			match (try!(c.peek()) >> 3u8) & 7 { 
 				0x0 => {
 					/* test */
 
-					0x20680
+					0x28180
 				}
 				// 1 => capstone: neg byte ptr [rdx]
 				0x2 => {
 					/* not */
 
-					0x20201
+					0x20081
 				}
 				0x3 => {
 					/* neg */
 
-					0x20201
+					0x20081
 				}
 				0x4 => {
 					/* mul */
 
-					0x60600
+					0x60180
 				}
 				0x5 => {
 					/* imul */
 
-					0x60600
+					0x60180
 				}
 				0x6 => {
 					/* div */
 
-					0x60600
+					0x60180
 				}
 				0x7 => {
 					/* idiv */
 
-					0x60600
+					0x60180
 				}
 				_ => 0,
 			}
@@ -1792,38 +1867,38 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> {
 				0x0 => {
 					/* test */
 
-					0x20718
+					0x30198
 				}
 				// 1 => capstone: neg dword ptr [rdx]
 				0x2 => {
 					/* not */
 
-					0x20211
+					0x20091
 				}
 				0x3 => {
 					/* neg */
 
-					0x20211
+					0x20091
 				}
 				0x4 => {
 					/* mul */
 
-					0xe0610
+					0xe0190
 				}
 				0x5 => {
 					/* imul */
 
-					0xe0610
+					0xe0190
 				}
 				0x6 => {
 					/* div */
 
-					0xe0610
+					0xe0190
 				}
 				0x7 => {
 					/* idiv */
 
-					0xe0610
+					0xe0190
 				}
 				_ => 0,
 			}
@@ -1833,12 +1908,12 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> {
 				0x0 => {
 					/* inc */
 
-					0x20201
+					0x20081
 				}
 				0x1 => {
 					/* dec */
 
-					0x20201
+					0x20081
 				}
 				// 2 => capstone: unknown
 				// 3 => capstone: unknown
@@ -1854,23 +1929,23 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> {
 				0x0 => {
 					/* inc */
 
-					0x20211
+					0x20091
 				}
 				0x1 => {
 					/* dec */
 
-					0x20211
+					0x20091
 				}
 				0x2 => {
 					/* call */
 
-					0x20210
+					0x20090
 				}
 				// 3 => capstone: lcall ptr [rdx]
 				0x4 => {
 					/* jmp */
 
-					0x20210
+					0x20090
 				}
 				// 5 => capstone: lcall ptr [rdx]
 				// 6 => capstone: lcall ptr [rdx]

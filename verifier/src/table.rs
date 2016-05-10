@@ -234,19 +234,20 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 	}
 
 	for (arith_opcode, instr) in ["add", "or", "adc", "sbb", "and", "sub", "xor", "cmp"].iter().enumerate() {
-		for (format_num, format) in [[os, Rm, Reg].as_ref(), [os, Reg, Rm].as_ref(), [os, FixReg(0), Imm].as_ref()].iter().enumerate() {
+		let o = if *instr == "cmp" {
+			Read
+		} else {
+			Prefix(P_LOCK)
+		};
+
+		for (format_num, format) in [[o, os, Rm, Reg].as_ref(), [o, os, Reg, Rm].as_ref(), [o, os, FixReg(0), Imm].as_ref()].iter().enumerate() {
 			let opcode = cat_bits(&[arith_opcode, format_num, 0], &[5, 2, 1]);
 			let mut f = format.to_vec();
-			if *instr == "cmp" {
-				f.insert(0, Read);
-			} else {
-				f.push(Prefix(P_LOCK));
-			}
 			pair!([opcode], instr, f[..])
 		}
 
-		pair!([0x80], instr, [os, RmOpcode(arith_opcode), Imm]);
-		op!([0x83], instr, [os, RmOpcode(arith_opcode), ImmSize(S8), Imm]);
+		pair!([0x80], instr, [o, os, RmOpcode(arith_opcode), Imm]);
+		op!([0x83], instr, [o, os, RmOpcode(arith_opcode), ImmSize(S8), Imm]);
 	}
 
 	pair!([0xfe], "inc", [Prefix(P_LOCK), RmOpcode(0)]);

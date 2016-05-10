@@ -3,6 +3,7 @@ use std::cmp;
 use std::ptr;
 use decoder;
 use x86_opcodes;
+use std::collections::HashSet;
 
 pub static DEBUG: bool = cfg!(debug_assertions);
 
@@ -17,6 +18,10 @@ pub enum DecoderError {
 	NonSegmentedMemAccess,
 	ComplexAdressing,
 	AbsoluteAdressing,
+	StackIsNotRestored,
+	MismatchedPop,
+	TooManyPops,
+	JumpOutsideOfFunction,
 }
 
 impl From<CursorError> for DecoderError {
@@ -25,7 +30,7 @@ impl From<CursorError> for DecoderError {
     }
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Hash)]
 #[repr(packed)]
 pub struct Reg(u8);
 
@@ -39,6 +44,21 @@ pub enum Operation {
 	AndRegFromReg(Reg, Reg),
 	AndRegFromStack(Reg, i32),
 	AndStackFromReg(i32, Reg),
+}
+
+impl Operation {
+	fn clobs_reg(&self) -> Option<Reg> {
+		match *self {
+			Operation::ClobReg(r) |
+			Operation::MoveRegs(r, _) |
+			Operation::AndRegFromReg(r, _) |
+			Operation::AndRegFromStack(r, _) |
+			Operation::MoveFromStack(r, _) => Some(r),
+			Operation::ClobStack(..) |
+			Operation::MoveToStack(..) |
+			Operation::AndStackFromReg(..) => None,
+		}
+	}
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -66,7 +86,11 @@ pub struct Cursor<'s> {
 
 impl<'s> Cursor<'s> {
 	pub fn remaining(&self) -> &'s [u8] {
-		&self.data[self.offset..]
+		if self.offset > self.data.len() {
+			&[]
+		} else {
+			&self.data[self.offset..]
+		}
 	}
 
 	pub fn peek(&self) -> Result<u8, CursorError> {
@@ -86,7 +110,7 @@ impl<'s> Cursor<'s> {
 	}
 
 	pub fn skip(&mut self, bytes: usize) -> Result<(), CursorError> {
-		self.offset += 1;
+		self.offset += bytes;
 		if self.offset > self.data.len() {
 			Err(CursorError)
 		} else {
@@ -109,7 +133,23 @@ impl<'s> Cursor<'s> {
 	}
 }
 
-pub fn inst(c: &mut Cursor, ops: &mut Vec<Operation>) -> Result<(Inst, usize, usize), DecoderError> {
+pub struct FunctionState {
+	clobs: HashSet<Reg>,
+	callee_saved: Vec<Reg>,
+	stack_offset: Option<(usize, usize)>,
+	ops: Vec<Operation>,
+}
+
+impl FunctionState {
+	fn op(&mut self, op: Operation) {
+		if let Some(r) = op.clobs_reg() {
+			self.clobs.insert(r);
+		}
+		self.ops.push(op);
+	}
+}
+
+pub fn inst(c: &mut Cursor, state: &mut FunctionState) -> Result<(Inst, usize, usize), DecoderError> {
 	fn def() -> Inst {
 		Inst {
 			jmp: None,
@@ -118,7 +158,7 @@ pub fn inst(c: &mut Cursor, ops: &mut Vec<Operation>) -> Result<(Inst, usize, us
 		}
 	}
 
-	let ops_index = ops.len();
+	let ops_index = state.ops.len();
 
 	let start_offset = c.offset;
 
@@ -177,16 +217,6 @@ pub fn inst(c: &mut Cursor, ops: &mut Vec<Operation>) -> Result<(Inst, usize, us
 
 	#[cfg(debug_assertions)]
 	println!("(Imm {}, opsize = {}, operand_size_override = {})", format & 3, op_size, operand_size_override);
-
-	// Imm type - 2 bits
-	match format & 3 {
-		0 => (),
-		1 => c.skip(1)?,
-		2 => c.skip(cmp::min(op_size, 4) as usize)?,
-		3 => c.skip(cmp::min(op_size, 8) as usize)?,
-		_ => panic!(),
-	};
-	format >>= 2;
 
 	let case = format & 0x1F;
 	format >>= 5;
@@ -291,6 +321,8 @@ pub fn inst(c: &mut Cursor, ops: &mut Vec<Operation>) -> Result<(Inst, usize, us
 		Ok((rm, Reg(reg as u8)))
 	};
 
+	let reg_rex = |format| Reg(((format & 7) | (rex & 1) << 3) as u8);
+
 	let result = match case {
 		// Illegal
 		0 => Err(DecoderError::UnknownInstruction),
@@ -299,8 +331,8 @@ pub fn inst(c: &mut Cursor, ops: &mut Vec<Operation>) -> Result<(Inst, usize, us
 			let (rm, _) = modrm(c)?;
 
 			match rm {
-				Rm::Stack(s) => ops.push(Operation::ClobStack(s, op_size as u8)),
-				Rm::Reg(r) =>  ops.push(Operation::ClobReg(r)),
+				Rm::Stack(s) => state.op(Operation::ClobStack(s, op_size as u8)),
+				Rm::Reg(r) => state.op(Operation::ClobReg(r)),
 				_ => ()
 			};
 
@@ -313,7 +345,7 @@ pub fn inst(c: &mut Cursor, ops: &mut Vec<Operation>) -> Result<(Inst, usize, us
 		2 => {
 			let (rm, reg) = modrm(c)?;
 
-			ops.push(Operation::ClobReg(reg));
+			state.op(Operation::ClobReg(reg));
 
 			Ok(Inst {
 				rm: rm,
@@ -333,12 +365,12 @@ pub fn inst(c: &mut Cursor, ops: &mut Vec<Operation>) -> Result<(Inst, usize, us
 			let (rm, reg) = modrm(c)?;
 
 			match rm {
-				Rm::Stack(s) => ops.push(if op_size == 8 {
+				Rm::Stack(s) => state.op(if op_size == 8 {
 					Operation::MoveToStack(s, reg)
 				} else {
 					Operation::ClobStack(s, op_size as u8)
 				}),
-				Rm::Reg(r) => ops.push(if op_size == 8 {
+				Rm::Reg(r) => state.op(if op_size == 8 {
 					Operation::MoveRegs(reg, r)
 				} else {
 					Operation::ClobReg(r)
@@ -355,7 +387,7 @@ pub fn inst(c: &mut Cursor, ops: &mut Vec<Operation>) -> Result<(Inst, usize, us
 		5 => {
 			let (rm, reg) = modrm(c)?;
 
-			ops.push(match rm {
+			state.op(match rm {
 				Rm::Stack(s) if op_size == 8 => Operation::MoveFromStack(reg, s),
 				Rm::Reg(r) if op_size == 8 => Operation::MoveRegs(r, reg),
 				_ => Operation::ClobReg(reg),
@@ -371,12 +403,12 @@ pub fn inst(c: &mut Cursor, ops: &mut Vec<Operation>) -> Result<(Inst, usize, us
 			let (rm, reg) = modrm(c)?;
 
 			match rm {
-				Rm::Stack(s) => ops.push(if op_size == 8 {
+				Rm::Stack(s) => state.op(if op_size == 8 {
 					Operation::AndStackFromReg(s, reg)
 				} else {
 					Operation::ClobStack(s, op_size as u8)
 				}),
-				Rm::Reg(r) => ops.push(if op_size == 8 {
+				Rm::Reg(r) => state.op(if op_size == 8 {
 					Operation::AndRegFromReg(r, reg)
 				} else {
 					Operation::ClobReg(r)
@@ -393,7 +425,7 @@ pub fn inst(c: &mut Cursor, ops: &mut Vec<Operation>) -> Result<(Inst, usize, us
 		7 => {
 			let (rm, reg) = modrm(c)?;
 
-			ops.push(match rm {
+			state.op(match rm {
 				Rm::Stack(s) if op_size == 8 => Operation::AndRegFromStack(reg, s),
 				Rm::Reg(r) if op_size == 8 => Operation::AndRegFromReg(reg, r),
 				_ => Operation::ClobReg(reg),
@@ -408,7 +440,7 @@ pub fn inst(c: &mut Cursor, ops: &mut Vec<Operation>) -> Result<(Inst, usize, us
 		8 => {
 			let reg = modrm_ignore(c)?;
 
-			ops.push(Operation::ClobReg(reg));
+			state.op(Operation::ClobReg(reg));
 
 			Ok(Inst {
 				..def()
@@ -416,16 +448,58 @@ pub fn inst(c: &mut Cursor, ops: &mut Vec<Operation>) -> Result<(Inst, usize, us
 		}
 		// Push
 		9 => {
+			let reg = reg_rex(format);
+
+			match state.stack_offset {
+				None if state.clobs.contains(&reg) => state.stack_offset = Some((1, state.callee_saved.len())),
+				None => state.callee_saved.push(reg),
+				Some((offset, saved)) => state.stack_offset = Some((offset + 1, saved)),
+			}
+
 			Ok(Inst {
 				..def()
 			})
 		}
 		// Pop
 		10 => {
+			let reg = reg_rex(format);
+
+			match state.stack_offset {
+				None => if let Some(r) = state.callee_saved.pop() {
+					if reg != r {
+						return Err(DecoderError::MismatchedPop);
+					}
+					state.clobs.remove(&r);
+				} else {
+					return Err(DecoderError::TooManyPops)
+				},
+				Some((0, 0)) => return Err(DecoderError::TooManyPops),
+				Some((0, saved)) => {
+					let i = saved - 1;
+					if reg != state.callee_saved[i] {
+						return Err(DecoderError::MismatchedPop);
+					}
+					state.stack_offset = Some((0, i));
+				}
+				Some((offset, saved)) => state.stack_offset = Some((offset - 1, saved)),
+			}
+
 			Ok(Inst {
 				..def()
 			})
 		}
+		// ClobRegRex
+		11 => {
+			let reg = reg_rex(format);
+
+			state.op(Operation::ClobReg(reg));
+
+			Ok(Inst {
+				..def()
+			})
+		}
+		// CheckAddr
+		12 => panic!(),
 		// CallRm
 		13 => {
 			// TODO: CFI
@@ -478,11 +552,23 @@ pub fn inst(c: &mut Cursor, ops: &mut Vec<Operation>) -> Result<(Inst, usize, us
 				..def()
 			})
 		}
+		// None
+		18 => {
+			Ok(Inst {
+				..def()
+			})
+		}
 		// Ret
 		19 => { 
 			if segment_override {
 				Err(DecoderError::SegmentOverrideOnBranch)
 			} else {
+				match state.stack_offset {
+					None if state.callee_saved.is_empty() => (),
+					Some((0, 0)) => (),
+					_ => return Err(DecoderError::StackIsNotRestored),
+				};
+
 				Ok(Inst {
 					term: true,
 					..def()
@@ -495,11 +581,11 @@ pub fn inst(c: &mut Cursor, ops: &mut Vec<Operation>) -> Result<(Inst, usize, us
 		22 => {
 			let (rm, reg) = modrm(c)?;
 
-			ops.push(Operation::ClobReg(reg));
+			state.op(Operation::ClobReg(reg));
 
 			match rm {
-				Rm::Stack(s) => ops.push(Operation::ClobStack(s, op_size as u8)),
-				Rm::Reg(r) =>  ops.push(Operation::ClobReg(r)),
+				Rm::Stack(s) => state.op(Operation::ClobStack(s, op_size as u8)),
+				Rm::Reg(r) =>  state.op(Operation::ClobReg(r)),
 				_ => ()
 			};
 
@@ -509,10 +595,20 @@ pub fn inst(c: &mut Cursor, ops: &mut Vec<Operation>) -> Result<(Inst, usize, us
 			})
 
 		}
-		_ => Ok(Inst {
-			..def()
-		}),
+		_ => panic!(),
 	};
+
+	format >>= 3;
+
+	// Imm type - 2 bits
+	match format & 3 {
+		0 => (),
+		1 => c.skip(1)?,
+		2 => c.skip(cmp::min(op_size, 4) as usize)?,
+		3 => c.skip(cmp::min(op_size, 8) as usize)?,
+		_ => panic!(),
+	};
+	format >>= 2;
 
 	let len = c.offset - start_offset;
 
@@ -526,12 +622,16 @@ pub fn inst(c: &mut Cursor, ops: &mut Vec<Operation>) -> Result<(Inst, usize, us
 pub static mut INSTRUCTIONS: usize = 0;
 
 pub fn decode(data: &[u8], disp_off: u64) -> Result<(), DecoderError> {
-	let mut ops = Vec::new();
+
+	let mut state = FunctionState {
+		clobs: HashSet::new(),
+		callee_saved: Vec::new(),
+		stack_offset: None,
+		ops: Vec::new(),
+	};
+
 	let mut targets = Vec::new();
 	targets.push(0 as u64);
-
-	#[cfg(debug_assertions)]
-	let cp = decoder::capstone_open();
 
 	#[cfg(debug_assertions)]
 	println!("Disassembly:");
@@ -557,7 +657,7 @@ pub fn decode(data: &[u8], disp_off: u64) -> Result<(), DecoderError> {
 			let cs_data = &c.remaining()[0..cmp::min(16, c.remaining().len())];
 
 			#[cfg(debug_assertions)]
-			let (cs_desc, cs_len) = decoder::capstone_simple(cs_data, address).unwrap_or(("invalid".to_string(), 1));
+			let (cs_desc, cs_len) = decoder::capstone_simple(cs_data, address).unwrap_or(("invalid".to_string(), 0));
 			
 			#[cfg(debug_assertions)]
 			{
@@ -581,11 +681,9 @@ pub fn decode(data: &[u8], disp_off: u64) -> Result<(), DecoderError> {
 				print!("{}", str);
 
 				println!("{: <40}", cs_desc);
-
-				decoder::capstone_close(cp);
 			}
 
-			let (inst, len, ops_index) = inst(&mut c, &mut ops)?;
+			let (inst, len, ops_index) = inst(&mut c, &mut state)?;
 
 			#[cfg(debug_assertions)]
 			{
@@ -596,6 +694,11 @@ pub fn decode(data: &[u8], disp_off: u64) -> Result<(), DecoderError> {
 			}
 
 			if let Some(target) = inst.jmp {
+				// Freeze the callee-saved registers
+				if state.stack_offset.is_none() {
+					state.stack_offset = Some((0, state.callee_saved.len()))
+				}
+
 				let off = (address + len as u64).wrapping_add(target as u64);
 				#[cfg(debug_assertions)]
 				println!("Jump target {:#x}", off);
@@ -607,7 +710,9 @@ pub fn decode(data: &[u8], disp_off: u64) -> Result<(), DecoderError> {
 						targets.insert(i, real_off);
 					}
 				} else {
-					panic!("Jump outside of symbol {:#x} at {:#x}", off, address);
+					#[cfg(debug_assertions)]
+					println!("Jump outside of symbol {:#x} at {:#x}", off, address);
+					return Err(DecoderError::JumpOutsideOfFunction);
 				}
 			}
 
@@ -617,6 +722,15 @@ pub fn decode(data: &[u8], disp_off: u64) -> Result<(), DecoderError> {
 		}
 
 		i += 1;
+	}
+
+	println!("Done with function");
+
+	for reg in state.clobs {
+		if state.callee_saved.contains(&reg) {
+			continue;
+		}
+		println!("Function clobbered {:?}", reg);
 	}
 
 	Ok(())

@@ -205,12 +205,12 @@ impl InstFormat {
 		r |= self.opsize.encode() << s;
 		s += 3;
 		
-		r |= self.imm.encode() << s;
-		s += 2;
-		
 		r |= self.kind.encode() << s;
 		s += 8;
 
+		r |= self.imm.encode() << s;
+		s += 2;
+		
 		r |= bit(self.modrm) << s;
 		s += 1;
 		

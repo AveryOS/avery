@@ -6,6 +6,7 @@
 #![feature(stmt_expr_attributes)]
 #![feature(inclusive_range_syntax)]
 #![feature(question_mark)]
+#![feature(nonzero)]
 #![allow(dead_code)]
 //#![cfg_attr(test, feature(plugin, custom_attribute))]
 //#![cfg_attr(test, plugin(quickcheck_macros))]
@@ -91,7 +92,7 @@ fn main() {
 				println!("dumping symbol {} {:x} {}", name, offset, sym);
 			}
 			let data = &data[(offset as usize)..(offset as usize + sym.size as usize)];
-			x86_decoder::decode(data, disp_off + offset);
+			x86_decoder::decode(data, disp_off + offset).unwrap()
 		}
 	});
 

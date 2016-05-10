@@ -166,8 +166,9 @@ pub fn capstone_simple(data: &[u8], disp_off: u64) -> Option<(String, usize)> {
 			let mnemonic = CStr::from_ptr((*ci).mnemonic[..].as_ptr()).to_str().unwrap();
 			let ops = CStr::from_ptr((*ci).op_str[..].as_ptr()).to_str().unwrap();
 			let desc = format!("{} {}", mnemonic, ops).trim().to_string();
+			let r = Some((desc, (*ci).size as usize));
 			cs_free(ci, count);
-			Some((desc, (*ci).size as usize))
+			r
 		} else {
 			None
 		};
