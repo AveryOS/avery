@@ -1,6 +1,6 @@
-use x86_decoder::Cursor;
-pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
-	match c.next() {
+use x86_decoder::{Cursor, CursorError};
+pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> {
+	Ok(match try!(c.next()) {
 		0x0 => {
 			/* add */
 
@@ -62,7 +62,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 			0x42519
 		}
 		0xf => {
-			match c.next() {
+			match try!(c.next()) {
 				0xb => {
 					/* ud2 */
 
@@ -70,28 +70,28 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 				}
 				0x10 => {
 					if prefixes & 8 != 0 {
-						return  /* movupd */ 
-0x20448;
+						return Ok(/* movupd */
+						          0x20448);
 					}
 					if prefixes & 4 != 0 {
-						return  /* movsd */ 
-0x20434;
+						return Ok(/* movsd */
+						          0x20434);
 					} /* movups */
 					0x20440
 				}
 				0x11 => {
 					if prefixes & 8 != 0 {
-						return  /* movupd */ 
-0x20248;
+						return Ok(/* movupd */
+						          0x20248);
 					}
 					if prefixes & 4 != 0 {
-						return  /* movsd */ 
-0x20234;
+						return Ok(/* movsd */
+						          0x20234);
 					} /* movups */
 					0x20240
 				}
 				0x1f => {
-					match (c.peek() >> 3u8) & 7 { 
+					match (try!(c.peek()) >> 3u8) & 7 { 
 						0x0 => {
 							/* nop */
 
@@ -109,49 +109,49 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 				}
 				0x28 => {
 					if prefixes & 8 != 0 {
-						return  /* movapd */ 
-0x20448;
+						return Ok(/* movapd */
+						          0x20448);
 					} /* movaps */
 					0x20440
 				}
 				0x29 => {
 					if prefixes & 8 != 0 {
-						return  /* movapd */ 
-0x20248;
+						return Ok(/* movapd */
+						          0x20248);
 					} /* movaps */
 					0x20240
 				}
 				0x2a => {
 					if prefixes & 4 != 0 {
-						return  /* cvtsi2sd */ 
-0x20414;
+						return Ok(/* cvtsi2sd */
+						          0x20414);
 					}
 					if prefixes & 2 != 0 {
-						return  /* cvtsi2ss */ 
-0x20412;
+						return Ok(/* cvtsi2ss */
+						          0x20412);
 					}
 					0
 				}
 				0x2c => {
 					if prefixes & 4 != 0 {
-						return  /* cvttsd2si */ 
-0x20434;
+						return Ok(/* cvttsd2si */
+						          0x20434);
 					}
 					if prefixes & 2 != 0 {
-						return  /* cvttss2si */ 
-0x20412;
+						return Ok(/* cvttss2si */
+						          0x20412);
 					}
 					0
 				}
 				0x2e => {
 					if prefixes & 8 != 0 {
-						return  /* ucomisd */ 
-0x20638;
+						return Ok(/* ucomisd */
+						          0x20638);
 					} /* ucomiss */
 					0x20610
 				}
 				0x38 => {
-					match c.next() {
+					match try!(c.next()) {
 						0x0 => {
 							// Multiple prefixes
 							// pshufb
@@ -243,75 +243,75 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 				}
 				0x54 => {
 					if prefixes & 8 != 0 {
-						return  /* andpd */ 
-0x20448;
+						return Ok(/* andpd */
+						          0x20448);
 					} /* andps */
 					0x20440
 				}
 				0x57 => {
 					if prefixes & 8 != 0 {
-						return  /* xorpd */ 
-0x20448;
+						return Ok(/* xorpd */
+						          0x20448);
 					} /* xorps */
 					0x20440
 				}
 				0x58 => {
 					if prefixes & 8 != 0 {
-						return  /* addpd */ 
-0x20448;
+						return Ok(/* addpd */
+						          0x20448);
 					}
 					if prefixes & 4 != 0 {
-						return  /* addsd */ 
-0x20434;
+						return Ok(/* addsd */
+						          0x20434);
 					}
 					if prefixes & 2 != 0 {
-						return  /* addss */ 
-0x20412;
+						return Ok(/* addss */
+						          0x20412);
 					} /* addps */
 					0x20440
 				}
 				0x59 => {
 					if prefixes & 8 != 0 {
-						return  /* mulpd */ 
-0x20448;
+						return Ok(/* mulpd */
+						          0x20448);
 					}
 					if prefixes & 4 != 0 {
-						return  /* mulsd */ 
-0x20434;
+						return Ok(/* mulsd */
+						          0x20434);
 					}
 					if prefixes & 2 != 0 {
-						return  /* mulss */ 
-0x20412;
+						return Ok(/* mulss */
+						          0x20412);
 					} /* mulps */
 					0x20440
 				}
 				0x5c => {
 					if prefixes & 8 != 0 {
-						return  /* subpd */ 
-0x20448;
+						return Ok(/* subpd */
+						          0x20448);
 					}
 					if prefixes & 4 != 0 {
-						return  /* subsd */ 
-0x20434;
+						return Ok(/* subsd */
+						          0x20434);
 					}
 					if prefixes & 2 != 0 {
-						return  /* subss */ 
-0x20412;
+						return Ok(/* subss */
+						          0x20412);
 					} /* subps */
 					0x20440
 				}
 				0x5e => {
 					if prefixes & 8 != 0 {
-						return  /* divpd */ 
-0x20448;
+						return Ok(/* divpd */
+						          0x20448);
 					}
 					if prefixes & 4 != 0 {
-						return  /* divsd */ 
-0x20434;
+						return Ok(/* divsd */
+						          0x20434);
 					}
 					if prefixes & 2 != 0 {
-						return  /* divss */ 
-0x20412;
+						return Ok(/* divss */
+						          0x20412);
 					} /* divps */
 					0x20440
 				}
@@ -335,12 +335,12 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 				}
 				0x6f => {
 					if prefixes & 8 != 0 {
-						return  /* movdqa */ 
-0x20448;
+						return Ok(/* movdqa */
+						          0x20448);
 					}
 					if prefixes & 2 != 0 {
-						return  /* movdqu */ 
-0x20442;
+						return Ok(/* movdqu */
+						          0x20442);
 					}
 					0
 				}
@@ -352,23 +352,23 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 				}
 				0x7e => {
 					if prefixes & 8 != 0 {
-						return  /* mov */ 
-0x20218;
+						return Ok(/* mov */
+						          0x20218);
 					}
 					if prefixes & 2 != 0 {
-						return  /* movq */ 
-0x20432;
+						return Ok(/* movq */
+						          0x20432);
 					}
 					0
 				}
 				0x7f => {
 					if prefixes & 8 != 0 {
-						return  /* movdqa */ 
-0x20248;
+						return Ok(/* movdqa */
+						          0x20248);
 					}
 					if prefixes & 2 != 0 {
-						return  /* movdqu */ 
-0x20242;
+						return Ok(/* movdqu */
+						          0x20242);
 					}
 					0
 				}
@@ -543,7 +543,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 					0x20211
 				}
 				0xae => {
-					match c.next() {
+					match try!(c.next()) {
 						0xf0 => {
 							/* mfence */
 
@@ -583,7 +583,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 					0x20420
 				}
 				0xba => {
-					match (c.peek() >> 3u8) & 7 { 
+					match (try!(c.peek()) >> 3u8) & 7 { 
 						// 0 => capstone: unknown
 						// 1 => capstone: unknown
 						// 2 => capstone: unknown
@@ -766,11 +766,11 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 			0x42519
 		}
 		0x2e => {
-			match c.next() {
+			match try!(c.next()) {
 				0xf => {
-					match c.next() {
+					match try!(c.next()) {
 						0x1f => {
-							match (c.peek() >> 3u8) & 7 { 
+							match (try!(c.peek()) >> 3u8) & 7 { 
 								0x0 => {
 									/* nop */
 
@@ -938,13 +938,13 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 			0x20410
 		}
 		0x66 => {
-			match c.next() {
+			match try!(c.next()) {
 				0x2e => {
-					match c.next() {
+					match try!(c.next()) {
 						0xf => {
-							match c.next() {
+							match try!(c.next()) {
 								0x1f => {
-									match (c.peek() >> 3u8) & 7 { 
+									match (try!(c.peek()) >> 3u8) & 7 { 
 										0x0 => {
 											/* nop */
 
@@ -967,13 +967,13 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 					}
 				}
 				0x66 => {
-					match c.next() {
+					match try!(c.next()) {
 						0x2e => {
-							match c.next() {
+							match try!(c.next()) {
 								0xf => {
-									match c.next() {
+									match try!(c.next()) {
 										0x1f => {
-											match (c.peek() >> 3u8) & 7 { 
+											match (try!(c.peek()) >> 3u8) & 7 { 
 												0x0 => {
 													/* nop */
 
@@ -996,13 +996,13 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 							}
 						}
 						0x66 => {
-							match c.next() {
+							match try!(c.next()) {
 								0x2e => {
-									match c.next() {
+									match try!(c.next()) {
 										0xf => {
-											match c.next() {
+											match try!(c.next()) {
 												0x1f => {
-													match (c.peek() >> 3u8) & 7 { 
+													match (try!(c.peek()) >> 3u8) & 7 { 
 														0x0 => {
 															/* nop */
 
@@ -1025,13 +1025,13 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 									}
 								}
 								0x66 => {
-									match c.next() {
+									match try!(c.next()) {
 										0x2e => {
-											match c.next() {
+											match try!(c.next()) {
 												0xf => {
-													match c.next() {
+													match try!(c.next()) {
 														0x1f => {
-															match (c.peek() >> 3u8) & 7 { 
+															match (try!(c.peek()) >> 3u8) & 7 { 
 																0x0 => {
 																	/* nop */
 
@@ -1228,12 +1228,12 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 		0x86 => {
 			/* xchg */
 
-			0x20200
+			0x22c00
 		}
 		0x87 => {
 			/* xchg */
 
-			0x20210
+			0x22c10
 		}
 		0x88 => {
 			/* mov */
@@ -1262,57 +1262,57 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 		}
 		0x90 => {
 			if prefixes & 2 != 0 {
-				return  /* pause */ 
-0x2412;
+				return Ok(/* pause */
+				          0x2412);
 			} /* nop */
 			0x2418
 		}
 		0x91 => {
 			/* xchg */
 
-			0x42410
+			0x41610
 		}
 		0x92 => {
 			/* xchg */
 
-			0x42410
+			0x41610
 		}
 		0x93 => {
 			/* xchg */
 
-			0x42410
+			0x41610
 		}
 		0x94 => {
 			/* xchg */
 
-			0x42410
+			0x41610
 		}
 		0x95 => {
 			/* xchg */
 
-			0x42410
+			0x41610
 		}
 		0x96 => {
 			/* xchg */
 
-			0x42410
+			0x41610
 		}
 		0x97 => {
 			/* xchg */
 
-			0x42410
+			0x41610
 		}
 		0x98 => {
 			if prefixes & 8 != 0 {
-				return  /* cbw */ 
-0x42418;
+				return Ok(/* cbw */
+				          0x42418);
 			} /* cwde */
 			0x42410
 		}
 		0x99 => {
 			if prefixes & 8 != 0 {
-				return  /* cwd */ 
-0x82418;
+				return Ok(/* cwd */
+				          0x82418);
 			} /* cdq */
 			0x82410
 		}
@@ -1437,7 +1437,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 			0x1798
 		}
 		0xc0 => {
-			match (c.peek() >> 3u8) & 7 { 
+			match (try!(c.peek()) >> 3u8) & 7 { 
 				0x0 => {
 					/* rol */
 
@@ -1478,7 +1478,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 			}
 		}
 		0xc1 => {
-			match (c.peek() >> 3u8) & 7 { 
+			match (try!(c.peek()) >> 3u8) & 7 { 
 				0x0 => {
 					/* rol */
 
@@ -1524,7 +1524,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 			0x2610
 		}
 		0xc6 => {
-			match (c.peek() >> 3u8) & 7 { 
+			match (try!(c.peek()) >> 3u8) & 7 { 
 				0x0 => {
 					/* mov */
 
@@ -1541,7 +1541,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 			}
 		}
 		0xc7 => {
-			match (c.peek() >> 3u8) & 7 { 
+			match (try!(c.peek()) >> 3u8) & 7 { 
 				0x0 => {
 					/* mov */
 
@@ -1568,7 +1568,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 			0x2480
 		}
 		0xd0 => {
-			match (c.peek() >> 3u8) & 7 { 
+			match (try!(c.peek()) >> 3u8) & 7 { 
 				0x0 => {
 					/* rol */
 
@@ -1609,7 +1609,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 			}
 		}
 		0xd1 => {
-			match (c.peek() >> 3u8) & 7 { 
+			match (try!(c.peek()) >> 3u8) & 7 { 
 				0x0 => {
 					/* rol */
 
@@ -1650,7 +1650,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 			}
 		}
 		0xd2 => {
-			match (c.peek() >> 3u8) & 7 { 
+			match (try!(c.peek()) >> 3u8) & 7 { 
 				0x0 => {
 					/* rol */
 
@@ -1691,7 +1691,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 			}
 		}
 		0xd3 => {
-			match (c.peek() >> 3u8) & 7 { 
+			match (try!(c.peek()) >> 3u8) & 7 { 
 				0x0 => {
 					/* rol */
 
@@ -1747,7 +1747,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 			0x2010
 		}
 		0xf6 => {
-			match (c.peek() >> 3u8) & 7 { 
+			match (try!(c.peek()) >> 3u8) & 7 { 
 				0x0 => {
 					/* test */
 
@@ -1788,7 +1788,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 			}
 		}
 		0xf7 => {
-			match (c.peek() >> 3u8) & 7 { 
+			match (try!(c.peek()) >> 3u8) & 7 { 
 				0x0 => {
 					/* test */
 
@@ -1829,7 +1829,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 			}
 		}
 		0xfe => {
-			match (c.peek() >> 3u8) & 7 { 
+			match (try!(c.peek()) >> 3u8) & 7 { 
 				0x0 => {
 					/* inc */
 
@@ -1850,7 +1850,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 			}
 		}
 		0xff => {
-			match (c.peek() >> 3u8) & 7 { 
+			match (try!(c.peek()) >> 3u8) & 7 { 
 				0x0 => {
 					/* inc */
 
@@ -1879,5 +1879,5 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {
 			}
 		}
 		_ => 0,
-	}
+	})
 }

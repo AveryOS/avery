@@ -11,3 +11,9 @@ On the decoding DFA, can we store output words only on unique state transitions?
 Test commands:
 	cargo run --release --bin rustgen > output.txt
 	cargo run --release --bin verify -- -f ../build/user/hello > out.txt
+	./target/release/verify -f ../build/user/hello > out.txt
+
+To find a virtual register slot for a stack variable:
+	Require all stack accesses to be aligned with their access size
+	Divide the offset by 8
+	SSE can cause multiple slots to be clobbered, needs special handling

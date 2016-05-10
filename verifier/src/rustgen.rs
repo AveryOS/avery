@@ -44,6 +44,7 @@ pub enum InstKind {
 	Load, // mov Reg, Rm
 	AndRmFromReg, // and Rm, Reg
 	AndRmToReg, // and Reg, Rm
+	XchgRm,
 	Lea,
 	Push(Reg),
 	//PushRM,
@@ -99,6 +100,33 @@ fn bit(b: bool) -> u32 {
 }
 
 impl InstKind {
+	fn modrm(self) -> bool {
+		match self {
+			InstKind::WriteRm |
+			InstKind::ReadRmToReg |
+			InstKind::ReadRm |
+			InstKind::Store|
+			InstKind::Load |
+			InstKind::AndRmFromReg|
+			InstKind::AndRmToReg |
+			InstKind::CallRm |
+			InstKind::XchgRm |
+			InstKind::Lea => true,
+			InstKind::Illegal |
+			InstKind::Push(_) |
+			InstKind::Pop(_) |
+			InstKind::ClobRegRex(_) |
+			InstKind::CheckAddr |
+			InstKind::Call32 |
+			InstKind::Jmp32 |
+			InstKind::Jmp8 |
+			InstKind::Ud2 |
+			InstKind::None |
+			InstKind::Ret |
+			InstKind::Jcc8 |
+			InstKind::Jcc32 => false
+		}
+	}
 	fn encode(self) -> u32 {
 		match self {
 			InstKind::Illegal => 0,
@@ -123,6 +151,7 @@ impl InstKind {
 			InstKind::Ret => 19,
 			InstKind::Jcc8 => 20,
 			InstKind::Jcc32 => 21,
+			InstKind::XchgRm => 22,
 		}
 	}
 }
@@ -263,7 +292,7 @@ impl ByteTrie {
 			ByteTrie::Empty => panic!(),
 			ByteTrie::Decoded(ref multi) => multi.write(writer, taken),
 			ByteTrie::Map(ref map) => {
-				writer.write_all("match c.next() { ".as_bytes()).unwrap();
+				writer.write_all("match try!(c.next()) { ".as_bytes()).unwrap();
 				let mut entries = map.iter().collect::<Vec<_>>();
 				entries.sort_by_key(|e| e.0);
 				for (b, tree) in entries {
@@ -317,7 +346,7 @@ impl Multiplexer {
 					first.val(writer);
 
 				} else {
-					writer.write_all("match (c.peek() >> 3u8) & 7 { \n".as_bytes()).unwrap();
+					writer.write_all("match (try!(c.peek()) >> 3u8) & 7 { \n".as_bytes()).unwrap();
 
 					for (i, b) in entries.into_iter().enumerate() {
 						match b {
@@ -369,9 +398,9 @@ impl Multiplexer {
 									}
 								}
 
-								write!(writer, "if prefixes & {} != 0 {{ return ", bit).unwrap();
+								write!(writer, "if prefixes & {} != 0 {{ return Ok(", bit).unwrap();
 								inst.write(writer);
-								writer.write_all("}".as_bytes()).unwrap();
+								writer.write_all(")}".as_bytes()).unwrap();
 							}
 						}
 						if let Some(i) = map.get(&[][..]) {
@@ -528,6 +557,7 @@ fn main() {
 				[(Operand::Rm(..), _, Access::Write)] => InstKind::WriteRm,
 				[(Operand::Rm(..), _, Access::Read), (Operand::Reg(..), _, Access::Read)] => InstKind::ReadRm,
 				[(Operand::Reg(..), _, Access::Read), (Operand::Rm(..), _, Access::Read)] => InstKind::ReadRm,
+				[(Operand::Rm(..), _, Access::Write), (Operand::Reg(..), _, Access::Write)] => InstKind::XchgRm,
 				[(Operand::Rm(..), _, Access::Write), (Operand::Reg(..), _, Access::Read)] => {
 					if is_and {
 						InstKind::AndRmFromReg
@@ -545,6 +575,8 @@ fn main() {
 				_ => panic!("Unmatched operands {:?} for inst {:?}", ops, op),
 			}
 		};
+
+		assert!(modrm == kind.modrm());
 
 		let f = InstFormat {
 			kind: kind,
@@ -662,9 +694,9 @@ fn main() {
 
 	let mut output = File::create(&Path::new("src/x86_opcodes.rs")).unwrap();
 
-	output.write_all("use x86_decoder::Cursor;pub fn decode(c: &mut Cursor, prefixes: u32) -> u32 {".as_bytes()).unwrap();
+	output.write_all("use x86_decoder::{Cursor, CursorError};pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> { Ok(".as_bytes()).unwrap();
 	tree.write(&mut output, Vec::new());
-	output.write_all("}".as_bytes()).unwrap();
+	output.write_all(")}".as_bytes()).unwrap();
 
 	Command::new("rustfmt").arg("src/x86_opcodes.rs").output().unwrap();
 

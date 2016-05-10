@@ -53,7 +53,6 @@ enum OpOption {
 	SSE,
 	SSEOff,
 	Read,
-	ReadWrite,
 	Write,
 	Implicit(usize, Access),
 	FixImm(i64),
@@ -126,9 +125,6 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 				}
 				Read => {
 					access = Access::Read;
-				}
-				ReadWrite => {
-					access = Access::ReadWrite;
 				}
 				Write => {
 					access = Access::Write;
@@ -314,7 +310,7 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 		op!([0x58 + reg], "pop", [OpSize(S64), FixRegRex(reg as usize)]);
 	}
 
-	pair!([0x86], "xchg", [Rm, Reg]);
+	pair!([0x86], "xchg", [Rm, Write, Reg]);
 
 	pair!([0x88], "mov", [os, Rm, Reg]);
 	pair!([0x8a], "mov", [os, Reg, Rm]);
@@ -347,7 +343,7 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 		if reg == 0 {
 			op!([0x90], "nop", nop_prefixes[..]) // Check which prefixes are useful here
 		} else {
-			op!([0x90 + reg as u8], "xchg", [FixReg(0), FixRegRex(reg)])
+			op!([0x90 + reg as u8], "xchg", [FixReg(0), Write, FixRegRex(reg)])
 		}
 	}
 
@@ -436,8 +432,8 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 	op!([0x66, 0x0f, 0x6e], "mov", [OpSizePostfix, SSE, Reg, OpSize(SRexSize), SSEOff, Rm]);
 	op!([0x66, 0x0f, 0x7e], "mov", [OpSizePostfix, OpSize(SRexSize), Rm, SSE, Reg, OpSize(SRexSize)]);
 
-	op!([0x666, 0x0f, 0x38, 00], "pshufb", [SSE, Reg, Rm]);
-	op!([0x666, 0x0f, 0x70], "pshufd", [SSE, Reg, Rm, ImmSize(S8), Imm]);
+	op!([0x66, 0x0f, 0x38, 00], "pshufb", [SSE, Reg, Rm]);
+	op!([0x66, 0x0f, 0x70], "pshufd", [SSE, Reg, Rm, ImmSize(S8), Imm]);
 
 	op!([0x66, 0x0f, 0x6c], "punpcklqdq", [SSE, Reg, Rm]);
 	op!([0x66, 0x0f, 0x6d], "punpckhqdq", [SSE, Reg, Rm]);

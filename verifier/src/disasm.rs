@@ -426,7 +426,7 @@ pub fn gen_all(inst: &Inst, cases: &mut Vec<(Vec<u8>, Vec<Effect>, InstFormat)>)
 
 					for access in &inst.accesses {
 						match *access {
-							(reg, Access::ReadWrite) | (reg, Access::Write) => effects.push(Effect::ClobReg(reg)),
+							(reg, Access::Write) => effects.push(Effect::ClobReg(reg)),
 							_ => {},
 						}
 					}

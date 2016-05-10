@@ -21,7 +21,6 @@ pub enum Regs {
 pub enum Access {
 	Read,
 	Write,
-	ReadWrite,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
