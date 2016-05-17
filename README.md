@@ -1,6 +1,8 @@
-Avery kernel
+Avery operating system
 ================
 [![Build Status](https://travis-ci.org/AveryOS/avery.svg?branch=master)](https://travis-ci.org/AveryOS/avery)
+
+Avery is an operating system written in Rust designed around fast remote procedure calls and capability-based security. To achieve fast remote procedure calls on x86 it uses software isolated processes in a single address space. The isolation is done using an LLVM IR pass which transforms the IR into a form where it is trivial to prove isolation. This means that you currently need a LLVM based compiler (like clang or rustc) to compile code for this OS. The kernel has a unrelated verifier which ensures that any loaded code must be isolating, which means that the compiler stack does not need to be trusted.
 
 # Dependencies
   * git

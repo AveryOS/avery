@@ -21,3 +21,28 @@ Capstone header generation:
 	bindgen.exe capstone/install/include/capstone/capstone.h -builtins -o capstone/capstone.rs
 
 To remove debug information from llvm-ir: opt -strip-debug
+
+Use CFI to verify that a stack probe is to the data stack guard page
+	Require that the probe is at a fixed offset into the function.
+	How can we ensure that the probe isn't due to some other code at the same offset?
+		Check that the prologue matches data stack allocation and probing
+		Ensure that R12 is inbounds in the passed argument?
+			Can anything bad happen if R12 wasn't a stack?
+
+Have every other page be mapped in for some area of the heap
+	Allocate stacks next to the unmapped page, use the rest for the regular heap.
+
+Use a singly-linked list to implement llvm.stacksave / llvm.stackrestore / dynamic allocation
+	Store the tail and the first element of the list
+		When allocating, point the tail to the new element then replace the tail with the new element
+			Update first if needed
+
+		When returning, free all elements of the list
+
+		llvm.stacksave saves the tail pointer,
+		llvm.stackrestore sets the tail pointer and the first if needed
+			It frees all elements after the restored tail pointer.
+
+Use IA-64 exceptions
+	They don't require a funclet which accesses another function's stack frame.
+	Kernel transitions are cheap anyway

@@ -52,23 +52,30 @@ task :rebase => :upstreams do
 	if $? != 0
 		loop do
 			action = loop do
-				puts "Continue (c) or abort (a)?"
+				puts "Continue (c), skip (s) or abort (a)?"
 				case STDIN.gets.strip
+					when "s"
+							break :skip
 					when "c"
-							break true
+							break :continue
 					when "a"
-							break false
+							break :abort
 				end
 			end
 
-			if action
-				puts "Continuing.."
-				run_stay *%w{git rebase --continue}
-				break if $? == 0
-			else
-				puts "Aborting.."
-				run_stay *%w{git rebase --abort}
-				raise "Rebase aborted"
+			case action
+				when :continue
+					puts "Continuing.."
+					run_stay *%w{git rebase --continue}
+					break if $? == 0
+				when :skip
+					puts "Skipping.."
+					run_stay *%w{git rebase --skip}
+					break if $? == 0
+				when :abort
+					puts "Aborting.."
+					run_stay *%w{git rebase --abort}
+					raise "Rebase aborted"
 			end
 		end
 	end
