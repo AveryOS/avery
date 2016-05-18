@@ -7,5 +7,4 @@ path = "lib.rs"
 crate-type = ["rlib"]
 
 [dependencies]
-#std = { path = "../rust/src/src/libstd" }
-std = { path = "std" }
+std = { path = "../rust/src/src/libstd", features = [] }
