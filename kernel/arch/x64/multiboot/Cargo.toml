@@ -7,6 +7,6 @@ path = "bootstrap.rs"
 crate-type = ["staticlib"]
 
 [dependencies]
-clippy = { git = "https://github.com/Manishearth/rust-clippy.git", rev = "dc75836fe1977a024834b1c9a5ac28eb25f47863" }
+clippy = { git = "https://github.com/Manishearth/rust-clippy.git", rev = "973ae82d72368401c237b0e8f62012c8ac28df70" }
 rlibc = "0.1.5"
 assembly = { path = "../../../../vendor/asm" }

@@ -147,7 +147,7 @@ ENV['AVERY_BUILD'] = 'RELEASE' unless ENV['AVERY_BUILD']
 RELEASE_BUILD = ENV['AVERY_BUILD'] == 'RELEASE' ? true : false
 CARGO_BUILD = RELEASE_BUILD ? 'release' : 'debug'
 
-RUSTFLAGS = ['--sysroot', hostpath('build/sysroot')] + %w{-Z force-overflow-checks=on -C llvm-args=-inline-threshold=0 -g -Z no-landing-pads -C target-feature=-mmx,-sse,-sse2}
+RUSTFLAGS = ['--sysroot', hostpath('build/sysroot')] + %w{-Z force-overflow-checks=on -C panic=abort -C llvm-args=-inline-threshold=0 -C debuginfo=1 -C target-feature=-mmx,-sse,-sse2}
 
 # Workaround bug with LLVM linking
 ENV['RUSTFLAGS_HOST'] = "-L #{hostpath("vendor/llvm/install/#{ON_WINDOWS ? "bin" : "lib"}")}"
@@ -158,8 +158,9 @@ def cargo(path, target, cargoflags = [], flags = [], rustflags = nil)
 	if target == 'x86_64-pc-avery'
 		ENV['RUSTFLAGS'] = (rustflags || []).join(" ")
 	else
-		ENV['RUSTFLAGS'] = (rustflags || RUSTFLAGS).join(" ") # Cargo uses this. How to pass spaces here?
+		ENV['RUSTFLAGS'] = (rustflags || RUSTFLAGS).join(" ")
 	end
+	puts "RUSTFLAGS = #{ENV['RUSTFLAGS']}"
 	run 'cargo', 'rustc', *(RELEASE_BUILD ? ['--release'] : []), '--manifest-path', File.join(path, 'Cargo.toml'), *cargoflags, '--', *flags
 end
 
@@ -240,7 +241,7 @@ build_kernel = proc do |skip = false|
 end
 
 task :std do
-	rebuild("build/meta/os-rust-sysroot", ["rust"]) do
+	rebuild("build/meta/user-sysroot", ["rust"]) do
 		run "rm", "-rf", "build/cargo/avery-sysroot-target"
 		ENV['CC_x86_64-pc-avery'] = 'clang --target=x86_64-pc-avery'
 		ENV['CXX_x86_64-pc-avery'] = 'clang++ --target=x86_64-pc-avery'
@@ -261,7 +262,7 @@ task :std do
 end
 
 task :deps => [:user, :deps_other] do
-	rebuild("build/sysroot/version", ["rust"], CARGO_BUILD) do
+	rebuild("build/meta/kernel-sysroots", ["rust"], CARGO_BUILD) do
 		run "rm", "-rf", "build/cargo/sysroot-target"
 		new_env('CARGO_TARGET_DIR', 'build/cargo/sysroot-target') do
 			run "rm", "-rf", "build/sysroot"

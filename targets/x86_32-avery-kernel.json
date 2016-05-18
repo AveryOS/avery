@@ -1,5 +1,5 @@
 {
-	"data-layout": "e-p:32:32-f64:32:64-f80:32-n8:16:32",
+	"data-layout": "e-m:e-p:32:32-f64:32:64-f80:32-n8:16:32-S128",
 	"llvm-target": "i386-unknown-unknown-elf",
 	"target-endian": "little",
 	"target-word-size": "32",

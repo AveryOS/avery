@@ -1,3 +1,4 @@
+Cargo.lock
 /emu
 /emu/grubimage.img
 /build
@@ -21,6 +22,7 @@
 /vendor/automake
 /vendor/llvm/meta
 /vendor/llvm/build
+/vendor/llvm/src-build
 /vendor/llvm/install
 /vendor/binutils/meta
 /vendor/binutils/build
