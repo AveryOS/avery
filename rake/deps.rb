@@ -437,7 +437,7 @@ task :dep_compiler_rt => [:dep_llvm, :dep_binutils, :dep_elf_binutils] do
 				"-DCOMPILER_RT_BUILD_SANITIZERS=Off",
 				"-DCOMPILER_RT_DEFAULT_TARGET_TRIPLE=#{target}"]
 			opts += ['-G',  'MSYS Makefiles'] if ON_WINDOWS_MINGW
-			run "cmake", src, *opts
+			run "cmake", src, '--debug-trycompile', *opts
 		end
 	end
 
