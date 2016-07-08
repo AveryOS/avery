@@ -18,7 +18,7 @@ Avery is an operating system written in Rust designed around fast remote procedu
   * automake
   * python
   * gcc
-  * cmake
+  * cmake 3.6
   * rake
   * ninja (optional)
   * qemu (optional)
@@ -31,7 +31,7 @@ Avery is an operating system written in Rust designed around fast remote procedu
 ## Installing dependencies on OS X  
   * Install command line tools, `xcode-select --install`
   * Using [Homebrew](http://brew.sh/)
-    * `brew install git openssl cmake ninja qemu`
+    * `brew install git openssl cmake ninja qemu autoconf`
 
 # Building
 

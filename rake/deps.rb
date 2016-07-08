@@ -350,7 +350,7 @@ task :deps_msys do
 end
 
 task :dep_cmake do
-	build_from_url.("https://cmake.org/files/v3.5/", "vendor/cmake", "3.5.0", {ext: "gz"}) do |src, prefix|
+	build_from_url.("https://cmake.org/files/v3.5/", "vendor/cmake", "3.6.0", {ext: "gz"}) do |src, prefix|
 		run File.join(src, 'configure'), "--prefix=#{prefix}"
 	end unless `cmake --version`.include?('3')
 end
@@ -416,24 +416,25 @@ task :dep_binutils do
 end
 
 task :dep_compiler_rt => [:dep_llvm, :dep_binutils, :dep_elf_binutils] do
-	build_rt = proc do |target, s, binutils, flags|
+	build_rt = proc do |target, s, flags|
 		build_submodule.("vendor/compiler-rt", {build: target}) do |src, prefix|
-			opts = ["-DLLVM_CONFIG_PATH=#{File.join(src, "../../llvm/install/bin/llvm-config")}",
+			opts = ["-DLLVM_CONFIG_PATH=#{hostpath(path("vendor/llvm/install/bin/llvm-config"))}",
 				"-DFREESTANDING=On",
 				"-DCMAKE_SYSTEM_NAME=Generic",
-				"-DCMAKE_SIZEOF_VOID_P=#{s}",
-				"-DCMAKE_SYSROOT=#{hostpath("fake-sysroot")}",
+				#"-DCMAKE_SIZEOF_VOID_P=#{s}",
+				"-DCMAKE_SYSROOT=#{hostpath(path("vendor/fake-sysroot"))}",
 				"-DCMAKE_ASM_COMPILER=clang",
-				"-DCMAKE_ASM_FLAGS=--target=#{target} -B #{hostpath("../../#{binutils}")}",
+				"-DCMAKE_ASM_FLAGS=--target=#{target}",
 				"-DCMAKE_AR=#{which "x86_64-elf-ar"}",
+				"-DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY",
 				"-DCMAKE_C_COMPILER=clang",
 				"-DCMAKE_CXX_COMPILER=clang++",
 				"-DCMAKE_C_COMPILER_TARGET=#{target}",
 				"-DCMAKE_CXX_COMPILER_TARGET=#{target}",
 				"-DCMAKE_STAGING_PREFIX=#{prefix}",
 				"-DCMAKE_INSTALL_PREFIX=#{prefix}",
-				"-DCMAKE_C_FLAGS=-ffreestanding -O2 -nostdlib #{flags} -B #{hostpath("../../#{binutils}/ld#{EXE_POST}")}",
-				"-DCMAKE_CXX_FLAGS=-ffreestanding -O2 -nostdlib #{flags} -B #{hostpath("../../#{binutils}/ld#{EXE_POST}")}",
+				"-DCMAKE_C_FLAGS=-ffreestanding -O2 -nostdlib #{flags}",
+				"-DCMAKE_CXX_FLAGS=-ffreestanding -O2 -nostdlib #{flags}",
 				"-DCOMPILER_RT_BUILD_SANITIZERS=Off",
 				"-DCOMPILER_RT_DEFAULT_TARGET_TRIPLE=#{target}"]
 			opts += ['-G',  'MSYS Makefiles'] if ON_WINDOWS_MINGW
@@ -441,9 +442,9 @@ task :dep_compiler_rt => [:dep_llvm, :dep_binutils, :dep_elf_binutils] do
 		end
 	end
 
-	build_rt.("x86_64-pc-avery", 8, "binutils/install/x86_64-pc-avery/bin", "-fPIC")
-	build_rt.("x86_64-unknown-unknown-elf", 8, "elf-binutils/install/x86_64-elf/bin", "") # Builds i386 too
-	#build_rt.("i386-unknown-unknown-elf", 4, "elf-binutils/install/x86_64-elf/bin", "-m32")
+	build_rt.("x86_64-pc-avery", 8, "-fPIC")
+	build_rt.("x86_64-unknown-unknown-elf", 8, "") # Builds i386 too
+	#build_rt.("i386-unknown-unknown-elf", 4, "-m32")
 end
 
 task :dep_newlib => [:dep_llvm, :dep_automake, :dep_autoconf, :dep_binutils] do
