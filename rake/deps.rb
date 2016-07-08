@@ -192,7 +192,7 @@ build_unix_pkg = proc do |src, rev, opts, config, &gen_src|
 			if opts[:cargo]
 				run "cargo", "install", "--path=#{File.join("..", src)}", "--root=#{File.join("..", 'install')}"
 			else
-				if opts[:ninja] && NINJA
+				if opts[:ninja] && ninja
 					p = ENV['TRAVIS'] ? ['-j1'] : []
 					run "ninja", *p
 					run "ninja", "install", *p
@@ -379,7 +379,7 @@ task :dep_llvm => :dep_cmake do
 		#-DLLVM_ENABLE_ASSERTIONS=On  crashes on GCC 5.x + Release on Windows
 		#-DCMAKE_BUILD_TYPE=RelWithDebInfo
 		opts = %W{-DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_EXTERNAL_CLANG_SOURCE_DIR=#{hostpath(File.join(src, '../clang'))} -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=On -DCMAKE_INSTALL_PREFIX=#{hostpath(prefix)}}
-		opts += ['-G',  'Ninja', '-DLLVM_PARALLEL_LINK_JOBS=1'] if NINJA
+		opts += ['-G',  'Ninja', '-DLLVM_PARALLEL_LINK_JOBS=1'] if ninja
 		opts += %w{-DCMAKE_CXX_COMPILER=g++ -DCMAKE_C_COMPILER=gcc} if ON_WINDOWS_MINGW
 		run "cmake", src, *opts
 	end

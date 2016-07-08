@@ -86,8 +86,6 @@ ENV['CARGO_TARGET_DIR'] = File.expand_path('../build/cargo/target', __FILE__)
 ENV['RUST_TARGET_PATH'] = File.expand_path('../targets', __FILE__)
 UNIX_EMU = [false]
 
-NINJA = which('ninja')
-
 def mkdirs(target)
 	FileUtils.makedirs(target)
 end
@@ -118,7 +116,12 @@ ON_WINDOWS = Gem.win_platform? || ENV['MSYSTEM']
 ON_WINDOWS_MINGW = ENV['MSYSTEM'] && ENV['MSYSTEM'].start_with?('MINGW')
 
 raise "Cannot build non-UNIX dependencies with MSYS2 shell, use the MinGW shell and run `rake`" if ON_WINDOWS && !ON_WINDOWS_MINGW
-raise "Ninja is required on Windows" if ON_WINDOWS_MINGW && !NINJA
+
+def ninja
+	ninja = which('ninja')
+	raise "Ninja is required on Windows" if ON_WINDOWS_MINGW && !ninja
+	ninja
+end
 
 EXE_POST = ON_WINDOWS ? ".exe" :	""
 
