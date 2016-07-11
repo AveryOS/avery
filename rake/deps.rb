@@ -22,7 +22,7 @@ task :upstreams do
 			elsif git_remote != url
 				raise "Git remote mismatch for #{path}. Local is #{git_remote}. Required is #{url}"
 			end
-		end
+		end if File.exists?(File.join(path, '.git'))
 	end
 end
 
@@ -52,7 +52,7 @@ task :rebase => :upstreams do
 	if $? != 0
 		loop do
 			action = loop do
-				puts "Continue (c), skip (s) or abort (a)?"
+				puts "Continue (c), skip (s), abort (a)? or do nothing (n)?"
 				case STDIN.gets.strip
 					when "s"
 							break :skip
@@ -60,6 +60,8 @@ task :rebase => :upstreams do
 							break :continue
 					when "a"
 							break :abort
+					when "n"
+							break :nothing
 				end
 			end
 
@@ -76,6 +78,8 @@ task :rebase => :upstreams do
 					puts "Aborting.."
 					run_stay *%w{git rebase --abort}
 					raise "Rebase aborted"
+				when :nothing
+					puts "Doing nothing.."
 			end
 		end
 	end
@@ -376,11 +380,14 @@ end
 
 task :dep_llvm => :dep_cmake do
 	build_submodule.("vendor/llvm", {ninja: true, noclean: true, submodules: ["clang"]}) do |src, prefix|
-		#-DLLVM_ENABLE_ASSERTIONS=On  crashes on GCC 5.x + Release on Windows
-		#-DCMAKE_BUILD_TYPE=RelWithDebInfo
-		opts = %W{-DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_EXTERNAL_CLANG_SOURCE_DIR=#{hostpath(File.join(src, '../clang'))} -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=On -DCMAKE_INSTALL_PREFIX=#{hostpath(prefix)}}
+		opts = %W{-DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_EXTERNAL_CLANG_SOURCE_DIR=#{hostpath(File.join(src, '../clang'))} -DBUILD_SHARED_LIBS=On -DCMAKE_INSTALL_PREFIX=#{hostpath(prefix)}}
 		opts += ['-G',  'Ninja', '-DLLVM_PARALLEL_LINK_JOBS=1'] if ninja
-		opts += %w{-DCMAKE_CXX_COMPILER=g++ -DCMAKE_C_COMPILER=gcc} if ON_WINDOWS_MINGW
+		#-DLLVM_ENABLE_ASSERTIONS=On  crashes on GCC 5.x + Release on Windows
+		if ON_WINDOWS_MINGW
+			opts += %w{-DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++ -DCMAKE_C_COMPILER=gcc}
+		else
+			opts += %w{-DCMAKE_BUILD_TYPE=RelWithDebInfo -DLLVM_ENABLE_ASSERTIONS=On}
+		end
 		run "cmake", src, *opts
 	end
 end

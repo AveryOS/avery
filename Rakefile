@@ -5,6 +5,8 @@ require_relative 'rake/lokar'
 
 START_TIME = Time.new
 
+MACOS = /darwin/ =~ RUBY_PLATFORM
+
 CURRENT_DIR = Rake.original_dir
 AVERY_DIR = File.expand_path('../', __FILE__)
 Dir.chdir(AVERY_DIR)
@@ -150,7 +152,7 @@ ENV['AVERY_BUILD'] = 'RELEASE' unless ENV['AVERY_BUILD']
 RELEASE_BUILD = ENV['AVERY_BUILD'] == 'RELEASE' ? true : false
 CARGO_BUILD = RELEASE_BUILD ? 'release' : 'debug'
 
-RUSTFLAGS = ['--sysroot', hostpath('build/sysroot')] + %w{-Z force-overflow-checks=on -C panic=abort -C llvm-args=-inline-threshold=0 -C debuginfo=1 -C target-feature=-mmx,-sse,-sse2}
+RUSTFLAGS = ['--sysroot', hostpath('build/sysroot')] + %w{-Z force-overflow-checks=on -Z orbit -C panic=abort -C llvm-args=-inline-threshold=0 -C debuginfo=1 -C target-feature=-mmx,-sse,-sse2}
 
 # Workaround bug with LLVM linking
 ENV['RUSTFLAGS_HOST'] = "-L #{hostpath("vendor/llvm/install/#{ON_WINDOWS ? "bin" : "lib"}")}"
@@ -254,7 +256,7 @@ task :std do
 		new_env('CARGO_TARGET_DIR', 'build/cargo/avery-sysroot-target') do
 			sysroot = "build/cargo/avery-sysroot-target/x86_64-pc-avery/debug/deps"
 
-			ENV['RUSTFLAGS'] = '-C llvm-args=-inline-threshold=0 --sysroot vendor/fake-sysroot -Z force-overflow-checks=on -C opt-level=2'
+			ENV['RUSTFLAGS'] = '-C llvm-args=-inline-threshold=0 -Z orbit --sysroot vendor/fake-sysroot -Z force-overflow-checks=on -C opt-level=2'
 			run *%w{cargo build -j 1 --target x86_64-pc-avery --manifest-path vendor/cargo-sysroot/Cargo.toml --verbose}
 			dir = "vendor/rust/install/lib/rustlib/x86_64-pc-avery/lib"
 			FileUtils.rm_rf([dir])
