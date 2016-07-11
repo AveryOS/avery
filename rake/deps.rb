@@ -104,33 +104,57 @@ end
 
 build_type = :build
 
-def rebuild(rev_file, depends = [], version = "")
-	built_rev = File.read(rev_file).strip if File.exist?(rev_file)
+def rebuild_check(pkg, depends = [], version = "")
+	pkg_rev_file = proc { |n| pkg_path(n, 'meta', 'revision') }
+	pkg_rev = proc do |n|
+		f = pkg_rev_file.(n)
+		File.read(f).strip.lines if File.exist?(f)
+	end
+	built_rev = pkg_rev.(pkg)
 	digest = Digest::SHA2.new(256)
 	digest << version
 	depends.each do |d|
-		digest << File.read("vendor/#{d}/meta/revision").strip
+		d_rev = pkg_rev.(d)
+		unless d_rev
+			raise "Missing dependency #{d} while building package #{pkg}"
+		end
+		digest << d_rev.first.strip
 	end
 	rev = digest.hexdigest
-	if built_rev != rev
-			FileUtils.rm_rf([rev_file])
-			r = yield
-			mkdirs(File.dirname(rev_file))
-			open(rev_file, 'w') { |f| f.puts rev }
-			r
+	rev_file = pkg_rev_file.(pkg)
+	FileUtils.rm_rf([rev_file])
+
+	outdated = if !built_rev || (built_rev.first.strip != rev)
+		last_ver = built_rev ? built_rev.last.strip : nil
+		puts "Outdated package #{pkg}, old version #{last_ver || "unknown"}, new version #{version}"
+		true
+	else
+		false
+	end
+
+	r = yield(outdated, last_ver)
+
+	mkdirs(File.dirname(rev_file))
+	open(rev_file, 'w') { |f| f.puts rev, version }
+
+	r
+end
+
+def rebuild(pkg, depends = [], version = "")
+	rebuild_check(pkg, depends, version) do |outdated|
+		yield if outdated
 	end
 end
 
 # Build a unix like package at src
-build_unix_pkg = proc do |src, rev, opts, config, &gen_src|
-	vendor = Pathname.new(File.join(AVERY_DIR, 'vendor'))
-	pathname = Pathname.new(File.expand_path('.')).relative_path_from(vendor).to_s
-	cache = File.expand_path(File.join(src, "../../cache", pathname))
+build_unix_pkg = proc do |src, pkg, outdated, last_ver, version, opts, config, &gen_src|
+	src = File.expand_path(src)
+
+	prefix = pkg_path(pkg, "install")
 
 	clean = proc do
-		FileUtils.rm_rf(["meta", "build", "install"])
-		FileUtils.rm_rf([cache]) if ENV['TRAVIS']
-		FileUtils.rm_rf(["#{src}/target"]) if opts[:cargo]
+		FileUtils.rm_rf([pkg_path(pkg, "meta", 'configured'), pkg_path(pkg, "meta", 'built'), pkg_path(pkg, "build"), prefix])
+		FileUtils.rm_rf([File.join(src, 'target')]) if opts[:cargo]
 	end
 
 	if build_type == :clean
@@ -139,62 +163,45 @@ build_unix_pkg = proc do |src, rev, opts, config, &gen_src|
 
 	next if build_type != :build
 
-	test_prefix = ENV['TRAVIS'] ? "#{cache}/" : ""
-	test_revision = "#{test_prefix}meta/revision"
-
-	built_rev = File.read(test_revision).strip if File.exists?(test_revision)
-	if built_rev && built_rev != rev
-			puts "Cleaning #{pathname} #{"(version #{built_rev})" if built_rev}... new version #{rev}"
-			FileUtils.rm_rf([test_revision])
+	if outdated
+			puts "Cleaning #{pkg} #{"(old version #{last_ver})" if last_ver}... new version #{version}"
 			if opts[:noclean] && !ENV['TRAVIS']
-				FileUtils.rm_rf(["meta/built"])
+				FileUtils.rm_rf([pkg_path(pkg, "meta", 'built')])
 			else
 				clean.()
 			end
 	end
 
-	if ENV['TRAVIS'] && File.exists?(test_revision)
-		if pathname == 'llvm'
-			# clang is hardcoded to use relative paths; symlinks won't work
-			run 'cp', '-r', "#{cache}/install", File.expand_path('.')
-		else
-			run 'ln', '-s', "#{cache}/install", File.expand_path('install')
-		end
-		run 'ln', '-s', "#{cache}/meta", File.expand_path('meta')
-		next
-	end
-
 	old_env = ENV.to_hash
 	ENV.replace(CLEANENV.merge(opts[:env] || {}))
 
-	mkdirs("install")
-	prefix = File.realpath("install");
+	mkdirs(prefix)
 
-	build_dir = opts[:intree] ? src : "build"
+	build_dir = opts[:intree] ? src : pkg_path(pkg, "build")
 
-	mkdirs("meta")
+	mkdirs(pkg_path(pkg, "meta"))
 
-	unless File.exists?("meta/configured")
-		puts "Configuring #{pathname} (version #{rev})..."
+	unless File.exists?(pkg_path(pkg, "meta", 'configured'))
+		puts "Configuring #{pkg} (version #{version})..."
 		gen_src.call() if gen_src
 		mkdirs(build_dir)
 		Dir.chdir(build_dir) do
 			old_unix = UNIX_EMU[0]
 			UNIX_EMU[0] = opts[:unix]
-			config.call(File.join("..", src), prefix)
+			config.call(src, prefix)
 			UNIX_EMU[0] = old_unix
 		end if config
-		run 'touch', "meta/configured"
+		run 'touch', pkg_path(pkg, "meta", 'configured')
 	end
 
-	unless File.exists?("meta/built")
-		puts "Building #{pathname} (version #{rev})..."
+	unless File.exists?(pkg_path(pkg, "meta", 'built'))
+		puts "Building #{pkg} (version #{version})..."
 		mkdirs(build_dir)
 		bin_path = "install"
 
 		Dir.chdir(build_dir) do
 			if opts[:cargo]
-				run "cargo", "install", "--path=#{File.join("..", src)}", "--root=#{File.join("..", 'install')}"
+				run "cargo", "install", "--path=#{src}", "--root=#{prefix}"
 			else
 				if opts[:ninja] && ninja
 					p = ENV['TRAVIS'] ? ['-j1'] : []
@@ -215,49 +222,42 @@ build_unix_pkg = proc do |src, rev, opts, config, &gen_src|
 			end
 		end
 
-		run 'touch', "meta/built"
-
-	end
-
-	open("meta/revision", 'w') { |f| f.puts rev }
-
-	if ENV['TRAVIS']
-		mkdirs(cache)
-		run 'cp', '-r', 'install', cache
-		run 'cp', '-r', 'meta', cache
+		run 'touch', pkg_path(pkg, "meta", 'built')
 	end
 
 	ENV.replace(old_env)
 end
 
 # Build a unix like package from url
-build_from_url = proc do |url, name, ver, opts = {}, &proc|
+build_from_url = proc do |url, name, ver, opts = {}, depends = [], &proc|
 	src = "#{File.basename(name)}-#{ver}"
 	ext = opts[:ext] || "bz2"
-	path = opts[:path] || name
-
+	pkg = opts[:pkg] || name
+	path = pkg_path(pkg, 'download')
 	mkdirs(path)
 	Dir.chdir(path) do
 		if build_type == :clean
-			FileUtils.rm_rf(src)
+		#	FileUtils.rm_rf(src)
 		end
-		build_unix_pkg.(src, src, opts, proc) do
-			if !File.exists?(src)
-				tar = "#{src}.tar.#{ext}"
-				unless File.exists?(tar)
-					run 'curl', '-O', "#{url}#{tar}"
-				end
+		rebuild_check(pkg, depends, ver) do |outdated, last_ver|
+			build_unix_pkg.(src, pkg, outdated, last_ver, ver, opts, proc) do
+				if !File.exists?(src)
+					tar = "#{src}.tar.#{ext}"
+					unless File.exists?(tar)
+						run 'curl', '-O', "#{url}#{tar}"
+					end
 
-				uncompress = case ext
-					when "bz2"
-						"j"
-					when "xz"
-						"J"
-					when "gz"
-						"z"
-				end
+					uncompress = case ext
+						when "bz2"
+							"j"
+						when "xz"
+							"J"
+						when "gz"
+							"z"
+					end
 
-				run 'tar', "-#{uncompress}xf", tar
+					run 'tar', "-#{uncompress}xf", tar
+				end
 			end
 		end
 	end
@@ -321,15 +321,20 @@ build_from_git = proc do |name, url, opts = {}, &proc|
 end
 
 # Build a unix like package from a git submodule
-build_submodule = proc do |name, opts = {}, &proc|
+build_submodule = proc do |name, depends = [], opts = {}, &proc|
 	mkdirs(name)
 	Dir.chdir(name) do
 		rev = `git ls-tree HEAD src`.strip.split(" ")[2]
-		build_base = opts[:build] || '.'
-		mkdirs(build_base)
-		src_path = Pathname.new('src').relative_path_from(Pathname.new(build_base)).to_s
-		Dir.chdir(build_base) do
-			build_unix_pkg.(src_path, rev, opts, proc) do
+
+		pkg = opts[:pkg] || File.basename(name)
+
+		rebuild_check(pkg, depends, rev) do |outdated, last_ver|
+			src_path = File.expand_path('src')
+			if outdated || !File.exists?(pkg_path(pkg, 'meta', 'built'))
+				actual_rev = Dir.chdir(src_path) { `git rev-parse --verify HEAD`.strip }
+				raise "Tried to build submodule #{name}, but checked out revision #{actual_rev} differs from commit revision #{rev}" if rev != actual_rev
+			end
+			build_unix_pkg.(src_path, pkg, outdated, last_ver, rev, opts, proc) do
 				([src_path] + (opts[:submodules] || [])).each do |s|
 					get_submodule(s)
 				end
@@ -354,23 +359,23 @@ task :deps_msys do
 end
 
 task :dep_cmake do
-	build_from_url.("https://cmake.org/files/v3.5/", "vendor/cmake", "3.6.0", {ext: "gz"}) do |src, prefix|
+	build_from_url.("https://cmake.org/files/v3.6/", "cmake", "3.6.0", {ext: "gz"}) do |src, prefix|
 		run File.join(src, 'configure'), "--prefix=#{prefix}"
-	end unless `cmake --version`.include?('3')
+	end unless `cmake --version`.include?('3.6')
 end
 
 task :dep_elf_binutils do
-	build_from_url.("ftp://ftp.gnu.org/gnu/binutils/", "binutils", "2.26", {unix: true, path: 'vendor/elf-binutils'}) do |src, prefix|
+	build_from_url.("ftp://ftp.gnu.org/gnu/binutils/", "binutils", "2.26", {unix: true, pkg: 'elf-binutils'}) do |src, prefix|
 		run File.join(src, 'configure'), "--prefix=#{prefix}", *%w{--target=x86_64-elf --with-sysroot --disable-nls --disable-werror}
 	end # binutils is buggy with mingw-w64
 end
 
 task :dep_mtools do
-	build_from_url.("ftp://ftp.gnu.org/gnu/mtools/", "vendor/mtools", "4.0.18", {unix: true}) do |src, prefix|
+	build_from_url.("ftp://ftp.gnu.org/gnu/mtools/", "mtools", "4.0.18", {unix: true}) do |src, prefix|
 		update_cfg.(src)
 		#run 'cp', '-rf', "../../libiconv/install", ".."
 		Dir.chdir(src) do
-			run 'patch', '-i', "../../mtools-fix.diff"
+			run 'patch', '-i', path("vendor/mtools-fix.diff")
 		end
 		opts = []
 		opts += ["LIBS=-liconv"] if Gem::Platform::local.os == 'darwin'
@@ -379,7 +384,7 @@ task :dep_mtools do
 end
 
 task :dep_llvm => :dep_cmake do
-	build_submodule.("vendor/llvm", {ninja: true, noclean: true, submodules: ["clang"]}) do |src, prefix|
+	build_submodule.("vendor/llvm", [], {ninja: true, noclean: true, submodules: ["clang"]}) do |src, prefix|
 		opts = %W{-DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_EXTERNAL_CLANG_SOURCE_DIR=#{hostpath(File.join(src, '../clang'))} -DBUILD_SHARED_LIBS=On -DCMAKE_INSTALL_PREFIX=#{hostpath(prefix)}}
 		opts += ['-G',  'Ninja', '-DLLVM_PARALLEL_LINK_JOBS=1'] if ninja
 		#-DLLVM_ENABLE_ASSERTIONS=On  crashes on GCC 5.x + Release on Windows
@@ -393,7 +398,7 @@ task :dep_llvm => :dep_cmake do
 end
 
 task :dep_capstone do
-	build_submodule.("verifier/capstone") do |src, prefix|
+	build_submodule.("verifier/capstone", []) do |src, prefix|
 		opts = %W{-DCMAKE_INSTALL_PREFIX=#{hostpath(prefix)} -DCMAKE_C_FLAGS=-fPIC}
 		opts += ['-G',  'MSYS Makefiles'] if ON_WINDOWS_MINGW
 		run "cmake", src, *opts
@@ -401,7 +406,7 @@ task :dep_capstone do
 end
 
 task :dep_autoconf do
-	build_from_url.("ftp://ftp.gnu.org/gnu/autoconf/", "vendor/autoconf", "2.68", {unix: true, ext: "gz"}) do |src, prefix|
+	build_from_url.("ftp://ftp.gnu.org/gnu/autoconf/", "autoconf", "2.68", {unix: true, ext: "gz"}) do |src, prefix|
 		update_cfg.(src)
 		update_cfg.(File.join(src, 'build-aux'))
 		run File.join(src, 'configure'), "--prefix=#{prefix}"
@@ -409,7 +414,7 @@ task :dep_autoconf do
 end
 
 task :dep_automake do
-	build_from_url.("ftp://ftp.gnu.org/gnu/automake/", "vendor/automake", "1.12", {unix: true, ext: "gz"}) do |src, prefix|
+	build_from_url.("ftp://ftp.gnu.org/gnu/automake/", "automake", "1.12", {unix: true, ext: "gz"}) do |src, prefix|
 		update_cfg.(src)
 		update_cfg.(File.join(src, 'lib'))
 		run File.join(src, 'configure'), "--prefix=#{prefix}"
@@ -417,15 +422,15 @@ task :dep_automake do
 end
 
 task :dep_binutils do
-	build_submodule.("vendor/binutils", {unix: true}) do |src, prefix|
+	build_submodule.("vendor/binutils", [], {unix: true}) do |src, prefix|
 		run File.join(src, 'configure'), "--prefix=#{prefix}", *%w{--target=x86_64-pc-avery --with-sysroot --disable-nls --disable-werror --disable-gdb --disable-sim --disable-readline --disable-libdecnumber}
 	end # binutils is buggy with mingw-w64
 end
 
 task :dep_compiler_rt => [:dep_llvm, :dep_binutils, :dep_elf_binutils] do
 	build_rt = proc do |target, s, flags|
-		build_submodule.("vendor/compiler-rt", {build: target}) do |src, prefix|
-			opts = ["-DLLVM_CONFIG_PATH=#{hostpath(path("vendor/llvm/install/bin/llvm-config"))}",
+		build_submodule.("vendor/compiler-rt", ["llvm"], {pkg: File.join('compiler-rt', target)}) do |src, prefix|
+			opts = ["-DLLVM_CONFIG_PATH=#{hostpath(path("build/pkgs/install/llvm/bin/llvm-config"))}",
 				"-DFREESTANDING=On",
 				"-DCMAKE_SYSTEM_NAME=Generic",
 				#"-DCMAKE_SIZEOF_VOID_P=#{s}",
@@ -445,7 +450,7 @@ task :dep_compiler_rt => [:dep_llvm, :dep_binutils, :dep_elf_binutils] do
 				"-DCOMPILER_RT_BUILD_SANITIZERS=Off",
 				"-DCOMPILER_RT_DEFAULT_TARGET_TRIPLE=#{target}"]
 			opts += ['-G',  'MSYS Makefiles'] if ON_WINDOWS_MINGW
-			run "cmake", src, '--debug-trycompile', *opts
+			run "cmake", src, *opts
 		end
 	end
 
@@ -456,7 +461,7 @@ end
 
 task :dep_newlib => [:dep_llvm, :dep_automake, :dep_autoconf, :dep_binutils] do
 	env = {'CFLAGS' => '-fPIC'}
-	build_submodule.("vendor/newlib", {env: env, noclean: true}) do |src, prefix|
+	build_submodule.("vendor/newlib", ["llvm"], {env: env, noclean: true}) do |src, prefix|
 		Dir.chdir(File.join(src, "newlib/libc/sys")) do
 			run "autoconf"
 			Dir.chdir("avery") do
@@ -469,13 +474,14 @@ task :dep_newlib => [:dep_llvm, :dep_automake, :dep_autoconf, :dep_binutils] do
 end
 
 task :avery_sysroot => [:dep_compiler_rt, :dep_newlib] do
-	rebuild("vendor/avery-sysroot/version", ["compiler-rt/x86_64-pc-avery", "newlib"]) do
-		run "rm", "-rf", "vendor/avery-sysroot"
-		mkdirs('vendor/avery-sysroot')
-		run 'cp', '-r', 'vendor/newlib/install/x86_64-pc-avery/.', "vendor/avery-sysroot"
+	rebuild("avery-sysroot", ["compiler-rt/x86_64-pc-avery", "newlib"]) do
+		path = pkg_path('avery-sysroot', 'install')
+		run "rm", "-rf", path
+		mkdirs(path)
+		run 'cp', '-r', "#{pkg_path('newlib', 'install')}/x86_64-pc-avery/.", path
 
 		# place compiler-rt in lib/rustlib/x86_64-pc-avery/lib - clang links to it
-		run 'cp', 'vendor/compiler-rt/x86_64-pc-avery/install/lib/generic/libclang_rt.builtins-x86_64.a', "vendor/avery-sysroot/lib/libcompiler_rt.a"
+		run 'cp', "#{pkg_path('compiler-rt/x86_64-pc-avery', 'install')}/lib/generic/libclang_rt.builtins-x86_64.a", File.join(path, "lib/libcompiler_rt.a")
 	end
 end
 
@@ -487,7 +493,7 @@ task :dep_rust => [:dep_llvm, :avery_sysroot] do
 		'CARGO_HOME' => path('build/cargo/home'),
 		'CFG_DISABLE_CODEGEN_TESTS' => '1',
 	}
-	prefix = File.expand_path("vendor/rust/install")
+	prefix = pkg_path('rust', 'install')
 	make = proc do
 		run *%W{make dist -j#{CORES}}
 		install = proc do |n|
@@ -498,19 +504,19 @@ task :dep_rust => [:dep_llvm, :avery_sysroot] do
 				target = Dir["#{target}/*"][0]
 				run "bash", "#{target}/install.sh", "--prefix=#{prefix}"
 				triple = File.basename(target).split('-')[3..-1].join('-')
-				dest = path("vendor/rust/install/lib/rustlib/#{triple}/lib")
+				dest = "#{prefix}/lib/rustlib/#{triple}/lib"
 				mkdirs(dest)
 				# Copy shared libraries for rustc into the host lib direcory
-				run 'cp', '-r', path("vendor/rust/install/bin/."), dest
-				Dir["vendor/rust/install/lib/*.so"].each do |f|
+				run 'cp', '-r', "#{prefix}/bin/.", dest
+				Dir["#{prefix}/lib/*.so"].each do |f|
 					run 'cp', f, dest
 				end
 		end
 		install.('rustc')
 		install.('rust-std')
 	end
-	build_submodule.("vendor/rust", {env: env, noclean: true, make: make}) do |src, prefix|
-		llvm_path = File.expand_path(File.join(src, "../../llvm/install"))
+	build_submodule.("vendor/rust", [], {env: env, noclean: true, make: make}) do |src, prefix|
+		llvm_path = File.expand_path(pkg_path('llvm', 'install'))
 		run File.join(src, 'configure'), '--enable-rustbuild', "--prefix=#{prefix}", "--llvm-root=#{llvm_path}", "--disable-docs", "--disable-jemalloc"
 	end
 end
@@ -527,11 +533,11 @@ task :dep_cargo => :dep_rust do
 	end
 	env['CARGO_HOME'] = path('build/cargo/home')
 
-	build_submodule.("vendor/cargo", {intree: true, env: env}) do |src, prefix|
+	build_submodule.("vendor/cargo", [], {intree: true, env: env}) do |src, prefix|
 		Dir.chdir(src) do
 			run *%w{git submodule update --init}
 		end
-		run File.join(src, 'configure'), "--prefix=#{prefix}", "--local-rust-root=#{path("vendor/rust/install")}"
+		run File.join(src, 'configure'), "--prefix=#{prefix}", "--local-rust-root=#{pkg_path('rust', 'install')}"
 	end
 end
 
@@ -600,7 +606,7 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 	get_submodule('verifier/rust-elfloader')
 
 	# Reset cargo target dir if rust changes
-	rebuild("build/meta/cargo-target", ["rust"]) do
+	rebuild("cargo-target", ["rust"]) do
 		run "rm", "-rf", "build/cargo/target"
 	end
 end

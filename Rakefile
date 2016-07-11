@@ -45,20 +45,24 @@ end
 CC = (which(ENV['CC']) if ENV['CC'])
 CXX = (which(ENV['CXX']) if ENV['CXX'])
 
+def pkg_path(name, type, *ext)
+	path(File.join('build/pkgs', type, name, *ext))
+end
+
 append_path(File.expand_path('../build/cargo/home/bin', __FILE__))
-append_path(File.expand_path('../vendor/cmake/install/bin', __FILE__))
-append_path(File.expand_path('../vendor/elf-binutils/install/bin', __FILE__))
-append_path(File.expand_path('../vendor/mtools/install/bin', __FILE__))
-append_path(File.expand_path('../vendor/llvm/install/bin', __FILE__))
-append_path(File.expand_path('../vendor/binutils/install/bin', __FILE__))
-append_path(File.expand_path('../vendor/cargo/install/bin', __FILE__))
-append_path(File.expand_path("../vendor/rust/install/bin", __FILE__))
-append_path(File.expand_path("../vendor/autoconf/install/bin", __FILE__))
-append_path(File.expand_path("../vendor/automake/install/bin", __FILE__))
-append_path(File.expand_path("../vendor/bindgen/install/bin", __FILE__))
+append_path(path('build/pkgs/install/cmake/bin'))
+append_path(path('build/pkgs/install/elf-binutils/bin'))
+append_path(path('build/pkgs/install/mtools/bin'))
+append_path(path('build/pkgs/install/llvm/bin'))
+append_path(path('build/pkgs/install/binutils/bin'))
+append_path(path('build/pkgs/install/cargo/bin'))
+append_path(path('build/pkgs/install/rust/bin'))
+append_path(path('build/pkgs/install/autoconf/bin'))
+append_path(path('build/pkgs/install/automake/bin'))
+append_path(path('build/pkgs/install/bindgen/bin'))
 append_path(File.expand_path("../util/rlib_ir/target/debug", __FILE__))
 
-sos = path("vendor/llvm/install/lib") + ":" + path("vendor/rust/install/lib")
+sos = pkg_path('llvm', 'install', 'lib') + ":" + pkg_path('rust', 'install', 'lib')
 ENV['DYLD_LIBRARY_PATH'] = sos
 ENV['LD_LIBRARY_PATH'] = sos
 
@@ -155,7 +159,7 @@ CARGO_BUILD = RELEASE_BUILD ? 'release' : 'debug'
 RUSTFLAGS = ['--sysroot', hostpath('build/sysroot')] + %w{-Z force-overflow-checks=on -Z orbit -C panic=abort -C llvm-args=-inline-threshold=0 -C debuginfo=1 -C target-feature=-mmx,-sse,-sse2}
 
 # Workaround bug with LLVM linking
-ENV['RUSTFLAGS_HOST'] = "-L #{hostpath("vendor/llvm/install/#{ON_WINDOWS ? "bin" : "lib"}")}"
+ENV['RUSTFLAGS_HOST'] = "-L #{hostpath(pkg_path("llvm", 'install', ON_WINDOWS ? "bin" : "lib"))}"
 
 def cargo(path, target, cargoflags = [], flags = [], rustflags = nil)
 	cargoflags += ['--target', target]
@@ -235,7 +239,7 @@ build_kernel = proc do |skip = false|
 		# Add 32-bit multiboot bootstrapper if needed
 		objects << kernel_object_bootstrap if type == :multiboot
 
-		compiler_rt = 'vendor/compiler-rt/x86_64-unknown-unknown-elf/install/lib/generic/libclang_rt.builtins-x86_64.a'
+		compiler_rt = pkg_path("compiler-rt/x86_64-unknown-unknown-elf", 'install', 'lib/generic/libclang_rt.builtins-x86_64.a')
 
 		# Finally link
 		run 'x86_64-elf-ld', '-z', 'max-page-size=0x1000',
@@ -246,7 +250,7 @@ build_kernel = proc do |skip = false|
 end
 
 task :std do
-	rebuild("build/meta/user-sysroot", ["rust"]) do
+	rebuild("user-sysroot", ["rust", "llvm"]) do
 		run "rm", "-rf", "build/cargo/avery-sysroot-target"
 		ENV['CC_x86_64-pc-avery'] = 'clang --target=x86_64-pc-avery'
 		ENV['CXX_x86_64-pc-avery'] = 'clang++ --target=x86_64-pc-avery'
@@ -258,7 +262,7 @@ task :std do
 
 			ENV['RUSTFLAGS'] = '-C llvm-args=-inline-threshold=0 -Z orbit --sysroot vendor/fake-sysroot -Z force-overflow-checks=on -C opt-level=2'
 			run *%w{cargo build -j 1 --target x86_64-pc-avery --manifest-path vendor/cargo-sysroot/Cargo.toml --verbose}
-			dir = "vendor/rust/install/lib/rustlib/x86_64-pc-avery/lib"
+			dir = "#{pkg_path('rust', 'install')}/lib/rustlib/x86_64-pc-avery/lib"
 			FileUtils.rm_rf([dir])
 			mkdirs(dir)
 			run 'cp', '-r', "#{sysroot}/.", dir
@@ -267,7 +271,7 @@ task :std do
 end
 
 task :deps => [:user, :deps_other] do
-	rebuild("build/meta/kernel-sysroots", ["rust"], CARGO_BUILD) do
+	rebuild("kernel-sysroots", ["rust"], CARGO_BUILD) do
 		run "rm", "-rf", "build/cargo/sysroot-target"
 		new_env('CARGO_TARGET_DIR', 'build/cargo/sysroot-target') do
 			run "rm", "-rf", "build/sysroot"
@@ -285,7 +289,7 @@ task :deps => [:user, :deps_other] do
 
 	cargo 'kernel/arch/x64/multiboot', 'x86_32-avery-kernel', [], (%w{-C lto --emit=obj=build/bootstrap-32.o})
 
-	compiler_rt = 'vendor/compiler-rt/x86_64-unknown-unknown-elf/install/lib/generic/libclang_rt.builtins-i386.a'
+	compiler_rt = pkg_path("compiler-rt/x86_64-unknown-unknown-elf", 'install', 'lib/generic/libclang_rt.builtins-i386.a')
 
 	build = Build.new('build', 'info.yml')
 	build.run do
