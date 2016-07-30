@@ -25,9 +25,8 @@ matrix:
     cache:
       timeout: 1000
       directories:
-      - vendor/cache
-      - build/cargo/avery-sysroot-target
-      - build/meta
+      - build/pkgs/meta
+      - build/pkgs/install
     script: rake
   - env:
     - AVERY_BUILD=DEBUG CC=clang-3.7 CXX=clang++-3.7
@@ -44,9 +43,8 @@ matrix:
     cache:
       timeout: 1000
       directories:
-      - vendor/cache
-      - build/cargo/avery-sysroot-target
-      - build/meta
+      - build/pkgs/meta
+      - build/pkgs/install
     script: rake
   - script: rake test_verifier
     language: rust
