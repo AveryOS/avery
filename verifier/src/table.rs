@@ -293,7 +293,7 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 	let nop_prefixes: Vec<OpOption> = ALL_PREFIXES.iter().filter(|&p| *p != P_LOCK).map(|v| Prefix(*v)).collect();
 
 	let mut opts = nop_prefixes.clone();
-	opts.extend([RmOpcode(0)].iter().cloned());
+	opts.extend([Read, RmOpcode(0)].iter().cloned());
 	op!([0x0f, 0x1f], "nop", opts[..]);
 
 	op!([0xeb], "jmp", [ImmSize(S8), Disp]);

@@ -19,9 +19,13 @@ pub enum DecoderError {
 	ComplexAdressing,
 	AbsoluteAdressing,
 	StackIsNotRestored,
-	MismatchedPop,
-	TooManyPops,
+	StackUnderflow,
+	StackOverflow,
 	JumpOutsideOfFunction,
+	PopOfMaskReg,
+	StackClobbered,
+	UnknownJumpTarget,
+	UnbalancedStackJump,
 }
 
 impl From<CursorError> for DecoderError {
@@ -76,6 +80,7 @@ pub struct Inst {
 	term: bool,
 }
 
+#[derive(Debug)]
 pub struct CursorError;
 
 #[derive(Copy, Clone)]
@@ -109,6 +114,15 @@ impl<'s> Cursor<'s> {
 		})
 	}
 
+	pub fn rewind(&mut self, bytes: usize) -> Result<(), CursorError> {
+		if self.offset < bytes {
+			Err(CursorError)
+		} else {
+			self.offset -= bytes;
+			Ok(())
+		}
+	}
+
 	pub fn skip(&mut self, bytes: usize) -> Result<(), CursorError> {
 		self.offset += bytes;
 		if self.offset > self.data.len() {
@@ -134,16 +148,14 @@ impl<'s> Cursor<'s> {
 }
 
 pub struct FunctionState {
-	clobs: HashSet<Reg>,
-	callee_saved: Vec<Reg>,
-	stack_offset: Option<(usize, usize)>,
+	stack_offset: u32,
 	ops: Vec<Operation>,
 }
 
 impl FunctionState {
 	fn op(&mut self, op: Operation) {
 		if let Some(r) = op.clobs_reg() {
-			self.clobs.insert(r);
+			// Check R15
 		}
 		self.ops.push(op);
 	}
@@ -191,6 +203,8 @@ pub fn inst(c: &mut Cursor, state: &mut FunctionState) -> Result<(Inst, usize, u
 		_ => 0
 	};
 
+	let opcode = c.peek()?;
+
 	let mut format = x86_opcodes::decode(c, prefixes)? as u32;
 
 	// Ensure prefixes are legal
@@ -215,8 +229,8 @@ pub fn inst(c: &mut Cursor, state: &mut FunctionState) -> Result<(Inst, usize, u
 	};
 	format >>= 3;
 
-	#[cfg(debug_assertions)]
-	println!("(Imm {}, opsize = {}, operand_size_override = {})", format & 3, op_size, operand_size_override);
+	/*#[cfg(debug_assertions)]
+	println!("(Opsize = {}, operand_size_override = {})",  op_size, operand_size_override);*/
 
 	let case = format & 0x1F;
 	format >>= 5;
@@ -263,6 +277,12 @@ pub fn inst(c: &mut Cursor, state: &mut FunctionState) -> Result<(Inst, usize, u
 
 		//println!("mode:{} reg:{} rm: {}", mode ,reg ,rm);
 
+		let sib = if mode != 3 && rm_norex == 4 {
+			c.next()? as u32
+		} else {
+			0
+		};
+
 		let off = match mode {
 			0 | 3 => 0,
 			1 => c.next()? as i8 as i32,
@@ -278,7 +298,6 @@ pub fn inst(c: &mut Cursor, state: &mut FunctionState) -> Result<(Inst, usize, u
 			if rm_norex == 4 {
 				// Parse SIB byte
 
-				let sib = c.next()? as u32;
 				let base_norex = sib & 7;
 				let index = ((sib >> 3) & 7) | (rex & 2) << 2;
 				let scale = sib >> 6;
@@ -325,7 +344,7 @@ pub fn inst(c: &mut Cursor, state: &mut FunctionState) -> Result<(Inst, usize, u
 
 	let result = match case {
 		// Illegal
-		0 => Err(DecoderError::UnknownInstruction),
+		0 => return Err(DecoderError::UnknownInstruction),
 		// WriteRm
 		1 => {
 			let (rm, _) = modrm(c)?;
@@ -336,10 +355,10 @@ pub fn inst(c: &mut Cursor, state: &mut FunctionState) -> Result<(Inst, usize, u
 				_ => ()
 			};
 
-			Ok(Inst {
+			Inst {
 				rm: rm,
 				..def()
-			})
+			}
 		}
 		// ReadRmToReg
 		2 => {
@@ -347,18 +366,18 @@ pub fn inst(c: &mut Cursor, state: &mut FunctionState) -> Result<(Inst, usize, u
 
 			state.op(Operation::ClobReg(reg));
 
-			Ok(Inst {
+			Inst {
 				rm: rm,
 				..def()
-			})
+			}
 		}
 		// ReadRm
 		3 => {
 			let (rm, reg) = modrm(c)?;
-			Ok(Inst {
+			Inst {
 				rm: rm,
 				..def()
-			})
+			}
 		}
 		// Store
 		4 => {
@@ -378,10 +397,10 @@ pub fn inst(c: &mut Cursor, state: &mut FunctionState) -> Result<(Inst, usize, u
 				_ => (),
 			};
 
-			Ok(Inst {
+			Inst {
 				rm: rm,
 				..def()
-			})
+			}
 		}
 		// Load
 		5 => {
@@ -393,10 +412,10 @@ pub fn inst(c: &mut Cursor, state: &mut FunctionState) -> Result<(Inst, usize, u
 				_ => Operation::ClobReg(reg),
 			});
 
-			Ok(Inst {
+			Inst {
 				rm: rm,
 				..def()
-			})
+			}
 		}
 		// AndRmFromReg
 		6 => {
@@ -416,10 +435,10 @@ pub fn inst(c: &mut Cursor, state: &mut FunctionState) -> Result<(Inst, usize, u
 				_ => (),
 			};
 
-			Ok(Inst {
+			Inst {
 				rm: rm,
 				..def()
-			})
+			}
 		}
 		// AndRmToReg
 		7 => {
@@ -431,10 +450,10 @@ pub fn inst(c: &mut Cursor, state: &mut FunctionState) -> Result<(Inst, usize, u
 				_ => Operation::ClobReg(reg),
 			});
 
-			Ok(Inst {
+			Inst {
 				rm: rm,
 				..def()
-			})
+			}
 		}
 		// Lea
 		8 => {
@@ -442,51 +461,35 @@ pub fn inst(c: &mut Cursor, state: &mut FunctionState) -> Result<(Inst, usize, u
 
 			state.op(Operation::ClobReg(reg));
 
-			Ok(Inst {
+			Inst {
 				..def()
-			})
+			}
 		}
 		// Push
 		9 => {
-			let reg = reg_rex(format);
-
-			match state.stack_offset {
-				None if state.clobs.contains(&reg) => state.stack_offset = Some((1, state.callee_saved.len())),
-				None => state.callee_saved.push(reg),
-				Some((offset, saved)) => state.stack_offset = Some((offset + 1, saved)),
+			match state.stack_offset.checked_add(8) {
+				Some(v) => state.stack_offset = v,
+				None => return Err(DecoderError::StackOverflow),
 			}
 
-			Ok(Inst {
+			Inst {
 				..def()
-			})
+			}
 		}
 		// Pop
 		10 => {
 			let reg = reg_rex(format);
 
-			match state.stack_offset {
-				None => if let Some(r) = state.callee_saved.pop() {
-					if reg != r {
-						return Err(DecoderError::MismatchedPop);
-					}
-					state.clobs.remove(&r);
-				} else {
-					return Err(DecoderError::TooManyPops)
-				},
-				Some((0, 0)) => return Err(DecoderError::TooManyPops),
-				Some((0, saved)) => {
-					let i = saved - 1;
-					if reg != state.callee_saved[i] {
-						return Err(DecoderError::MismatchedPop);
-					}
-					state.stack_offset = Some((0, i));
-				}
-				Some((offset, saved)) => state.stack_offset = Some((offset - 1, saved)),
+			state.op(Operation::ClobReg(reg));
+
+			match state.stack_offset.checked_sub(8) {
+				Some(v) => state.stack_offset = v,
+				None => return Err(DecoderError::StackUnderflow),
 			}
 
-			Ok(Inst {
+			Inst {
 				..def()
-			})
+			}
 		}
 		// ClobRegRex
 		11 => {
@@ -494,9 +497,9 @@ pub fn inst(c: &mut Cursor, state: &mut FunctionState) -> Result<(Inst, usize, u
 
 			state.op(Operation::ClobReg(reg));
 
-			Ok(Inst {
+			Inst {
 				..def()
-			})
+			}
 		}
 		// CheckAddr
 		12 => panic!(),
@@ -504,75 +507,73 @@ pub fn inst(c: &mut Cursor, state: &mut FunctionState) -> Result<(Inst, usize, u
 		13 => {
 			// TODO: CFI
 			modrm_ignore(c)?;
-			Ok(Inst {
+			Inst {
 				..def()
-			})
+			}
 		}
 		// Call32
 		14 => { 
 			if segment_override {
-				Err(DecoderError::SegmentOverrideOnBranch)
+				return Err(DecoderError::SegmentOverrideOnBranch);
 			} else {
 				let offset = c.next_u32()? as i32 as i64;
-				Ok(Inst {
+				Inst {
 					..def()
-				})
+				}
 			}
 		}
 		// Jmp32 | Jcc32
 		15 | 21 => { 
 			if segment_override {
-				Err(DecoderError::SegmentOverrideOnBranch)
+				return Err(DecoderError::SegmentOverrideOnBranch);
 			} else {
 				let offset = c.next_u32()? as i32 as i64;
-				Ok(Inst {
+				Inst {
 					jmp: Some(offset),
 					term: case == 15,
 					..def()
-				})
+				}
 			}
 		}
 		// Jmp8 | Jcc8
 		16 | 20 => {
 			if segment_override {
-				Err(DecoderError::SegmentOverrideOnBranch)
+				return Err(DecoderError::SegmentOverrideOnBranch);
 			} else {
 				let offset = c.next()? as i8 as i64;
-				Ok(Inst {
+				Inst {
 					jmp: Some(offset),
 					term: case == 16,
 					..def()
-				})
+				}
 			}
 		}
 		// Ud2
 		17 => { 
-			Ok(Inst {
+			Inst {
 				term: true,
 				..def()
-			})
+			}
 		}
 		// None
 		18 => {
-			Ok(Inst {
+			Inst {
 				..def()
-			})
+			}
 		}
 		// Ret
-		19 => { 
+		19 => {
 			if segment_override {
-				Err(DecoderError::SegmentOverrideOnBranch)
+				return Err(DecoderError::SegmentOverrideOnBranch);
 			} else {
-				match state.stack_offset {
-					None if state.callee_saved.is_empty() => (),
-					Some((0, 0)) => (),
-					_ => return Err(DecoderError::StackIsNotRestored),
-				};
+				if state.stack_offset != 0 {
+					return Err(DecoderError::StackIsNotRestored);
+				}
 
-				Ok(Inst {
+				Inst {
 					term: true,
 					..def()
-				})
+				}
 			}
 		}
 		// 20 => Jmp8 | Jcc8
@@ -589,19 +590,95 @@ pub fn inst(c: &mut Cursor, state: &mut FunctionState) -> Result<(Inst, usize, u
 				_ => ()
 			};
 
-			Ok(Inst {
+			Inst {
 				rm: rm,
 				..def()
-			})
+			}
 
+		}
+		// AddRmImm
+		23 => {
+			let (rm, _) = modrm(c)?;
+
+			match rm {
+				Rm::Stack(s) => state.op(Operation::ClobStack(s, op_size as u8)),
+				Rm::Reg(Reg(4)) => {
+					if op_size != 8 {
+						return Err(DecoderError::StackClobbered);
+					}
+					let imm = match opcode {
+						0x81 => {
+							let i = c.next_u32()?;
+							c.rewind(4)?;
+							i
+						}
+						0x83 => c.peek()? as i32 as u32,
+						_ => panic!(),
+					};
+
+					match state.stack_offset.checked_sub(imm) {
+						Some(v) => state.stack_offset = v,
+						None => return Err(DecoderError::StackOverflow),
+					}
+				},
+				Rm::Reg(r) => state.op(Operation::ClobReg(r)),
+				_ => ()
+			};
+
+			Inst {
+				rm: rm,
+				..def()
+			}
+		}
+		// SubRmImm
+		24 => {
+			let (rm, _) = modrm(c)?;
+
+			match rm {
+				Rm::Stack(s) => state.op(Operation::ClobStack(s, op_size as u8)),
+				Rm::Reg(Reg(4)) => {
+					if op_size != 8 {
+						return Err(DecoderError::StackClobbered);
+					}
+					let imm = match opcode {
+						0x81 => {
+							let i = c.next_u32()?;
+							c.rewind(4)?;
+							i
+						}
+						0x83 => c.peek()? as i32 as u32,
+						_ => panic!(),
+					};
+
+					match state.stack_offset.checked_add(imm) {
+						Some(v) => state.stack_offset = v,
+						None => return Err(DecoderError::StackOverflow),
+					}
+				},
+				Rm::Reg(r) => state.op(Operation::ClobReg(r)),
+				_ => ()
+			};
+
+			Inst {
+				rm: rm,
+				..def()
+			}
+		}
+		// NopRm
+		25 => {
+			modrm_ignore(c)?;
+			def()
 		}
 		_ => panic!(),
 	};
 
 	format >>= 3;
 
+	let imm = format & 3;
+	/*#[cfg(debug_assertions)]
+	println!("(Imm {})", imm);*/
 	// Imm type - 2 bits
-	match format & 3 {
+	match imm {
 		0 => (),
 		1 => c.skip(1)?,
 		2 => c.skip(cmp::min(op_size, 4) as usize)?,
@@ -616,33 +693,32 @@ pub fn inst(c: &mut Cursor, state: &mut FunctionState) -> Result<(Inst, usize, u
 		return Err(DecoderError::InstructionTooLong);
 	}
 
-	result.map(|i| (i, len, ops_index))
+	Ok((result, len, ops_index))
 }
 
 pub static mut INSTRUCTIONS: usize = 0;
 
-pub fn decode(data: &[u8], disp_off: u64) -> Result<(), DecoderError> {
-
+pub fn targets(data: &[u8], disp_off: u64) -> Result<Vec<(u64, u32)>, DecoderError> {
 	let mut state = FunctionState {
-		clobs: HashSet::new(),
-		callee_saved: Vec::new(),
-		stack_offset: None,
+		stack_offset: 0,
 		ops: Vec::new(),
 	};
 
 	let mut targets = Vec::new();
-	targets.push(0 as u64);
+	targets.push((0 as u64, 0));
 
 	#[cfg(debug_assertions)]
-	println!("Disassembly:");
+	println!("Jump target discovery:");
 
 	let mut i = 0;
 
 	while i < targets.len() {
 		let mut c = Cursor {
 			data: data,
-			offset: targets[i] as usize,
+			offset: targets[i].0 as usize,
 		};
+
+		state.stack_offset = targets[i].1;
 
 		#[cfg(debug_assertions)]
 		println!("Label:");
@@ -661,7 +737,7 @@ pub fn decode(data: &[u8], disp_off: u64) -> Result<(), DecoderError> {
 			
 			#[cfg(debug_assertions)]
 			{
-				print!("{:#08x}: ", address);
+				print!("o {:08x} - s {:08x}: ", address, state.stack_offset);
 
 				let cs_bytes = table::bytes(&c.remaining()[0..cs_len]);
 
@@ -694,20 +770,15 @@ pub fn decode(data: &[u8], disp_off: u64) -> Result<(), DecoderError> {
 			}
 
 			if let Some(target) = inst.jmp {
-				// Freeze the callee-saved registers
-				if state.stack_offset.is_none() {
-					state.stack_offset = Some((0, state.callee_saved.len()))
-				}
-
 				let off = (address + len as u64).wrapping_add(target as u64);
 				#[cfg(debug_assertions)]
 				println!("Jump target {:#x}", off);
 				if off >= disp_off && off < disp_off + data.len() as u64 {
 					let real_off = off - disp_off;
-					if let Err(i) = targets.binary_search(&real_off) {
+					if let Err(i) = targets.binary_search_by_key(&real_off, |&(t, s)| t) {
 						#[cfg(debug_assertions)]
 						println!("Inserting target {:#x}", real_off);
-						targets.insert(i, real_off);
+						targets.insert(i, (real_off, state.stack_offset));
 					}
 				} else {
 					#[cfg(debug_assertions)]
@@ -724,14 +795,125 @@ pub fn decode(data: &[u8], disp_off: u64) -> Result<(), DecoderError> {
 		i += 1;
 	}
 
-	println!("Done with function");
+	println!("Done with function {:?}", targets);
 
-	for reg in state.clobs {
-		if state.callee_saved.contains(&reg) {
-			continue;
+	Ok(targets)
+}
+
+pub fn decode(data: &[u8], disp_off: u64) -> Result<(), DecoderError> {
+	let targets = targets(data, disp_off)?;
+
+	let mut state = FunctionState {
+		stack_offset: 0,
+		ops: Vec::new(),
+	};
+
+	#[cfg(debug_assertions)]
+	println!("Disassembly:");
+
+	let mut i = 0;
+
+	while i < targets.len() {
+		let mut c = Cursor {
+			data: data,
+			offset: targets[i].0 as usize,
+		};
+
+		state.stack_offset = targets[i].1;
+
+		#[cfg(debug_assertions)]
+		println!("Label:");
+
+		loop {
+			unsafe { INSTRUCTIONS += 1 };
+
+			let start = c.offset;
+			let address = start as u64 + disp_off;
+
+			#[cfg(debug_assertions)]
+			let cs_data = &c.remaining()[0..cmp::min(16, c.remaining().len())];
+
+			#[cfg(debug_assertions)]
+			let (cs_desc, cs_len) = decoder::capstone_simple(cs_data, address).unwrap_or(("invalid".to_string(), 0));
+			
+			#[cfg(debug_assertions)]
+			{
+				print!("{:08x} - {:02x}: ", address, state.stack_offset);
+
+				let cs_bytes = table::bytes(&c.remaining()[0..cs_len]);
+
+				let mut str = String::new();
+
+				let byte_print_len = cmp::min(8, cs_len);
+
+				for b in c.data[start..(start + byte_print_len)].iter() {
+					str.push_str(&format!("{:02x}", b));
+				}
+
+				for _ in 0..(8 - byte_print_len) {
+					str.push_str("  ");
+				}
+				str.push_str(" ");
+
+				print!("{}", str);
+
+				println!("{: <40}", cs_desc);
+			}
+
+			let (inst, len, ops_index) = inst(&mut c, &mut state)?;
+
+			#[cfg(debug_assertions)]
+			{
+				if len != cs_len {
+					println!("Capstone length was {}, while the decoded instruction was {}", cs_len, len);
+					panic!("Instruction length mismatch");
+				}
+			}
+
+			if let Some(target) = inst.jmp {
+
+				let off = (address + len as u64).wrapping_add(target as u64);
+				#[cfg(debug_assertions)]
+				println!("Jump target {:#x}", off);
+				if off >= disp_off && off < disp_off + data.len() as u64 {
+					let real_off = off - disp_off;
+					if let Ok(index) = targets.binary_search_by_key(&real_off, |&(t, s)| t) {
+						if targets[index].1 != state.stack_offset {
+							return Err(DecoderError::UnbalancedStackJump);
+						}
+					} else {
+						return Err(DecoderError::UnknownJumpTarget);
+					}
+				} else {
+					#[cfg(debug_assertions)]
+					println!("Jump outside of symbol {:#x} at {:#x}", off, address);
+					return Err(DecoderError::JumpOutsideOfFunction);
+				}
+			}
+
+			if inst.term {
+				break
+			}
+
+			if let Some(target) = targets.get(i + 1) {
+				if target.0 == c.offset as u64 {
+					#[cfg(debug_assertions)]
+					println!("Implicit jump target");
+
+					// We are at the next jump target
+					// Make sure it's stack offset matches
+					if target.1 != state.stack_offset {
+						return Err(DecoderError::UnbalancedStackJump);
+					}
+					break
+				}
+			}
 		}
-		println!("Function clobbered {:?}", reg);
+
+		i += 1;
 	}
+
+	println!("Done with function");
 
 	Ok(())
 }

@@ -95,7 +95,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> {
 						0x0 => {
 							/* nop */
 
-							0x20098
+							0x20c98
 						}
 						// 1 => capstone: nop dword ptr [rdx]
 						// 2 => capstone: nop dword ptr [rdx]
@@ -774,7 +774,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> {
 								0x0 => {
 									/* nop */
 
-									0x20098
+									0x20c98
 								}
 								// 1 => capstone: nop dword ptr cs:[rdx]
 								// 2 => capstone: nop dword ptr cs:[rdx]
@@ -948,7 +948,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> {
 										0x0 => {
 											/* nop */
 
-											0x20098
+											0x20c98
 										}
 										// 1 => capstone: nop word ptr cs:[rdx]
 										// 2 => capstone: nop word ptr cs:[rdx]
@@ -977,7 +977,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> {
 												0x0 => {
 													/* nop */
 
-													0x20098
+													0x20c98
 												}
 												// 1 => capstone: nop word ptr cs:[rdx]
 												// 2 => capstone: nop word ptr cs:[rdx]
@@ -1006,7 +1006,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> {
 														0x0 => {
 															/* nop */
 
-															0x20098
+															0x20c98
 														}
 														// 1 => capstone: nop word ptr cs:[rdx]
 														// 2 => capstone: nop word ptr cs:[rdx]
@@ -1035,7 +1035,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> {
 																0x0 => {
 																	/* nop */
 
-																	0x20098
+																	0x20c98
 																}
 																// 1 => capstone: nop word ptr cs:[rdx]
 																// 2 => capstone: nop word ptr cs:[rdx]
@@ -1160,7 +1160,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> {
 				0x0 => {
 					/* add */
 
-					0x28081
+					0x28b81
 				}
 				0x1 => {
 					/* or */
@@ -1185,7 +1185,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> {
 				0x5 => {
 					/* sub */
 
-					0x28081
+					0x28c01
 				}
 				0x6 => {
 					/* xor */
@@ -1205,7 +1205,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> {
 				0x0 => {
 					/* add */
 
-					0x30099
+					0x30b99
 				}
 				0x1 => {
 					/* or */
@@ -1230,7 +1230,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> {
 				0x5 => {
 					/* sub */
 
-					0x30099
+					0x30c19
 				}
 				0x6 => {
 					/* xor */
@@ -1250,7 +1250,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> {
 				0x0 => {
 					/* add */
 
-					0x28099
+					0x28b99
 				}
 				0x1 => {
 					/* or */
@@ -1275,7 +1275,7 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> {
 				0x5 => {
 					/* sub */
 
-					0x28099
+					0x28c19
 				}
 				0x6 => {
 					/* xor */

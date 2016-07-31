@@ -46,7 +46,7 @@ matrix:
       - build/pkgs/meta
       - build/pkgs/install
     script: rake
-  - script: rake test_verifier
+  - script: rake verifier
     language: rust
     rust: nightly
     env:

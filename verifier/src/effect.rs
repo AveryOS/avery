@@ -276,7 +276,7 @@ impl Effect {
 		};
 
 		// 4 bits for the rest
-		let (rest, rest_data) = match rem_list {
+		let (rest, rest_data) = match *rem_list {
 			[] => (0, 0),
 			//[Effect::Imm64] => 1,
 			[Effect::Imm32] => (2, 0),

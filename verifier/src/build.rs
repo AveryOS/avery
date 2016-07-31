@@ -1,3 +1,3 @@
 fn main() {
-    println!("cargo:rustc-link-search=native=capstone/install/lib");
+    println!("cargo:rustc-link-search=native=../build/pkgs/install/capstone/lib");
 }

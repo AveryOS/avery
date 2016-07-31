@@ -37,7 +37,10 @@ pub struct Reg(u8);
 pub enum InstKind {
 	Illegal,
 	None,
+	NopRm,
 	WriteRm,
+	AddRmImm,
+	SubRmImm,
 	ReadRmToReg, // Reg <- Rm
 	ReadRm,
 	Store, // mov Rm, Reg
@@ -111,6 +114,9 @@ impl InstKind {
 			InstKind::AndRmToReg |
 			InstKind::CallRm |
 			InstKind::XchgRm |
+			InstKind::AddRmImm |
+			InstKind::SubRmImm |
+			InstKind::NopRm |
 			InstKind::Lea => true,
 			InstKind::Illegal |
 			InstKind::Push(_) |
@@ -152,6 +158,9 @@ impl InstKind {
 			InstKind::Jcc8 => 20,
 			InstKind::Jcc32 => 21,
 			InstKind::XchgRm => 22,
+			InstKind::AddRmImm => 23,
+			InstKind::SubRmImm => 24,
+			InstKind::NopRm => 25,
 		}
 	}
 }
@@ -381,7 +390,7 @@ impl Multiplexer {
 					} else {
 						for (i, &(prefixes, inst)) in entries.iter().enumerate() {
 							if !prefixes.is_empty() {
-								let bit = match &prefixes[..] {
+								let bit = match prefixes[..] {
 									[table::P_REP] => 2,
 									[table::P_REPNE] => 4,
 									[table::P_OP_SIZE] => 8,
@@ -495,7 +504,7 @@ fn main() {
 			//source: op.name.clone(),
 		};
 
-		let is_jump = match &ops[..] {
+		let is_jump = match ops[..] {
 				[(Operand::Disp(s), _, _)] => true,
 				_ => false,
 		};
@@ -549,12 +558,26 @@ fn main() {
 
 			let is_and = op.name == "and" && opsize == Opsize::SizeDef;
 
-			match &ops[..] {
+			match ops[..] {
 				[] => InstKind::None,
 				[(Operand::Addr, _, _)] => InstKind::CheckAddr,
 				[(Operand::FixRegRex(r, effect::Regs::GP), _, Access::Write)] => InstKind::ClobRegRex(Reg(r as u8)),
-				[(Operand::Rm(..), _, Access::Read)] => InstKind::ReadRm,
-				[(Operand::Rm(..), _, Access::Write)] => InstKind::WriteRm,
+				[(Operand::Rm(..), _, Access::Read)] => {
+					if op.name == "nop" {
+						InstKind::NopRm
+					} else {
+						InstKind::ReadRm
+					}
+				}
+				[(Operand::Rm(..), _, Access::Write)] => {
+					if op.name == "add" {
+						InstKind::AddRmImm
+					} else if op.name == "sub" {
+						InstKind::SubRmImm
+					} else {
+						InstKind::WriteRm
+					}
+				},
 				[(Operand::Rm(..), _, Access::Read), (Operand::Reg(..), _, Access::Read)] => InstKind::ReadRm,
 				[(Operand::Reg(..), _, Access::Read), (Operand::Rm(..), _, Access::Read)] => InstKind::ReadRm,
 				[(Operand::Rm(..), _, Access::Write), (Operand::Reg(..), _, Access::Write)] => InstKind::XchgRm,

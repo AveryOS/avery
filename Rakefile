@@ -465,10 +465,6 @@ task :verifier => [:dep_capstone] do
 	run 'cargo', 'build', '--release'
 end
 
-task :test_verifier => :verifier do
-	run 'cargo', 'run', '--release', '--bin', 'tablegen'
-end
-
 task :ci => [:user, :deps_other] do
 	case ENV['CI']
 		when 'VERIFIER'
