@@ -330,7 +330,9 @@ build_submodule = proc do |name, depends = [], opts = {}, &proc|
 
 		rebuild_check(pkg, depends, rev) do |outdated, last_ver|
 			src_path = File.expand_path('src')
-			if outdated || !File.exists?(pkg_path(pkg, 'meta', 'built'))
+			checked_out = File.exists?(File.join(src_path, '.git'))
+			built = File.exists?(pkg_path(pkg, 'meta', 'built'))
+			if (outdated || !built) && checked_out
 				actual_rev = Dir.chdir(src_path) { `git rev-parse --verify HEAD`.strip }
 				raise "Tried to build submodule #{name}, but checked out revision #{actual_rev} differs from commit revision #{rev}" if rev != actual_rev
 			end
