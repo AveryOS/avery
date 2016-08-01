@@ -1,10 +1,11 @@
 #![crate_type = "dylib"]
 #![crate_name = "assembly"]
-#![feature(plugin_registrar, rustc_private, str_char)]
+#![feature(plugin_registrar, rustc_private)]
 #![allow()]
 
 extern crate rustc_plugin;
 extern crate syntax;
+extern crate syntax_pos;
 
 use std::collections::HashMap;
 use syntax::ptr::P;
@@ -22,6 +23,8 @@ use syntax::parse::common::SeqSep;
 use syntax::print::pprust::token_to_string;
 use syntax::util::parser::AssocOp;
 use syntax::parse::PResult;
+use syntax_pos::Span;
+use syntax::tokenstream::TokenTree;
 
 macro_rules! panictry {
     ($e:expr) => ({
@@ -280,20 +283,20 @@ fn is_whitespace(c: Option<u8>) -> bool {
     }
 }
 
-fn is_whitespace_left(cx: &ExtCtxt, sp: codemap::Span) -> bool {
+fn is_whitespace_left(cx: &ExtCtxt, sp: Span) -> bool {
     let cm = cx.parse_sess.codemap();
     let fb = cm.lookup_byte_offset(sp.lo);
     is_whitespace(search(&fb, |p| { p == 0 }, -1))
 }
 
-fn is_whitespace_right(cx: &ExtCtxt, sp: codemap::Span) -> bool {
+fn is_whitespace_right(cx: &ExtCtxt, sp: Span) -> bool {
     let cm = &cx.parse_sess.codemap();
     let mut fb = cm.lookup_byte_offset(sp.hi);
     fb.pos = codemap::Pos::from_usize(fb.pos.to_usize() - 1);
     is_whitespace(search(&fb, |p| { p >= fb.fm.src.as_ref().unwrap().len() - 1 }, 1))
 }
 
-fn whitespace_wrap<'cx, F: FnOnce(&mut Vec<Output>)>(cx: &'cx mut ExtCtxt, out: &mut Vec<Output>, sp: codemap::Span, act: F) {
+fn whitespace_wrap<'cx, F: FnOnce(&mut Vec<Output>)>(cx: &'cx mut ExtCtxt, out: &mut Vec<Output>, sp: Span, act: F) {
     if is_whitespace_left(cx, sp) {
         out.push(Output::Str(" ".to_string()));
     }
@@ -303,11 +306,11 @@ fn whitespace_wrap<'cx, F: FnOnce(&mut Vec<Output>)>(cx: &'cx mut ExtCtxt, out: 
     }
 }
 
-fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree]) -> Box<MacResult + 'cx> {
+fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: Span, tts: &[TokenTree]) -> Box<MacResult + 'cx> {
     // Fall back to the old syntax if we start with a string
     if tts.len() > 0 {
         match tts[0] {
-            ast::TokenTree::Token(_, token::Literal(token::Lit::Str_(_), _)) | ast::TokenTree::Token(_, token::Literal(token::Lit::StrRaw(_, _), _)) => {
+            TokenTree::Token(_, token::Literal(token::Lit::Str_(_), _)) | TokenTree::Token(_, token::Literal(token::Lit::StrRaw(_, _), _)) => {
                 return expand_asm(cx, sp, tts);
             }
             _ => ()
@@ -479,7 +482,7 @@ fn expand<'cx>(cx: &'cx mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree]) 
             dialect: data.dialect,
             expn_id: expn_id,
         }),
-        attrs: None,
+        attrs: ast::ThinVec::new(),
         span: sp
     }))
 }
