@@ -470,6 +470,7 @@ end
 
 task :dep_newlib => [:dep_llvm, :dep_automake, :dep_autoconf, :dep_binutils] do
 	env = {'CFLAGS' => '-fPIC'}
+	# TODO: Clean newlib if LLVM is changed
 	build_submodule.("vendor/newlib", ["llvm"], {env: env, noclean: true}) do |src, prefix|
 		Dir.chdir(File.join(src, "newlib/libc/sys")) do
 			run "autoconf"
@@ -506,20 +507,20 @@ task :dep_rust => [:dep_llvm, :avery_sysroot] do
 	make = proc do
 		run *%W{make dist -j#{CORES}}
 		install = proc do |n|
-				dist = Dir["build/dist/#{n}-*"][0]
-				target = "extract-dist/#{n}"
-				mkdirs(target)
-				run 'tar', "-zxf", dist, '-C', target
-				target = Dir["#{target}/*"][0]
-				run "bash", "#{target}/install.sh", "--prefix=#{prefix}"
-				triple = File.basename(target).split('-')[3..-1].join('-')
-				dest = "#{prefix}/lib/rustlib/#{triple}/lib"
-				mkdirs(dest)
-				# Copy shared libraries for rustc into the host lib direcory
-				run 'cp', '-r', "#{prefix}/bin/.", dest
-				Dir["#{prefix}/lib/*.so"].each do |f|
-					run 'cp', f, dest
-				end
+			dist = Dir["build/dist/#{n}-*"][0]
+			target = "extract-dist/#{n}"
+			mkdirs(target)
+			run 'tar', "-zxf", dist, '-C', target
+			target = Dir["#{target}/*"][0]
+			run "bash", "#{target}/install.sh", "--prefix=#{prefix}"
+			triple = File.basename(target).split('-')[3..-1].join('-')
+			dest = "#{prefix}/lib/rustlib/#{triple}/lib"
+			mkdirs(dest)
+			# Copy shared libraries for rustc into the host lib direcory
+			run 'cp', '-r', "#{prefix}/bin/.", dest
+			Dir["#{prefix}/lib/*.so"].each do |f|
+				run 'cp', f, dest
+			end
 		end
 		install.('rustc')
 		install.('rust-std')
@@ -614,8 +615,8 @@ EXTERNAL_BUILDS = proc do |type, real, extra|
 	# We need the ELF loader for the kernel
 	get_submodule('verifier/rust-elfloader')
 
-	# Reset cargo target dir if rust changes
-	rebuild("cargo-target", ["rust"]) do
+	# Reset cargo target dir if rust or llvm changes
+	rebuild("cargo-target", ["rust", "llvm"]) do
 		run "rm", "-rf", "build/cargo/target"
 	end
 end

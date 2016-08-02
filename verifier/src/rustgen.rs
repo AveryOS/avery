@@ -708,6 +708,8 @@ fn main() {
 			insert_op(&mut tree, op, &bytes);
 			bytes.insert(0, table::P_OP_SIZE);
 			insert_op(&mut tree, op, &bytes);
+			bytes.insert(0, table::P_OP_SIZE);
+			insert_op(&mut tree, op, &bytes);
 		}
 
 		insert_op(&mut tree, op, &op.bytes);

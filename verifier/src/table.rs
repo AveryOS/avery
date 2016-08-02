@@ -328,6 +328,8 @@ pub fn list_insts(ops: &mut Vec<Inst>, verify: bool) {
 	op!([0x0f, 0xab], "bts", [Prefix(P_LOCK), Rm, Reg]);
 	op!([0x0f, 0xb3], "btr", [Prefix(P_LOCK), Rm, Reg]);
 	op!([0x0f, 0xbb], "btc", [Prefix(P_LOCK), Rm, Reg]);
+	op!([0x0f, 0xbc], "bsf", [Prefix(P_LOCK), Reg, Rm]);
+	op!([0x0f, 0xbd], "bsr", [Prefix(P_LOCK), Reg, Rm]);
 
 	op!([0x0f, 0xba], "bt", [RmOpcode(4), ImmSize(S8), Imm]);
 	op!([0x0f, 0xba], "bts", [Prefix(P_LOCK), RmOpcode(5), ImmSize(S8), Imm]);

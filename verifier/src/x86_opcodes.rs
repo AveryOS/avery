@@ -616,6 +616,16 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> {
 
 					0x20091
 				}
+				0xbc => {
+					/* bsf */
+
+					0x20111
+				}
+				0xbd => {
+					/* bsr */
+
+					0x20111
+				}
 				0xbe => {
 					/* movsx */
 
@@ -1044,6 +1054,38 @@ pub fn decode(c: &mut Cursor, prefixes: u32) -> Result<u32, CursorError> {
 																// 5 => capstone: nop word ptr cs:[rdx]
 																// 6 => capstone: nop word ptr cs:[rdx]
 																// 7 => capstone: nop word ptr cs:[rdx]
+																_ => 0,
+															}
+														}
+														_ => 0,
+													}
+												}
+												_ => 0,
+											}
+										}
+										0x66 => {
+											match try!(c.next()) {
+												0x2e => {
+													match try!(c.next()) {
+														0xf => {
+															match try!(c.next()) {
+																0x1f => {
+																	match (try!(c.peek()) >> 3u8) & 7 { 
+																		0x0 => {
+																			/* nop */
+
+																			0x20c98
+																		}
+																		// 1 => capstone: nop word ptr cs:[rdx]
+																		// 2 => capstone: nop word ptr cs:[rdx]
+																		// 3 => capstone: nop word ptr cs:[rdx]
+																		// 4 => capstone: nop word ptr cs:[rdx]
+																		// 5 => capstone: nop word ptr cs:[rdx]
+																		// 6 => capstone: nop word ptr cs:[rdx]
+																		// 7 => capstone: nop word ptr cs:[rdx]
+																		_ => 0,
+																	}
+																}
 																_ => 0,
 															}
 														}
