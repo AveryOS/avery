@@ -3,6 +3,9 @@ require 'digest'
 require_relative 'rake/build'
 require_relative 'rake/lokar'
 
+CORES = ENV['TRAVIS'] ? 2 : 4
+CORES = 1
+
 START_TIME = Time.new
 
 MACOS = /darwin/ =~ RUBY_PLATFORM
@@ -156,7 +159,7 @@ ENV['AVERY_BUILD'] = 'RELEASE' unless ENV['AVERY_BUILD']
 RELEASE_BUILD = ENV['AVERY_BUILD'] == 'RELEASE' ? true : false
 CARGO_BUILD = RELEASE_BUILD ? 'release' : 'debug'
 
-RUSTFLAGS = ['--sysroot', hostpath('build/sysroot')] + %w{-Z force-overflow-checks=on -Z orbit -C panic=abort -C llvm-args=-inline-threshold=0 -C debuginfo=1 -C target-feature=-mmx,-sse,-sse2}
+RUSTFLAGS = ['--sysroot', hostpath('build/sysroot')] + %w{-Z force-overflow-checks=on -Z orbit -C panic=abort -C llvm-args=-inline-threshold=0 -C target-feature=-mmx,-sse,-sse2}
 
 # Workaround bug with LLVM linking
 ENV['RUSTFLAGS_HOST'] = "-L #{hostpath(pkg_path("llvm", 'install', ON_WINDOWS ? "bin" : "lib"))}"
@@ -410,9 +413,6 @@ task :bochs => [:build, :emu] do
 end
 
 require_relative 'rake/deps'
-
-CORES = ENV['TRAVIS'] ? 2 : 4
-#CORES = 1
 
 task :deps_other do
 	EXTERNAL_BUILDS.(:build, true, false)

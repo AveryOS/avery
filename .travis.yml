@@ -25,6 +25,7 @@ matrix:
     cache:
       timeout: 1000
       directories:
+      - build/pkgs/build/llvm
       - build/pkgs/meta
       - build/pkgs/install
     script: rake
@@ -43,6 +44,7 @@ matrix:
     cache:
       timeout: 1000
       directories:
+      - build/pkgs/build/llvm
       - build/pkgs/meta
       - build/pkgs/install
     script: rake

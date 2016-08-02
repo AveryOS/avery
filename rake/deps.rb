@@ -108,7 +108,7 @@ def rebuild_check(pkg, depends = [], version = "")
 	pkg_rev_file = proc { |n| pkg_path(n, 'meta', 'revision') }
 	pkg_rev = proc do |n|
 		f = pkg_rev_file.(n)
-		File.read(f).strip.lines if File.exist?(f)
+		File.read(f).strip.lines.to_a if File.exist?(f)
 	end
 	built_rev = pkg_rev.(pkg)
 	digest = Digest::SHA2.new(256)
@@ -126,13 +126,20 @@ def rebuild_check(pkg, depends = [], version = "")
 
 	outdated = if !built_rev || (built_rev.first.strip != rev)
 		last_ver = built_rev ? built_rev.last.strip : nil
-		puts "Outdated package #{pkg}, old version #{last_ver || "unknown"}, new version #{version}"
+		if last_ver == version
+			puts "Package dependencies updated, rebuilding #{pkg} version #{version}"
+		else
+			puts "Outdated package #{pkg}, old version #{last_ver || "unknown"}, new version #{version}"
+		end
 		true
 	else
+		#puts "Up to date package #{pkg}, version #{version}"
 		false
 	end
 
 	r = yield(outdated, last_ver)
+
+	#puts "Writing package metadata for #{pkg}"
 
 	mkdirs(File.dirname(rev_file))
 	open(rev_file, 'w') { |f| f.puts rev, version }
