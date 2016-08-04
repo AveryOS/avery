@@ -374,7 +374,7 @@ task :dep_cmake do
 end
 
 task :dep_elf_binutils do
-	build_from_url.("ftp://ftp.gnu.org/gnu/binutils/", "binutils", "2.26", {unix: true, pkg: 'elf-binutils'}) do |src, prefix|
+	build_from_url.("ftp://ftp.gnu.org/gnu/binutils/", "binutils", "2.27", {unix: true, pkg: 'elf-binutils'}) do |src, prefix|
 		run File.join(src, 'configure'), "--prefix=#{prefix}", *%w{--target=x86_64-elf --with-sysroot --disable-nls --disable-werror}
 	end # binutils is buggy with mingw-w64
 end
