@@ -17,3 +17,6 @@ To find a virtual register slot for a stack variable:
 	Require all stack accesses to be aligned with their access size
 	Divide the offset by 8
 	SSE can cause multiple slots to be clobbered, needs special handling
+
+How to get address of globals?
+	lea _, [rip + _] gives the global value (which may change during execution, so it can't be simply subtracted)
