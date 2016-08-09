@@ -8,3 +8,6 @@ crate-type = ["rlib"]
 
 [dependencies]
 std = { path = "../rust/src/src/libstd", features = [] }
+
+[replace]
+"libc:0.0.0" = { path = "libc_shim" }

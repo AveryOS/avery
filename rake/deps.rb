@@ -11,6 +11,7 @@ UPSTREAMS = {
 	'vendor/rust/src/src/liblibc' => 'https://github.com/rust-lang/libc.git',
 	'vendor/rust/src' => 'https://github.com/rust-lang/rust.git',
 	'vendor/cargo/src' => 'https://github.com/rust-lang/cargo.git',
+	'vendor/liblibc' => 'https://github.com/rust-lang/libc.git',
 }
 
 task :upstreams do
