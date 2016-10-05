@@ -7,7 +7,7 @@
 	"arch": "x86",
 	"os": "avery",
 	"linker": "no-linker",
-	"features": "-mmx,-sse,-sse2",
+	"features": "-mmx,-sse,-sse2,+soft-float",
 	"relocation-model": "static",
 	"code-model": "kernel",
 	"exe-suffix": "",
