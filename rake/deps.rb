@@ -395,7 +395,7 @@ end
 
 task :dep_llvm => :dep_cmake do
 	build_submodule.("vendor/llvm", [], {ninja: true, noclean: true, submodules: ["clang"]}) do |src, prefix|
-		opts = %W{-DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_EXTERNAL_CLANG_SOURCE_DIR=#{hostpath(File.join(src, '../clang'))} -DBUILD_SHARED_LIBS=On -DCMAKE_INSTALL_PREFIX=#{hostpath(prefix)}}
+		opts = %W{-DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_INSTALL_UTILS=ON -DLLVM_EXTERNAL_CLANG_SOURCE_DIR=#{hostpath(File.join(src, '../clang'))} -DBUILD_SHARED_LIBS=On -DCMAKE_INSTALL_PREFIX=#{hostpath(prefix)}}
 		opts += ['-G',  'Ninja', '-DLLVM_PARALLEL_LINK_JOBS=1'] if ninja
 		#-DLLVM_ENABLE_ASSERTIONS=On  crashes on GCC 5.x + Release on Windows
 		if ON_WINDOWS_MINGW
