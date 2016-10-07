@@ -508,22 +508,11 @@ task :dep_rust => [:dep_llvm, :avery_sysroot] do
 	make = proc do
 		run *%W{make dist -j#{CORES}}
 		install = proc do |n|
-			dist = Dir["build/dist/#{n}-*"][0]
-			target = "extract-dist/#{n}"
-			mkdirs(target)
-			run 'tar', "-zxf", dist, '-C', target
-			target = Dir["#{target}/*"][0]
-			run "bash", "#{target}/install.sh", "--prefix=#{prefix}"
-			triple = File.basename(target).split('-')[3..-1].join('-')
-			dest = "#{prefix}/lib/rustlib/#{triple}/lib"
-			mkdirs(dest)
-			# Copy shared libraries for rustc into the host lib direcory
-			run 'cp', '-r', "#{prefix}/bin/.", dest
-			Dir["#{prefix}/lib/*.so"].each do |f|
-				run 'cp', f, dest
-			end
+			dist = Dir["build/tmp/dist/#{n}-*"].sort_by{ |f| File.mtime(f) }.reverse[0]
+			run "bash", "#{dist}/install.sh", "--prefix=#{prefix}"
 		end
 		install.('rustc')
+		install.('rust-mingw') if ON_WINDOWS
 		install.('rust-std')
 	end
 	build_submodule.("vendor/rust", [], {env: env, noclean: true, make: make}) do |src, prefix|
