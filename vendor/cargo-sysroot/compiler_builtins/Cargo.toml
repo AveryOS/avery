@@ -1,0 +1,9 @@
+[package]
+name = "compiler_builtins"
+version = "0.0.0"
+authors = ["The Rust Project Developers"]
+
+[lib]
+name = "compiler_builtins"
+path = "lib.rs"
+test = false

@@ -10,4 +10,5 @@ crate-type = ["rlib"]
 std = { path = "../rust/src/src/libstd", features = [] }
 
 [replace]
+"compiler_builtins:0.0.0" = { path = "compiler_builtins" }
 "libc:0.0.0" = { path = "libc_shim" }
