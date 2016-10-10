@@ -6,9 +6,5 @@ version = "0.1.0"
 path = "lib.rs"
 crate-type = ["rlib"]
 
-[dependencies.core]
-path = "../vendor/rust/src/src/libcore"
-features = ["disable_float"]
-
 [dependencies]
 collections = { path = "../vendor/rust/src/src/libcollections" }

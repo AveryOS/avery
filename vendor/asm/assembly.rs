@@ -1,6 +1,6 @@
 #![crate_type = "dylib"]
 #![crate_name = "assembly"]
-#![feature(plugin_registrar, rustc_private)]
+#![feature(plugin_registrar, rustc_private, dotdot_in_tuple_patterns)]
 #![allow()]
 
 extern crate rustc_plugin;
