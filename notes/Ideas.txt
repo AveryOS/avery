@@ -1,0 +1,8 @@
+Reserve R15 for the mask register. Simplifies code verification and allows easy resizing of address spaces. Actually it only makes expansion of address spaces easy. Reduction is still hard.
+
+Zero SSE registers when context switching. Have syscalls that block use a calling convention which invalidates all SSE registers.
+Alternatively just zero some registers, and store the rest (in the same fashion as the usermode calling convention).
+
+Don't store temporary variables on the call stack. Only use the user stack. Still use the call stack for push/pops of registers.
+This simplifies verification alot.
+Reserve RBX for the stack and replace all RSP references with RBX. (Might also make frame pointers work).

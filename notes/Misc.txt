@@ -46,3 +46,7 @@ Use a singly-linked list to implement llvm.stacksave / llvm.stackrestore / dynam
 Use IA-64 exceptions
 	They don't require a funclet which accesses another function's stack frame.
 	Kernel transitions are cheap anyway
+
+Pass the available stack space usage for arguments in a register for CFI. The callee will panic if it acceses beyond that.
+	Direct function calls won't need this since we can ensure that callees can't access beyond the caller's stack space.
+	(Impacts verification when a callee modifies a caller's temporary stack variable, could require duplication here or make them read-only for the callee)

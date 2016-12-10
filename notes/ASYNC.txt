@@ -1,0 +1,123 @@
+Ok. New priority plot. Each event loop in the server has one ringbuffer per priority level, it processes only one ringbuffer at a time (enforced by the kernel)
+Messages sent during processing appears in the ringbuffer matching the priority level of the messages the event loop is processing
+
+
+A way would be to create a Call object with the sender getting a Promise capability to it that simply stores messages (in the Call object) to be send.
+The receiver would get a Reply capability to the same Call object allowing it to resolve the capability and send the enqueued messages.
+
+When creating a Reply object, associate it with an Endpoint queue which can store enqueued outbound messages on the Promise. When it is resolved, go through the queue and send all messages related to the object. (or send all messages which can be sent ATM, so ordering is preserved?)
+
+Hm... might not a queue per task/closure in the sender? (If we want to preserve ordering) :/ Not ideal
+
+A = NewObj
+B = NewObj
+A.Msg(B)
+B.Msg(A) // Can we send this?
+
+
+What happens if a promise is used in a message and the server need access to its badge before continuing?
+What happens if two promises are used? We need both before sending?
+
+What if a promise is sent to another server than the one creating it?
+
+For promises, have a promise capability on the Endpoint with a word indicating which promise it is. (Like QuestionId on CapTP)
+
+For a call:
+ - allocate a native 'future'. Create a Promise capability with a pointer to the future. Send that to the server
+ - when it is resolved, revoke the capability (which destroys all capabilities, even those in event queues (can this be done?)
+
+
+Use a HashSet of exported pointers for Caps?
+
+Store a ExportId in the Cap/Promise struct. Each connection has a Set of ExportId which the other end can access.
+
+Questions = Map fom Future (in C) to Int
+Answers = Map from Int to Promise (in S)
+Export = Map from Cap (in C) to Int
+Imports = Map from Id to Future (for received futures?)
+
+Can we combine tables with Pointers as Ids and a HashMap with the Server locking while searching and the Client locking while resizing?
+
+type Cap = Rc<CapData>
+
+enum CapData {
+  Resolved(Vat, Id),
+  LocalFuture(Vat, Id),
+  Future(Vat, Id)<
+}
+
+How to trace reference counts of objects?
+	Imported objects have a ref count. When it drops to 0 it sends a Release Message?
+
+Call objects have 2 kinds of references to it. A future and a promise. Each has a RC.
+
+When sending a local cap (to remote), check if the remote RC is >0, if it's 0 increase the local RC, then increase the remote RC
+When a Release Message is received, reduce the local RC. If the remote RC is 0, remove the remote RC.
+
+When sending a local cap (to local), increase the local RC.
+When destroying a local cap, reduce the local RC.
+
+When sending a remote cap to it's owner, do nothing. When it is received, the local RC should be increased.
+When sending a remote cap to another party, Send a Provide message to the owner (it must arrive before any message from the 3rd party can), which gives the other party access to it's channel and the object. (The Provide message could be sent on the inbox from the other party to the owner, allowing use of multiple inboxes per vat)
+
+When destroying a remote cap, reduce the remote RC, if it reduces to 0, send a Release Message to the owner.
+When destroying a future, reduce it's RC and free and send a failed resolve message if 0.
+When destroying a promise, reduce it's RC and free if 0.
+
+When doing a call, create a Call object with a RC count of 1/1. Send the promise part and keep the future.
+
+When sending a Call object, increase it's RC, and give the receiver access to it.
+
+
+Have Promises be a kernel object and avoid disembargos?
+
+Avoid disembargos by sending Resolve after sending queued messages on the promise? (does this need kernel objects?)
+- probably to handle the case where a client send a pipelined call before the resolve arrives.
+- also need global messages inboxes, not per connection
+- Can Returns still use per connection inboxes?
+
+How are promise loops prevented? Check in the kernel for loops when setting them?
+
+
+P = A.call
+P2 = A.call
+P.a P2
+P2.a P
+P.b P2
+P2.b P
+P.c P2
+P2.c P
+
+
+P = A.call
+P2 = A.call
+C.test P
+P.foo
+P2.foo
+C.test P
+C.test2 P, P2
+P2.bar
+^ It will add to the first promise, then when that is unqueued, it is added to the next (when it tries to send)
+C.dummy // Needs to arrive after C.test2...
+
+// How is P2.bar sent after C.test2? (Does it need to?)
+Set all message parameters Pointers to the same queue that was used for the call?
+
+P = A.bar; P.bar; B.foo(P); B.bar;
+
+Simple case with embargo
+P = A.call
+P.foo
+<-- resolve
+P.bar
+C.test P
+C.dummy
+
+Store a Promise pointer in each capability. If there is one, any messages is queued there. If there are none, check in the sent capabilities for one and set that.
+When sending messages in a Promise queue. Unset the Promise pointer for each capability.
+
+When resolving a Call object. We need to make sure that the Resolve message is received after any of the queued messages. This means that anyone that is sent a Resolve message shouldn't be able to send messages ahead of the sent queued messages. So the receiver of the queued messages must have a shared inbox.
+
+Can we treat LOCAL caps the same as REMOTE? Have the Vat use a connection (with RC counts) to itself?
+
+When sending a Finish message, do not alert the target since the message isn't important?

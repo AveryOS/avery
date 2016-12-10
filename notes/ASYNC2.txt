@@ -1,0 +1,136 @@
+Have a HashMap<Cap, RefCount> in each Vat. It acts kinda like a large expandable CSpace. If a Cap is in the map, the Vat has access to it.
+
+When sending caps, ensure it is in the current vat's map (so the caps in the receiver's inbox is verified). When receiving, add it to the receiver's vats' map (and increase the RC).
+
+When a Cap object is destroyed. Reduce the RC count in the map. If 0, send a Release message to the owner.
+When a Release message (unforgable) is received
+
+Can we unify local and remote caps in this scheme?
+How are promises dealt with?
+
+HOW TO RC COUNT:
+When sending a cap (in kernel), increase it's RC by 1.
+When (AFTER) receiving a cap (in kernel), send a message to the owner, asking to decrease it's RC by 1.
+
+---- 2 party RC counting ----
+When before sending a cap, increase it's RC in the sender vat's map (only if we the receiver doesn't own it). Send a Provide message to the owner (which increases the owner's RC count by 1).
+When receiving a cap, add it to the receiver's vats' map and increase the RC.
+Usermode can increase and decreace the RC for entries in it's correpondings vats' map. If it's decreased to 0, remove the entry and send a Release message to the owner. If we are the owner, send a Destroy message to ourself.
+
+If we receive a cap from and neither the receiver or sender owns it, send a ProxyRelease to the sender which will in reduce the cap's RC and possibly send a Release to the real owner. <--- CAN STILL RACE. Look at embargos for solution?
+
+
+Store usermode RC and incoming RC separately. When usermode RC goes to 0, a Release message with the incoming RC count is sent. Only the kernel modifies incoming RC.
+(This is simply caching. We could have Increase and Decrease messages that gets sent per user action)
+
+Have the Call/Promise object record which vat to send message from (so they appear in the right inbox)? 
+
+Have the Call/Promise object send the message from the resolving vat's connection to avoid multiple writes for inbox ring buffers? Works for the single embargo case
+
+Keep the RC in the local/user heap object?
+
+Call Call/Promise objects Queue? 
+
+RC plot:
+When sharing a cap with a 3rd party, increase the RC locally. When we receive a 3rd party cap, send a AcquireRelease to the 3rd party (which will increase the RC). The 3rd party will in turn send a Release to the sender which will reduce the sender's RC.
+
+E-order plot for 3rd party:
+When sharing a cap with a 3rd party (and we have sent messages to it). Create a Queue object. Send a Provide message (increases RC count) to the owner with the promise side of the Queue. Send the Queue instead of the cap to the receiver. The owner will resolve the Queue object and send a Resolve message to the receiver.
+
+^^ how do you resolve the queue object? <- send messages to yourself and always process message from yourself first? | Can this be absued?
+^^ Limit the amount of messages sent to yourself when resolving (and retry later)?
+^^ Can we just process the messages directly? We own the object so we now we won't block. <- No we need to hold the lock for the Queue object, which can block other processes sending.
+^^ Yes, we can. Resolve the Queue (preventing other processes from sending more), and then processes the queue messages.
+^^ Resolve the promise and send a ProcessMessages to outself, avoiding copying of messages.
+
+
+Resolving a promise to a 3rd party object will just send a Provide message with the Queue object to the 3rd party.
+
+Call Queue Deferred?
+
+Store a user pointer in the waiting list for the Queue object.
+
+
+Store a pointer in the cap map for futures to the function to call when complete.
+
+When a Resolve message arrives, replace the user data pointer with the replacement cap in the cap field.
+
+Where to store the results of calls before a client is waiting on it? Store it in the Call object (share the memory with the message queue, which is now unused?). That also avoids the need for a Return message.
+
+Allow multiple promises for each call? Add a index on the promise cap. Store all the caps for a promise with the same hash so they can be found near each other in the hashtable when Resolving? (Have one resolve message per cap?)
+
+
+^^ doesn't handle multiple tasks waiting on the same promise <- we can make a linked list of tasks for this
+^^ server side needs to allocate a task to serve a call, so the queued messages could be stored in that structure <- we can combine the task structure and task stack allocation
+
+Increment a count on Call and decrement on Return on caps to track outstanding calls? Can be used to optimize sending a cap to a 3rd party.
+
+ACCEPT Case:
+
+  # For example:
+  # - Alice, in Vat A, holds a promise P, which currently points toward Vat B.
+  # - Alice calls foo() on P.  The `Call` message is sent to Vat B.
+  # - The promise P in Vat B ends up resolving to Carol, in Vat C.
+  # - Vat B sends a `Provide` message to Vat C, identifying Vat A as the recipient.
+  # - Vat B sends a `Resolve` message to Vat A, indicating that the promise has resolved to a
+  #   `ThirdPartyCapId` identifying Carol in Vat C.
+  # - Vat A sends an `Accept` message to Vat C to pick up the capability.  Since Vat A knows that
+  #   it has an outstanding call to the promise, it sets `embargo` to `true` in the `Accept`
+  #   message.
+  # - Vat A sends a `Disembargo` message to Vat B on promise P, with `context.accept` set.
+  # - Alice makes a call bar() to promise P, which is now pointing towards Vat C.  Alice doesn't
+  #   know anything about the mechanics of promise resolution happening under the hood, but she
+  #   expects that bar() will be delivered after foo() because that is the order in which she
+  #   initiated the calls.
+  # - Vat A sends the bar() call to Vat C, as a pipelined call on the result of the `Accept` (which
+  #   hasn't returned yet, due to the embargo).  Since calls to the newly-accepted capability
+  #   are embargoed, Vat C does not deliver the call yet.
+  # - At some point, Vat B forwards the foo() call from the beginning of this example on to Vat C.
+  # - Vat B forwards the `Disembargo` from Vat A on to vat C.  It sets `context.provide` to the
+  #   question ID of the `Provide` message it had sent previously.
+  # - Vat C receives foo() before `Disembargo`, thus allowing it to correctly deliver foo()
+  #   before delivering bar().
+  # - Vat C receives `Disembargo` from Vat B.  It can now send a `Return` for the `Accept` from
+  #   Vat A, as well as deliver bar().
+
+When Vat B finds out that the promise should be resolved to an object in Vat C, it sends a ResolvePromise message to Vat C asking it to resolve the promise to Carol.
+^^
+
+UNHANDLED CASE: (handled!)
+P = A.bar;
+P.m1();
+C.send(P);
+<-- P resolves to R
+in C.send:
+P.m2(); <-- goes directly from C's vat to R's vat, racing with m1()!
+
+CASE:
+If A sends a promise pointing to B to C. C shouldn't be able to send a result back to A.
+
+---
+Have a linked list of thread to schedule (which is valid for a single timeslice). Sending a message to any thread appends them to this list. If any other thread puts the owner the timeslice in an alert stance, add the owner to the top of the list.
+
+How to handle multiple promises from a single call? Can we reuse the one for the call by tagging queued messages with indices?
+
+To implement synchronious RPC, use a inbox per thread and an capability space per process. Does this result in issues in the vat model? The inbox could be just enough to fit the reply message.
+
+We don't even need inboxes, we can just have the Reply syscall resume the thread.
+
+Can more messages be sent due to 3rd party exchanges or promises being returned and later resolved? (Yes, for the promise case atleast..).
+Can we just ignore these promises and not allow you to wait on them? (so no Resolve messages are sent). Do we ever need to wait on a promise?
+We can ask another thread running an event loop to wait on the promise for us.
+
+Can we allocate a Call object and reuse it? (Hm.. no, the callee could share the promise end and we won't be able to revoke it) Just rely on free-list optimizations here.
+Could have a thread local free list (with 1 entry) to optimize for this case.
+
+Say we give a server an event handler to send events to from a cap. We then set the cap as the event handler for the cap. Now the object won't be destroyed.
+
+Say a compositor creates a wl_surface object and passes a cap to it on the client. Now the client subscribes for events on the wl_surface object and asks it to send to the passed cap. Now the wl_surface object has a reference to itself and won't be collected...
+^^ Ensure the the passed event handler is a different object. Do the test on the Resolve message if a promise is passed.
+^^^ Doesn't work if two wl_surface object's event handlers point to eachother.
+
+^^ Solve it by making the wl_surface cap not transferable?
+
+Could have two compositors each with a wl_surface object, and point the event handlers to the other wl_surface.
+
+Should there be a way to test if a cap is a promise. Useful if you want to inspect/compare caps
