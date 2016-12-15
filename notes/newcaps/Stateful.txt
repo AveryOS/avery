@@ -1,0 +1,103 @@
+Stateful hacks: http://erickt.github.io/blog/2016/01/28/stateful/
+    It can't detect if variables are shared in matches. We can assume they are and count them towards the shared struct's memory usage.
+        How will we get the types of them if they aren't actually a variable (like in a match)?
+            We can detect if there is a variable with that name.
+
+    https://github.com/rust-lang/rfcs/blob/master/text/1522-conservative-impl-trait.md
+
+    http://llvm.org/docs/Coroutines.html
+
+    What variance would lifetimes passed to the state struct have?
+        We need to know this in order to generate the struct?
+        Will they be passed as part of the generic types of fields?
+        If so, the type of the return value is affected by the implementation
+        We probably should conservatively assume they are invariant here
+            Find counterexamples!
+
+        Store the arguments passed to the function in the state struct inside PhantomData!!!
+            https://doc.rust-lang.org/std/marker/struct.PhantomData.html
+
+            Why is T: 'a required here?? https://doc.rust-lang.org/std/marker/struct.PhantomData.html#unused-lifetime-parameters
+
+            Actually rust might copy them into an alloca, so we need to include them
+
+        https://doc.rust-lang.org/book/lifetimes.html
+        https://doc.rust-lang.org/nomicon/references.html
+
+    How do we preserve destruction order of fields in the state struct?
+        https://github.com/rust-lang/rfcs/issues/744
+
+        How will LLVM's closure code work with Rust's generated code with regards to destructors?
+            It will probably work fine
+
+    For name resolution and transforming an closure, we're unable to detect variables outside the closures.
+        Does this affect the transformation?
+            If so we can add an attribute to the upper level so we can detect the variable.
+
+
+    How can we get the type of a variable?
+
+        How can I assert that the type of a field and a variable should be the same?
+
+        fn assert_type<T>(a: &T, b: &T) {}
+        assert_type(&state.field, &var);
+
+    How can we generate intrinsic with LLVM types handle and i1?
+
+    We need to add space for futures in await!() since those live across states!
+
+    How does it interact with MSVC and GCC style exceptions?
+
+    Have a Coroutine trait, then implement Future and Iterator for all types T: Coroutine
+
+    How do teal with LLVM's token type?
+    Can we modify LLVM to remove it?
+    Can we add native token type to Rust?
+        Possibly if local variables do not use alloca if there are no refernces to them in debug mode
+
+    Can Rust's trans introduce allocas on top of local variables which can live across state points?
+    Can LLVM introduce more state to be put in the state struct with is not allocas?
+    Say a %val = ...; and val is shared between statepoints
+
+    LLVM 4 upgrade https://github.com/rust-lang/rust/issues/37609
+
+    LLVM's coroutine CoroElide's pass will inline a coroutine without the split and remove the coroutine instrinsics making optimization easier
+        Can we do something like this for frontend state transformations?
+
+    https://github.com/llvm-mirror/llvm/tree/master/lib/Transforms/Coroutines
+
+    In a LLVM function without alloca, what is the possible states?
+        phis and function arguments?
+            Can we relate the state size of phis generated to number of allocas?
+                Is the storage bounded by the largest phi in the function?
+
+        a load before a suspend point would also need to be stored
+
+    If a LLVM IR function has no phis, the size of it's coroutine frame is below or equal the size of it's parameters and all allocas.
+    We must have an invariant on LLVM optimizations, that the size of a coroutine frame is below or equal that of the function before the optimizations are done.
+    We must require that LLVM optimizations never increases the size of a coroutine frame.
+        This doesn't work if LLVM inlines things.
+            How does that work for frontend transformations?
+                ^ this is similar to inlining ^ We need to add space for futures in await!() since those live across states!
+
+    C++ coroutines
+        https://isocpp.org/files/papers/N4402.pdf
+        https://paoloseverini.wordpress.com/2015/03/06/stackless-coroutines-with-vs2015/
+        https://www.youtube.com/watch?v=8C8NnE1Dg4A
+        https://raw.githubusercontent.com/boostcon/cppnow_presentations_2015/master/files/CppNow2015_Coroutines_in_C%2B%2B17.pdf
+
+    For a Rust RFC, detect coroutines by the use of their keywords
+
+    How does Rust deal with mutually recursive functions both returning impl Trait?
+
+    Future's Poll enum is wrong. A future should only have 1 result (possibly Result<>). So a future should return an Option<T>. None if it's not ready. Some() if it is.
+
+    Does FnOnce FnMut and Fn variants make send for Coroutine?
+        self would make you unable to run it multiple times, so no.
+        &self would make it unable to change states, so no.
+        &mut self is the only option left
+
+    How can we pass on the argument to await!()?
+
+https://internals.rust-lang.org/t/pre-rfc-coroutines/4281
+https://github.com/rust-lang/rfcs/issues/388

@@ -1,0 +1,314 @@
+Clients provide memory to server during a session.
+Clients cannot revoke memory servers are using.
+Client give servers access to a memory pool, which represent all memory a client could potentially access.
+When a server require memory for a session it uses the memory pool to allocate memory. If that fails, the request will fail.
+
+The memory pool could be managed in the client or in another process. (This will block the server, which is BAD.., might need to retry anyway)
+
+We can have space banks be a kernel object so it's always terminating. If a client wants a more custom algorithm, it can provide a space bank of 1 page and refill it and retry all failing requests send to servers.
+For freeing, we can get the space bank to notifiy the client when pages are returned.
+
+For shared state, can we allocate memory in all n sessions (and duplicate the information). We can cache this to avoid writing to everything always.
+
+How can we transfer caps in this system?
+
+Even if you just "borrow" a capability, you require space in the server to indicate you have access. If you use seL4 like caps, this cost is on the client. But then you can't do buffering of messages
+
+
+How to handle memory allocation of network packets, etc.? Just memory allocation in the opposite direction? 
+
+If you send a request, you must provide memory for the answer (have a ring buffer of ANSWERs only and reserve from that?)
+
+Can each process have an area where they queue memory credits transfers and let any process be able to flush it. Processes should be able to check their credit with a read only page. This avoid kernel transitions.
+
+Assuming each request touches a finite amount of client memory, The server could use its own pages to lock all client memory a request might touch. (in seL4, it could copy the memory to it's own pages before touching them)
+This could be represented by a count of pages in the client's session. So if the server wants to lock a page, it increments that count and reduces it's own available page count.
+This doesn't work as the kernel would need to know which of the pages are in use. Keep a stack of in-use pages instead.
+
+Could "duplicate" objects on a fine level granuality where each access could result in a page fault. So each read/write access to user level object can fault at any point. Have special pointers to client memory.
+The pointer wrapper could have a get() method that can fail and a set() method that always succeeds.
+
+An alternative would be to bound client state by a server safety memory. So during processing all client state would be "locked".
+
+To track which processes has access to a bushel, require each process to submit a page to the server. The page will be used as part of a hash table to identify who has access to the bushel.
+Could just use pages here, and require that any only the processes that are allowed to send messages to the bushel has access to the ring buffer?
+
+
+How to send a cap to object O in server A from client C to server B without seL4 caps?
+We create a bushel for the pair (receiving process, client space bank associated with receiving process) if one does not already exist. (doesn't work if bushels can have multiple processes accessing them)
+What if client C uses different space banks for A and B?
+
+
+Might be problematic to use byte count for memory credits as only whole pages can be used. Can we use both a page count and a byte count?
+
+
+If a server does a RPC to another server, it should use the client memory for that.
+
+
+For network packets. In the ethernet driver, allocate the pages with with receiver (network server) having access. The network server will try to batch map them into client space.
+
+Let the creation of Rust caps to object in bushels increase a ref count in the client. The destruction of a Rust cap decreased this count. If it reaches 0, the bushel is destroyed.
+
+You'd want a bushel for each (space bank, client) pair. Can we use this to directly transfer (and possible create) bushels for the client in the server? Might require that the client talks to all servers using the same space bank.
+Can we ask the client for a refund for the bushel we created here, so we don't require shared space banks?
+
+Server could use the same allocation for all bushels in a space bank and just flag the object themselves with the bushel they belong to.
+
+
+Have integers identify objects in "space banks". Object there are tagged with a bushel.
+How to tell which space bank bushels belong to? Each bushel has a capability to a space bank.
+Let bushels be implemeted by a map from integers to pointers to an memory region allocated from a space bank.
+
+
+In order to implement async RPC, we must allocate memory for the result. We may allocate a notification event so the server can signal when the RPC is done. We must also allocate memory for the arguments and a capability to the memory of the result, possibly a capability to the notification event, capabilities to this memory must be placed in an ordered list for the server to consume. This list must be allocated too, and all allocations are done using a space bank provided by the client. Finally we must then signal the server to tell there's an RPC to process.
+From the server-side, it now has a set of lists, each client having a list of RPCs to process. Who allocates memory for this set? And how can the server efficiently find a non-empty list so it can process RPCs?
+
+
+How will virtual memory allocation work in servers? Who pays for that overhead?
+
+For events, use a linked list of buffers. Insert the buffer into the list when you add an item. Remove it when it's emptied. Read off event round robin from the buffers. Doesn't work if we require revocation of pages, unless it is implemented in the kernel and intercepts revocation.
+
+If we implement events for windows and network event using some layer on top, what will happen if servers want to listen to those event in addition to messages to caps?
+
+Does this fundumentally rely on seL4 like caps and revocation (so we can reuse bushel identifiers)?
+
+Would it work just as well with caps being to objects instead of bushels? Bushels identifies space banks and messages queues, so probably no
+Can it still work if message queues are kernel objects?
+
+Buffer sending/processing events so syscalls can be batched, would make it easier to use usermode
+
+Using bushels avoids syscalls when manipulating Rust-level caps.
+
+A server cannot have a single message queue since the queue must be client allocated.
+
+For sending messages, use (prefer?) user-mode shared memory for data and kernel-mode shared memory for caps
+
+Have a kernel-level set of caps where you can insert one and get the index of it, and also remove it. Like a special CSpace.
+
+Apps can use ring buffers to queue events without extending them (blocking instead), but server must extend them as they cannot block.
+
+Create a LinkedListPage like a memory Page cap which unlinks itself when revoked?
+
+How compatible is this with sandboxing?
+
+How can we prevent a space bank from returning a physical page twice? Are all sources for pages for space banks trusted?
+
+How can we create shared memory between a client and a server without pages being mapped twice?
+    Let space banks return a linear region of memory which you can extract pages from?
+
+Can parts of CSpaces be shared between processes?
+
+Can a server require that an incoming cap must be to a object in the server? (or even in the same bushel?)
+
+For async RPC use CapTP style and send calls inline in message buffer.
+The server will allocate a message buffer to return results in.
+So each bushel will have an incoming and outgoing message buffer.
+    How will returns to sync RPC work there?
+    Use a reply cap which return the local pointer to the RPC object?
+
+    If there are multiple clients to a bushel, do we create one outgoing buffer per client?
+
+epoll/kqueue combines events from event sources into one notification, so your queue is bounded by the number of event sources.
+    This won't be beneficial if the state for the event has to be stored somewhere?
+    For cases where an event source can produce an unbounded number of events, require to user to restart event notification after an event is generated.
+    Say for change a file change event would only send one event, even if the file is changed later.
+
+    The key in the above example is that the client will only get as many events to it as it asked for.
+        This does not apply to network packets.
+        It could possibly be applied to TCP though
+        UDP is still problematic
+
+        Same thing applies for packets arriving to the network server from ethernet servers. The network server could run out of memory to receive them.
+
+        What about connection requests from TCP sockets?
+            Deny them?
+
+        For events from window servers, can we just "freeze" the window if we can't send further events?   
+            No, this doesn't work!
+            We need to "combine" events, essentially maintain a state for the object we subscribed to changes to. So the server would update the cursor state and indicate to the client state the cursor state changed in a fixed size buffer. This is the kqueue pattern. 
+
+            If clients would like to inspect the history of a state, you could use a ring buffer of the last N cursor states.
+
+        We cannot use the outbound buffer for the bushel for events, since that would allow servers to send unbounded number of events.
+            This maintains the invariant that the size of the outbund buffer is propotional to active RPCs.
+
+        Require an EventBuffer which consist of shared memory and an async notification cap.
+        This must be passed to the server before it can create events.
+
+        To send an event the server writes the relevant information into the memory and signals the async notification.
+
+        What will the lifetime of the event buffer be?
+            It should be server deallocated.
+
+        The size of the event buffer cannot change without user interaction.
+            Does the same apply to RPCs, the client must resize the reply queue if it notices that the answers won't fit in it?
+                It could be done by the server too (both sides will have to reallocate the virtual memory for it anyway)
+
+                How can we do this on-the-fly, will we require a list of event buffers?
+
+        Would we have one event buffer per client for bushels with multiple clients?
+            Is this the same case as having one output event queue per client?
+
+        ^^ This is the same structure as having each Reply cap be an EventBuffer. Compare this 
+
+Say for a system with 3 priority levels, let each server have a thread which only processes events from one priority level.
+    Create these as needed?
+
+How does an shared allocation per RPC or an identifer passed over a message queue compare with regards to?
+    Client-side local allocation (see futures-rs)
+        Queue wins here!
+    Promise pipelining
+    Lifetimes
+    Any combination of the above
+
+Can we use the rust global allocator and simply swap between them when changing between clients?
+    Would make it too easy for code to create global state
+
+Promise pipelining:
+    Allocate a Promise object when we want a cap to be returned
+    Can these objects be on a shared page between a client and a server? and associated with a bushel
+
+Let RPCs be indicated by pointers to RPCFuture inside Box<Future>? So use message queues instead of allocating memory for RPCs
+    How would we find the outer future from this?
+    Store a pointer to it inside the RPCFuture?
+    Hm.. RPCFuture might not be directy inside the box so they may move?
+    We can detect when a &mut RPCFuture is directly inside a Box<Future> and avoid an allocation in this case?
+
+        We need to ensure that once an RPC it started, it cannot move until it is completed.
+
+        Can we use an unsafe trait for this and implement it for the combinators?
+            unsafe trait PinnedPull
+                unsafe fn pinned_pull ...
+
+            We can use a macro to implement both PinnedPull and Future for relevant combinators
+
+            try_pinned_pull(f: F) will use pinned_pull on the future F otherwise use regular pull. Executors will use try_pinned_pull() to pull. Box<Future> will also use it. Implementors of PinnedPull will also use try_pinned_pull()
+
+
+            This moves the future!
+                https://github.com/alexcrichton/futures-rs/blob/master/src/future/select.rs
+
+            We can pass both the task and the RPC in the cap to avoid the unsafety?
+                How can we get the return value into the future then?
+                    Use some poll() alternative which always polls() the nested future?
+                    Add an event() function which calls event() on all unready futures?
+                        Does poll() already have this property?
+                        Store the event that awoke the task in the task itself.
+                        A future can look at the current task and compare to see if it was the reason it awoke.
+
+                        aturon, acrichto: Or when a future in a task causes the task to be resumed (or polled), is a poll() call on that future guaranteed to happen?
+
+                        aturon, acrichto: Once a Future calls poll() on a contained future. Is it required to call poll() again for every poll() call to itself until it returns a value?
+
+                        Is a Future implementation required to call poll() again on all futures which it previously called and where the result was NotReady?
+
+                        Pass a &'e mut Event into poll() to allow access to the event, and require that the task is the only one to call poll()
+
+                        If a future returns NotReady, it cannot be moved until it returns a value.
+
+
+                    Can we get the kernel to write the result directly into the future if futures don't move?
+                        Now we need to also awake the task.
+                        Can use some structure which is propotional to the number of tasks compared to a queue of task to be awaken which is propotional to the number of concurrent RPCs?
+
+                    Can we have event() return the value of the future to the upper layer, so the RPC future itself won't have to store the value?
+
+                    This still requires that the future won't move, but doesn't require unsafe to do so
+
+                Can we somehow do a fmap on a future which turns it into a type variant which cannot move?
+
+                Have a type which turns into a non-moveable type once activated?
+
+                So make the movability property of a Future a generic parameter?
+                    How will this interact with trait objects?
+
+                https://gist.github.com/Kimundi/81b9944a896052b5407f
+
+
+            Specialize the implementation of poll to avoid an allocation
+
+            Could replace the Future trait with an unsafe trait and require that all combinators won't move futures.
+                Not a good idea if implementing Future on things is a common pattern.
+
+Interactions between futures and stackless coroutines?
+
+Can coroutines be unboxed like closoures (are they unboxed and sized?) and require no memory allocation?
+    For LLVM coroutines, can we allocate it's data from the stack, and then return that by value?
+        We need to ensure that we have enough space to return by.
+        Se we need to compute shared variables ourselves?
+
+    For LLVM coroutines, use a Stateful like tool to compute the shared state.
+    We can require that this shared state is 'static or pass on lifetimes variables inside?
+
+    Call them Unboxed coroutines!
+
+    Rust extension: async fn blah<'l> -> impl Future<'l>? where 'l is valid for the entire function. Lifetimes not captured by the async type will only be valid until the first suspension point.
+
+        http://llvm.org/docs/Coroutines.html
+
+        Can we just pass all lifetimes to the shared struct? That ensures the entire function has access. A future extension could limit lifetimes to only the first suspension point.
+            Look up lifetime interaction with impl Trait
+                https://github.com/rust-lang/rfcs/blob/master/text/1522-conservative-impl-trait.md
+
+        Variable sized stack allocations break unboxed coroutines!
+
+        How does coroutines impact destructors?
+
+        Have a trait AsyncConstructor, which is implemented for all T: Future?
+
+        So we'l call AsyncConstructor::construct() for Self = Return type?
+
+        Could we have async unboxed closures too?
+
+        <Zoxc> eddyb: Can the size of unboxed closures computed after MIR optimizations?
+        <eddyb> Zoxc: iff there's no captures whose sizes depend on type parameters
+
+        Can we use coroutines to implement futures-rs like combinators?
+            No, they have methods?
+            They could be used to implement the default methods on the Future trait?
+
+        Why is llvm.coro.id distinct from llvm.coro.begin?
+
+        Why is llvm.coro.promise useful or required? Can't it just be stored in the allocator or with the coroutine handle?
+            It allows you to read out a variable in the state.
+            Frontend could wrap it manually, but having it be an alloca easies optimizations. When it is actually useful though?
+                Generators Pascal style where you assign to a Result variable?
+
+        To ensure llvm.coro.size() returns a small enough value, compare it with the allocated storage and generate a trap instruction if it is smaller.
+
+    Can we get LLVM to change the size of a struct at optimization time?
+
+The sizes of incoming/outgoing queues is propotional to concurrent RPCs, and only require allocation if concurrent RPCs increases in number.
+
+How can we do messaging? We won't know when the server has entied it's queue because of replies. So we might require unbounded queues because of this?
+    Is this problematic? Won't affect RPC id allocation atleast
+
+Are incoming/outgoing queues always the same size and dual for RPCs?
+    Can we exploit this
+
+In future-rs,
+    If a task is awoked by an event, it should inspect the future to get the result of it.
+    If a task waits on a future, it must get the result when it's awoken.
+
+    Can we have type with no public constructors which poll() has as an argument to ensure poll() is only called from within a task.
+        let it be &TaskHandle or &mut TaskHandle. So they can't store it anywhere. (Is it now not zero sized?)
+        Make it non-copyable and require poll() to return it?
+        Use struct Handle<'s>{ f: PhantomData<&'s mut TaskHandle> }?
+        So poll<'t>(handle: Handle<'s>, ..)
+In a client, to allocate an unique ID, use x mod N; x += 1; If we limit concurrent RPCs to N. This will always give an unique id.
+    Store events in an array of size N indexed by future IDs . Futures can then look up their result there. (This can be used to deliver events for stock futures-rs)
+
+    Can we do something similar in the server?
+        We will need to resize N
+
+In future-rs, could we have poll() method which skips some layer of abstractions and goes directly to the future we are waiting on?
+
+In future-rs, could we have poll() guarantee to poll() a nested Future if given a reference to it?
+
+In future-rs, could we have poll() return bool and then have another method result() which consumes the future and returns either the value or the error?
+    Probably doesn't make sense
+
+For future-rs, given a fn add_rpc(val: usize, a: usize, b: usize, ) -> EchoFuture and fn recv() -> (usize, usize) where recv() would return (val, a + b) or wait for an add() RPC to return, how can we construct an event loop and implement Future for EchoFuture?
+
+Can we combine yield/await like https://github.com/vadimcn/rfcs/blob/9513ba370d9dcedfa55f0ff468943e7d9a6e4067/text/0000-coroutines.md ?
+    No? - await can return a different type each time, while yield would always return the same one
