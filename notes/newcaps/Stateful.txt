@@ -101,3 +101,568 @@ Stateful hacks: http://erickt.github.io/blog/2016/01/28/stateful/
 
 https://internals.rust-lang.org/t/pre-rfc-coroutines/4281
 https://github.com/rust-lang/rfcs/issues/388
+
+https://github.com/rust-lang/rfcs/pull/53
+
+
+Hm.. I tried writing out coroutine traits, but I can't actually implement them for futures. I want to do for all coroutines implement Future and for all futures implement Awaitable, which isn't possible due to trait coherence rules
+    Can we require rustc to pick the same implementation of all Awaitable used in await in a function?
+        How do we expose this to implementations of Awaitable?
+
+    For Yield. We need to ensure that they never happen. Can we require Yield = ! ?
+
+    Avoiding yields with the wrong values in futures will require separate Yield and Await results?
+
+
+When should we cause a coroutine to be generated?
+    In the case with no yield! or await!, can we use a return! to force a coroutine?
+
+Python optimizations
+    https://www.python.org/dev/peps/pep-0380/#optimisations
+
+Should we separate the `Coroutine` into two traits, one for futures and one for generators?
+    Avoids the need to have the Coroutine trait in libcore!
+    Infer which is needed based on yield! and await!
+
+    Call the await one Task
+
+    https://github.com/dotnet/roslyn/issues/261
+
+    Look at F# https://github.com/dotnet/roslyn/issues/261#issuecomment-95269316
+
+    It would seem both are useful? How does this work
+    http://tomasp.net/blog/async-sequences.aspx/
+
+    Both yield! and await! is a Stream right?
+
+    How does a for loop over Stream elements look?
+
+    for Future<item> in stream.iter() {
+
+    }
+
+    let val = await stream;
+
+    if val == none exit;
+    yield 
+
+
+    WaitFor/await would consume the input? so it doesn't make sense for Stream. Would it make sense for &mut Stream?
+
+    WaitForAll for Streams?
+    Can IntoStream trait like IntoIterator?
+
+    How can you yield all values from a Stream if yoou are implementing a Stream?
+
+
+        ForAwait will need some trait like WaitFor?
+
+        Some await for construct?
+
+        await(v) maps to
+
+            let mut future = IntoFuture::into_future(v);
+            loop {
+            loop {
+                if executor.wait_for(&mut future) == NotReady
+                    await;
+                else
+                    break val;
+            }
+
+
+        http://xion.io/post/code/rust-for-loop.html
+
+            for await x in v {
+                // body
+            }
+        Maps to
+            let mut stream = IntoStream::into_iter(v);
+            loop {
+                let next = loop {
+                    if executor.wait_for(&mut stream) == NotReady
+                        await;
+                    else
+                        break val;
+                }
+
+
+                match iter.next() {
+                    Some(x) => {
+                        // body
+                    },
+                    None => break,
+                }
+            }
+
+        Like how this 
+            for x in v {
+                // body
+            }
+        maps to 
+            let mut iter = IntoIterator::into_iter(v);
+            loop {
+                match iter.next() {
+                    Some(x) => {
+                        // body
+                    },
+                    None => break,
+                }
+            }
+
+IMPORTANT: How can we deal with borrows of locals across suspend points?
+    Stateful deals with those by construction
+    I guess this is why C++ does heap allocations?
+
+    Can we repply/recalculate borrows after a suspension point?
+     I don't see a counterexample to ban this
+
+     One counterexample is unsafe abstractions
+
+     Can we do a state machine transformation in MIR before borrow checking?
+        How would that help? Examples!!
+
+Add errors and use ! in our traits!
+    How does errors interact with Streams and for await loops?
+
+Should Await<Future> take the future by ownership?
+    Or should that only be on the `await` layer. So an await statement take a future by move!
+
+Implement await! and await_for! with macros and only add native suspend statement?
+
+Do type inference -> borrowck -> state machine transform -> borrowck
+    The 2nd borrowck verifies the implementation of the state machine transform
+    We must restrict lifetimes during type inference.
+        Lifetimes passed to the coroutine are always legal.
+
+
+    PLAN: No not change lifetime inference at all, but change borrowck so that it gives errors for lifetimes crossing suspend points
+
+    The state machine transform should run after borrowck to ensure good error messages!
+
+    How can we deal with references extending to the end of a scope?
+        Say
+            let r = &5;
+            await make_future(r)
+            // implicit drop of r
+        Here r is illegal
+
+        Look at this example in Stateful
+
+        Can we have more narrow scopes for types without destructors?
+
+    We cannot allow lifetimes which start in one statepoint and ends in another.
+        Or lifetimes of references (or anything taking a lifetime parameter)
+
+How does ? compose with await await-for and everything above in general?
+    For futures ? is no problem. It would just make them return Err() which is what you normally expect
+
+    For generators, ? is allowed when Result is generated. Does this has the same problem as below. Should an Err terminate the Iterator?
+        Rust has no concept of an Iterator returning errors! We could provide an analougus one. Also we can have a Stream trait which doesn't produce errors like Iterator
+
+    For streams, ? should be able to end a stream with an error. However streams return ()!. So streams should return Option<Error>. None when no error happened, Some()
+
+A prefix ? operator would match better here?
+        let val = ?await future;
+    vs.
+        let val = (await future)?;
+
+Can we use Await for Streams by having a special Future wrapper which can keep references to the coroutine frame?
+    Would require a trait to convert streams to futures anyway?
+
+Can we create some abstraction which lets us keep references to stack frames?
+    By say, storing them relative to the coroutine frame. It should lend out real reference which again can't cross.
+
+Store pointers to locals used in await/for await as a value relative to the coroutine frame, so they don't become invalid
+    The references aren't actually used across state points though. We can assign the object to a local and create a new reference for each loop iteration
+
+Have an error result for the for await loop?
+    for await connection in socket {
+        ...
+    } else error {
+        panic!("Got an error {}", error)
+    }
+
+Can the for loop return the result? So if you aren't interested in the error
+    for await connection in socket {
+        ...
+    }?
+
+So a `for await` returns Result<T, Self::Error>. If T is unconstrained, it defaults to ()
+
+Should `break v` in a `for await` 
+
+How to avoid errors when Self::Error = !?
+    Can this just be a change to the Result warnings?
+
+Coroutines without a yield statement have Yield = !
+
+Should we require a keyword for the coroutine transformation so regular functions without yield/await can become coroutines too.
+    <tomaka> one specific problem I can think about is if I write   `let foo = || { yield 5; 12 }`
+    <tomaka> and then you decide to comment out `yield 5` just to try something
+    <tomaka> and suddenly your closure is no longer a coroutine and compilation breaks
+
+<tomaka> Also coroutines would probably need to implement Clone
+<tomaka> because if you write `start_http_server(handler: C) where C: Coroutine` you need to start a fresh coroutine once for each request received
+
+
+In this example:
+    for await request in server { spawn(handle_request(request)) }
+
+    How does the coroutine access the spawn function? It should be a method on the event loop.
+    Does this justify a `spawn task` statement?
+
+    We could just have a suspend expression (which returns the event loop). How do we then access the event loop before the first suspension point?
+
+Have a coro expression which returns a coroutine struct.
+    let server = coro {
+        yield a;
+    }
+
+    This is just regular closures though!
+
+Can we write computations that are generic over sync/async? They would be generic over the executor?
+    Which will completely undo the state machine transformation?
+
+    fn count_to_10<E>() -> impl Stream<E> {
+        for i in 1...10 {
+            await sleep(1000);
+            yield i;
+        }
+    }
+
+    Pass AsyncEventLoop for E
+
+    Make Async generic is such a way that only Ready() is possible? If that is required to make efficient sync code
+        Make NotReady have generic type. Set it to () for async. ! for sync
+
+        Would this make code generation simpler?
+
+        Can we make Coroutine generic in a similar way, so Awaitting also returns a generic value?
+            Yes!
+            No - limit this madness to Future and Stream only, if possible
+
+    Make a trait Executor with E: Executor in Future and Stream
+
+    fn computa
+
+    spawn correspond to spawning a new thread for sync
+
+    Can we make a more basic trait which only returns 1 value from suspend points?
+        implementations can require a more complete result?
+        Would work for await,
+        yield can't infer such yield type?
+            This is true, not for Iterator, but for Stream.
+
+            Having the yield type be a function of the executor would require higher kinded types
+
+        We can use this to get rid of Awaitting then!
+
+        Just Yield and Return would do here!
+            Check this for streams
+                Just have Stream give another yield type?
+
+See if ATC or HKT can move the Blocked case into Future/Stream 
+    https://internals.rust-lang.org/t/blog-post-series-alternative-type-constructors-and-hkt/4300
+
+    This would allow:
+        <Zoxc> So you could yield different types and they all would give the same type as output
+
+        How would that actually be used though? impl Stream<IntoExecutor<E, Str>>? Tries to convert values into Str when yielding
+
+        Would this prevent type inference?
+
+        Would it require a custom Executor for Stream?
+
+        Can you compose coroutines with different executors?
+
+!!!
+Let Await Be Future and AwaitElement Be Stream. Can we implement an event loop executor?
+    Can we derive futures-rs traits from these? (for its executor)
+
+
+Can trait Future: core::Future<FutureRsExecutor> make sense?
+
+Drop the above, we got things working!
+
+We need a Spawn trait for executors?
+    trait ConcurrentExecutor: Executor {
+        type Task;
+
+        fn spawn(task: Task);
+    }
+
+    Task will be unsized here. Can we defer to upper level event loops to implement Spawn? Yeah
+
+
+Will we need some extensions to Executor to be able to added real futures like RPC?
+    Probably will need an Executor extension per event loop type
+
+How many Executor implementations do we need?
+    One for sync, which is ()
+    Compare to how futures-rs need no executor type parameter, but still allows multiple executors
+    Could we have just one for async, like futures-rs?
+        If so, passing a bool as a type parameter count indicate sync/async
+
+        impl Future<true> // async
+
+        Could also just be an enum with Sync/Async
+
+Can we implement the unsafe Future extension?
+
+Check if we can infer E for hm() if hm() is called in another coroutine and E: ExecutorExtension for both
+
+Can we still have a suspend operation which returns State and use that to implement await/await_for on top?
+    Yes
+    We can't use macros, as await will add new bounds to the executor for the coroutine
+
+    Translate await/for await/yield to suspend in HIR 
+
+Leave calling a coroutine after it has returned as undefined? Like Iterator and Futures do? Still memory safe and allows optimization
+
+For coroutine implement require A1, A2, .., AN E: Executor + Await<A1> + Await<A2> +  ... + Await<AN> so we can actually await on things.
+    Will this compose?
+
+    Would require that the caller's executor should be able wait on the same types?
+        If we infer Coroutine<Ref<..>> then we should be able to prove the Await bounds too?
+
+How can we infer the return type of a Coroutine. It depends on type inference of the resume function!!
+    The type of an argument to Await also depends on type information!!
+
+When are closures expanded to function/struct/impl?
+    We probably need to delay some of this to post-MIR for coroutines
+
+Add suspend points to the list
+    The kinds of expressions which in-scope loans can render illegal are:
+        any suspend points
+    Here https://github.com/rust-lang/rust/tree/master/src/librustc_borrowck/borrowck
+
+    Check that the lifetime of each loan (after borrowck gathers them) doesn't contain any suspend expressions
+        Ignore loans of data with a lifetime greater than the function
+
+        What about a custom pointer type Ptr<'a> returning &'a ptr.
+            It would have to be passed to the function, so 'a must outlive it!
+
+    Add a new RESTRICTION ACTION, TEMPORAL which means that a loan cannot cross a suspend point
+
+    We need to track the source of borrows? Use a dataflow analysis here
+
+        We flag a variable when we assign a borrow to a local variable.
+
+            fn test(a: &T) {
+                let v;
+                let mut f = a;
+
+                suspend; // Is `f` to external data here? Should be yes
+
+                loop {
+                    suspend; // Is `f` to external data here? Must be no
+
+                    if true {
+                        f = &v;
+                    } else {
+                        f = a;
+                    }
+                }
+            }
+
+        Later on we enumerate all suspends points and check if any variables are flagged there. If they are, ensure that the lifetime of the variable doesn't intersect with the suspend point.
+
+        We can enumerate borrows and compute if they can be flagged. If they can be, ensure that no suspend points are in it's lifetime.
+
+        Compare it's effect with how a state transform would change lifetimes?
+
+        Let's transform the above example:
+
+            fn test(a: &T) {
+            S1:
+                let v;
+                let mut f = a;
+                goto S2(v, f);
+            S2(v, f):
+                // Is `f` to external data here? Should be yes
+                goto S3(v, f);
+
+                loop {
+            S3(v, f):
+                // Is `f` to external data here? Must be no
+                goto S4(v, f);
+            S4(v, f):
+                if true {
+                    f = &v;
+                } else {
+                    f = a;
+                }
+                goto S3(v, f);
+            }
+
+        Can we do a mock-transformation in borrowck identify crossing variables? Would this always be the same as the flagging dataflow analysis above?
+
+        This is just liveness analysis and comparing the lifetimes of variables with the suspend points.
+            Would we have to compute this before borrowck anyway to generate the state struct?
+            Can we use this information to find
+
+        An alternative would be to transform before borrowck, but we need to translate error messages from borrowck back
+
+        Simplest solution would be to either identify crossing variables in MIR or to actually translate it 
+
+        When does Rust need the size/layout of the state struct?
+
+        What would happen to mutually recursive functions?
+            fn a() -> impl Coroutine<()> { b() }
+            fn b() -> impl Coroutine<()> { a() }
+        Would they require the result of each other?
+
+        Look at the transform done in https://github.com/erickt/stateful
+            Done at the MIR level, so trivial.
+
+        Can we have borrows which cross suspends points without variables?
+        (&mut local_var)(suspend)?
+
+        We also need to catch variable state crated with alloca! and prevent it from crossing state points
+            Just banning alloca! in generators would suffice. Users can refactor it into regular functions!
+
+        http://manishearth.github.io/rust-internals-docs/rustc/ty/enum.Region.html
+
+        Check how to deal with borrows of captured variables in closures
+
+Check how MIR deals with lifetimes https://blog.rust-lang.org/2016/04/19/MIR.html
+
+
+PROBLEM!!!
+<Zoxc> I think we'll be unable to write the impl of ReturnTest before typechecking
+    Actually we only depend on the type information of the resume function. We can type the wrapper function later!
+    But type checking does depend on that impl
+
+    Probably some nasty interactions with closures inside
+
+    CHECK!!! that Await doesn't result in some similar problem
+
+    THIS INTERACTs with bounds. We need to inherit the bounds from the resume function!
+        Still fine. We only provide the impl after typechecking!
+            Not actually true. The impl provides guidance to type inference
+
+            Do this?
+                1. infer the body of the function. Let the executor and the return type be fresh type variables there.
+                2. replace the body with a struct value
+                3. claim that the struct implement Generator (without any trait bounds on it)
+                4. infer the function again, expecting it to resolve the trait bounds we ignored earlier
+
+                How can this infer ExecutorRef?
+
+                Does this run into the same problem as we did with a syntax expansion? 
+                No
+                Example
+
+                    struct ReturnTest<F> {
+                        next: F,
+                    }
+
+                    impl<E: Executor, F> Coroutine<E> for ReturnTest<F> {
+                        type Return = usize;
+                        fn resume(&mut self, executor: E) -> State<Self::Return, E::Blocked> {
+                            panic!()
+                        }
+                    }
+
+                    fn id<T: for<'e> Fn(Ref<'e, E>) -> R, E, R>(x: ReturnTest<T>) -> ReturnTest<T> { x }
+
+                    fn return_test<E: Executor, A>(a: A) -> impl Future<E> {
+                        ReturnTest {
+                            next: a
+                        }
+                    }
+
+                Explore how this affects closures!!!!!
+                    Look at closures which return impl Future
+
+
+Should Streams either Yield(Value) or Return(Result<Err, Ok>)
+    So a for awit loop would abort when the Result comes in?
+
+Can typechecking depend on MIR being generated for the function? This would be very useful
+
+Executor::Blocked could be given an event the task should block upon, instead of registering it with the event loop.
+Probably less efficient though
+
+Can we have a macro await! if we add syntax to get the argument?
+    We need to add the relevant trait bound to the function. (which in turn adds it to the trait)
+        Would just calling a function give the same bound?
+        Will we need to add other bounds from the function to the trait impl too? This might be the only case?
+        See what closures do?
+
+        It seems like we need to add all bounds from the function onto the trait impl
+
+Can we use intrinsics for suspend and to get the arguments?
+
+Can we let generators wait on other generators directly, say given the same Executor?
+    No, we wouldn't be able to wait on real future objects that aren't generators
+
+Build a more basic abstraction using suspend and get_executor intrinsics and a function trait?
+Can we use intrinsics for suspend and to get the arguments?
+    We can use intrinsics like get_executor<E>() and let it guide the typechecker
+
+    The problem is that return is above this level of abstraction, so we need support for generators in the language anyway
+
+Can we have a `for await var in ..` loop? Does `await var` conflict with patterns?
+
+Explore how composing futures work with regards to the Executor type parameter and further bounds on it which can allow real I/O interactions 
+
+
+Combine Await and AwaitGenerator!
+    We have to combine Future and Stream then!
+
+    type Future = Stream<Yield = !>? // No these are traits!
+
+    Can ||Does a `IntoGenerator` trait, analogus to IntoIterator for `for`-loops make sense?|| help?
+
+        pub trait IntoGenerator<E: Executor> {
+            type Yield;
+            type Return;
+            type IntoGen: Generator<E, Yield=Self::Yield, Return=Self::Return>;
+            fn into_gen(self) -> Self::IntoGen;
+        }
+
+        impl<G: Generator<E>, E: Executor> IntoGenerator<E> for G {
+            type Yield = G::Yield;
+            type Return = G::Return;
+            type IntoGen = G;
+
+            fn into_gen(self) -> Self::IntoGen {
+                self
+            }
+        }
+
+        Trait coherence doesn't allow this!
+
+
+Let generators have the ability to wait on other generators?
+    Wouldn't work with Futures.
+    We can implement generators for futures, but that might be bad and or confusing?
+
+Can we have a global function sleep() which can be used for multiple downstream Future traits?
+    
+    Yes, say:   
+        Hm... we need Await<Sleep> here!! // We don't if we manually implement it!
+        fn sleep<E: SleepExecutor>() -> impl Generator<E, Yield = !, Return = ()> {
+            await executor.sleep(); // No access to executor here. Must manually implement this.
+        }
+
+    Can downstream traits just be
+        trait Future: Generator ....
+
+CHECK: Closures which have references to local state being returned as a generator from the parent function.
+
+a(1, suspend, 2) is an example of where temporary variables live across state points
+
+C++ design
+http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2015/p0158r0.html
+
+A yield in a macro could result in confusing errors. A case for adding a coro keyword?
+
+Consider implementing an inlining optimization specifically to combine generators.
+
+Ensure destructor order is correct when panicking.
+
+Could you access generator arguments using a wrapper object and await on it?
+    Yes - add an example for this!

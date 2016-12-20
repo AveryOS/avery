@@ -312,3 +312,4 @@ For future-rs, given a fn add_rpc(val: usize, a: usize, b: usize, ) -> EchoFutur
 
 Can we combine yield/await like https://github.com/vadimcn/rfcs/blob/9513ba370d9dcedfa55f0ff468943e7d9a6e4067/text/0000-coroutines.md ?
     No? - await can return a different type each time, while yield would always return the same one
+
